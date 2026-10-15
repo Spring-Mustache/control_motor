@@ -1,1 +1,23 @@
+# STM32CubeIDE build directories
 /Debug/
+/Release/
+.metadata/
+
+# Build artifacts
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.list
+*.su
+
+# Python temporary files
+__pycache__/
+*.pyc
+.venv/
+
+# Temporary files
+*.tmp
+*.bak

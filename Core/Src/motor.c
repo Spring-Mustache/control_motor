@@ -118,6 +118,13 @@ static void Motor_Init_Common(
             (direction_inverted != 0U) ? 1U : 0U;
 
     /*
+     * Mặc định giữ nguyên dấu encoder.
+     * main.c có thể đổi riêng cho từng bánh bằng
+     * Motor_SetEncoderDirectionInverted().
+     */
+    motor->encoder_direction_inverted = 0U;
+
+    /*
      * Lấy counter hiện tại làm mốc ban đầu.
      *
      * Không đặt cứng last_count = 0 vì encoder có thể đã phát
@@ -248,10 +255,32 @@ void Motor_Init_LPTIM(
 
 
 /*
+ * Chọn chiều dấu của encoder/RPM độc lập với chiều DIR motor.
+ *
+ * inverted = 0:
+ * - Giữ nguyên dấu encoder.
+ *
+ * inverted != 0:
+ * - Đảo dấu encoder.
+ *
+ * Mục tiêu là cho tất cả bánh cùng quy ước:
+ * - Xe tiến -> RPM dương.
+ * - Xe lùi  -> RPM âm.
+ */
+void Motor_SetEncoderDirectionInverted(
+        Motor_HandleTypeDef *motor,
+        uint8_t inverted)
+{
+    motor->encoder_direction_inverted =
+            (inverted != 0U) ? 1U : 0U;
+}
+
+
+/*
  * Đọc encoder và cập nhật tốc độ motor.
  *
  * Hàm có thể được gọi liên tục trong vòng lặp while(1),
- * nhưng chỉ tính lại RPM khi đã qua ít nhất 50 ms.
+ * nhưng chỉ tính lại RPM khi đã qua ít nhất 20 ms.
  *
  * Các biến được cập nhật:
  * - delta_count
@@ -278,12 +307,12 @@ void Motor_Update_RPM(Motor_HandleTypeDef *motor)
     uint32_t dt = current_time - motor->last_time;
 
     /*
-     * Chỉ cập nhật khi đã qua ít nhất 50 ms.
+     * Chỉ cập nhật khi đã qua ít nhất 20 ms.
      *
-     * Nếu chưa đủ 50 ms, hàm kết thúc và giữ nguyên kết quả RPM
+     * Nếu chưa đủ 20 ms, hàm kết thúc và giữ nguyên kết quả RPM
      * của lần đo trước.
      */
-    if (dt >= 50U) {
+    if (dt >= 20U) {
         /*
          * Giá trị counter encoder ở thời điểm hiện tại.
          */
@@ -320,6 +349,16 @@ void Motor_Update_RPM(Motor_HandleTypeDef *motor)
         } else {
             motor->delta_count =
                     (int32_t)wrapped_delta - 65536;
+        }
+
+        /*
+         * Chuẩn hóa dấu encoder theo quy ước của xe.
+         *
+         * Việc này chỉ đổi dấu số đo encoder/RPM,
+         * hoàn toàn không tác động tới chân DIR hoặc PWM.
+         */
+        if (motor->encoder_direction_inverted != 0U) {
+            motor->delta_count = -motor->delta_count;
         }
 
         /*

@@ -141,6 +141,21 @@ typedef struct {
      */
     uint8_t direction_inverted;
 
+    /*
+     * Cờ chuẩn hóa chiều encoder/RPM, độc lập với direction_inverted.
+     *
+     * encoder_direction_inverted = 0:
+     * - Giữ nguyên dấu delta_count và current_rpm.
+     *
+     * encoder_direction_inverted = 1:
+     * - Đảo dấu delta_count và current_rpm.
+     *
+     * Dùng để quy ước chung:
+     * - Xe chạy tiến -> RPM dương.
+     * - Xe chạy lùi  -> RPM âm.
+     */
+    uint8_t encoder_direction_inverted;
+
 
     /* =========================================================
      * 4. TRẠNG THÁI VẬN HÀNH CỦA MOTOR
@@ -268,6 +283,17 @@ void Motor_Init_LPTIM(Motor_HandleTypeDef *motor,
  * RPM được cập nhật khi đã qua ít nhất 50 ms kể từ lần cập nhật
  * trước. Vì vậy hàm này có thể được gọi liên tục trong vòng lặp.
  */
+/*
+ * Chọn có đảo dấu encoder/RPM hay không.
+ *
+ * inverted = 0: giữ nguyên chiều đếm encoder.
+ * inverted != 0: đảo dấu delta_count và current_rpm.
+ *
+ * Hàm này KHÔNG thay đổi chân DIR hay chiều điều khiển motor.
+ */
+void Motor_SetEncoderDirectionInverted(Motor_HandleTypeDef *motor,
+                                       uint8_t inverted);
+
 void Motor_Update_RPM(Motor_HandleTypeDef *motor);
 
 /*

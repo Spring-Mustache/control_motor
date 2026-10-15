@@ -24,7 +24,10 @@
 /* USER CODE BEGIN Includes */
 #include "ps2.h"
 #include "motor.h"
+#include "wheel_control.h"
 #include "vc02.h"
+#include "as5600.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -109,6 +112,65 @@ typedef enum
 
 } ControlMode_t;
 
+
+/*
+ * ============================================================
+ * WHEEL DATA LOGGER
+ *
+ * Logger RAM dùng để ghi dữ liệu khi xe chạy mà không cần giữ
+ * debugger mở liên tục.
+ *
+ * Ở M6:
+ * - target_rpm ghi target thực sau ramp.
+ * - lu/ld/ru/rd_pwm ghi output độc lập của từng PID khi PID được bật.
+ * - khi PID tắt, logger vẫn ghi đúng PWM open-loop hiện tại.
+ * ============================================================
+ */
+typedef struct
+{
+  uint32_t time_ms;
+
+  /* PS2 / command path. */
+  uint8_t ps2_ly;
+  uint8_t control_mode;
+  uint8_t integral_hold;
+  uint8_t sync_active;
+  uint8_t hunt_lu;
+  uint8_t hunt_ld;
+  uint8_t hunt_ru;
+  uint8_t hunt_rd;
+  uint8_t capture_ru_active;
+  uint8_t plateau_adapt_i_mask; /* previously 1 byte of struct padding */
+
+  int16_t target_pwm;
+  uint8_t command_profile;
+  uint8_t soft_landing_active;
+
+  /* Target chain: raw -> manual hysteresis/accepted -> slew -> PID. */
+  float raw_target_rpm;
+  float command_target_rpm;
+  float pid_target_rpm;
+
+  float lu_rpm;
+  float ld_rpm;
+  float ru_rpm;
+  float rd_rpm;
+
+  float sync_spread_rpm;
+  float ff_accel_pwm;
+  float capture_ru_pwm;
+
+  int16_t lu_pwm;
+  int16_t ld_pwm;
+  int16_t ru_pwm;
+  int16_t rd_pwm;
+  uint16_t zero_soft_landing_active;
+  uint16_t zero_ff_taper_x1000;
+
+} WheelLogSample_t;
+
+
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -126,15 +188,23 @@ typedef enum
 #define VOICE_PWM_FAST                    750
 #define VOICE_PWM_FULL                    999
 
+
 #define PS2_LY_FORWARD_LIMIT              125
 #define PS2_LY_REVERSE_LIMIT              130
 
 /*
- * Bốn motor bánh xe dùng cùng loại motor, hộp số và encoder.
- * Giá trị 3124 là tổng số count encoder trên một vòng trục ra,
- * giữ thống nhất với chương trình đã dùng để test hai motor trước đó.
+ * Encoder bánh xe.
+ *
+ * LU mới dùng encoder 16 P/R. TIM8 chạy Encoder TI12 nên quadrature
+ * đếm cả 4 cạnh; với cùng motor/hộp số như ba bánh đã hiệu chuẩn,
+ * tổng count trên một vòng trục ra vẫn dùng 3257 count/rev.
+ *
+ * Tách LU thành hằng riêng để sau này có thể hiệu chỉnh độc lập nếu
+ * phép đo cơ khí thực tế cho thấy CPR khác ba bánh còn lại.
  */
-#define WHEEL_ENCODER_COUNTS_PER_REV      3124.0f
+#define WHEEL_ENCODER_PULSES_PER_MOTOR_REV_LU   16.0f
+#define WHEEL_ENCODER_COUNTS_PER_REV_LU       3257.0f
+#define WHEEL_ENCODER_COUNTS_PER_REV_OTHER    3257.0f
 
 /*
  * Đổi riêng từ 0U thành 1U nếu sau khi kiểm tra thực tế một motor
@@ -144,6 +214,45 @@ typedef enum
 #define MOTOR_RIGHT_UP_DIR_INVERTED         0U
 #define MOTOR_LEFT_DOWN_DIR_INVERTED        1U
 #define MOTOR_RIGHT_DOWN_DIR_INVERTED       0U
+
+/*
+ * Chuẩn hóa dấu encoder theo chiều chuyển động của xe:
+ * - Xe chạy TIẾN  -> RPM / total dương.
+ * - Xe chạy LÙI   -> RPM / total âm.
+ *
+ * Kết quả test thực tế:
+ * - LD đếm tăng khi xe tiến  -> không đảo.
+ * - RU đếm giảm khi xe tiến  -> đảo dấu.
+ * - RD đếm giảm khi xe tiến  -> đảo dấu.
+ *
+ * LU hiện giữ mặc định không đảo; đổi thành 1U sau này nếu encoder LU
+ * thực tế đếm giảm khi xe chạy tiến.
+ */
+#define ENCODER_LEFT_UP_DIR_INVERTED         0U
+#define ENCODER_RIGHT_UP_DIR_INVERTED        1U
+#define ENCODER_LEFT_DOWN_DIR_INVERTED       0U
+#define ENCODER_RIGHT_DOWN_DIR_INVERTED      1U
+
+
+
+
+/*
+ * ============================================================
+ * WHEEL DATA LOGGER CONFIG
+ *
+ * Chu kỳ log: 20 ms = 50 mẫu/giây.
+ * 6000 mẫu tương đương khoảng 120 giây.
+ *
+ * Mỗi sample 4 bánh hiện chiếm khoảng 60 byte -> buffer khoảng 360 kB,
+ * vẫn nằm trong RAM 512 kB của linker script project.
+ * ============================================================
+ */
+#define WHEEL_LOG_PERIOD_MS                  20U
+#define WHEEL_LOG_MAX_SAMPLES                6000U
+#define WHEEL_LOG_CSV_SCALE                   1000.0f
+#define WHEEL_LOG_CSV_LINE_MAX                320U
+#define WHEEL_LOG_BUTTON_DEBOUNCE_MS           250U
+
 
 /* USER CODE END PD */
 
@@ -207,9 +316,295 @@ Motor_HandleTypeDef Motor_RightUp;
 Motor_HandleTypeDef Motor_LeftDown;
 Motor_HandleTypeDef Motor_RightDown;
 
-volatile uint8_t debug_rd_dir_odr = 0U;
-volatile uint8_t debug_rd_dir_pin = 0U;
-volatile uint32_t debug_rd_pwm = 0U;
+/* ============================================================
+ * ENCODER RAW COUNTER DEBUG
+ *
+ * Xem 4 biến này trong Live Expressions để kiểm tra encoder.
+ * Đây là bản debug thêm trên nền M4' hiện tại có ramp +
+ * PS2 cancel-to-stop.
+ * ============================================================
+ */
+volatile uint32_t debug_enc_lu_cnt = 0U;   /* Left Up    -> TIM8 */
+volatile uint32_t debug_enc_ru_cnt = 0U;   /* Right Up   -> TIM1 */
+volatile uint32_t debug_enc_ld_cnt = 0U;   /* Left Down  -> TIM2 */
+volatile uint32_t debug_enc_rd_cnt = 0U;   /* Right Down -> TIM3 */
+
+/*
+ * Bộ đếm mở rộng 32-bit có dấu.
+ * *_cnt là RAW timer và vẫn wrap ở 65535.
+ * *_total cộng dồn delta nên có thể vượt 65535 và giữ được chiều +/-.
+ */
+volatile int32_t debug_enc_lu_total = 0;
+volatile int32_t debug_enc_ru_total = 0;
+volatile int32_t debug_enc_ld_total = 0;
+volatile int32_t debug_enc_rd_total = 0;
+
+static uint16_t debug_enc_lu_prev = 0U;
+static uint16_t debug_enc_ru_prev = 0U;
+static uint16_t debug_enc_ld_prev = 0U;
+static uint16_t debug_enc_rd_prev = 0U;
+
+
+/* ============================================================
+ * STEERING ENCODER DEBUG
+ *
+ * LEFT steering:
+ *   PD12 = TIM4_CH1
+ *   PD13 = TIM4_CH2
+ *
+ * RIGHT steering:
+ *   PG12 = LPTIM1_IN1
+ *   PE1  = LPTIM1_IN2
+ *
+ * cnt: bộ đếm quadrature của peripheral
+ * a/b: mức logic thô tại hai chân encoder, dùng để đối chiếu khi cần
+ * ============================================================
+ */
+volatile uint32_t debug_turn_left_cnt = 0U;
+volatile uint32_t debug_turn_right_cnt = 0U;
+
+volatile uint8_t debug_turn_left_a = 0U;
+volatile uint8_t debug_turn_left_b = 0U;
+volatile uint8_t debug_turn_right_a = 0U;
+volatile uint8_t debug_turn_right_b = 0U;
+
+/* Trạng thái start encoder: 1 = HAL_OK, 0 = start lỗi/chưa chạy. */
+volatile uint8_t debug_turn_left_start_ok = 0U;
+volatile uint8_t debug_turn_right_start_ok = 0U;
+
+
+/* ============================================================
+ * AS5600 STEERING ANGLE DEBUG / MANUAL CALIBRATION
+ *
+ * Wiring hiện tại:
+ *   RIGHT AS5600 -> I2C1 PB8/PB9
+ *   LEFT  AS5600 -> I2C2 PB10/PB11
+ *
+ * Chỉ đọc cảm biến; KHÔNG điều khiển motor đánh lái.
+ * RAW angle là 12-bit 0..4095.
+ *
+ * debug_as5600_cal_command dùng trong Live Expressions:
+ *   0 = idle
+ *   1 = capture LEFT  physical MIN
+ *   2 = capture LEFT  CENTER
+ *   3 = capture LEFT  physical MAX
+ *   4 = capture RIGHT physical MIN
+ *   5 = capture RIGHT CENTER
+ *   6 = capture RIGHT physical MAX
+ *   7 = reset toàn bộ giá trị capture
+ *
+ * MIN/MAX ở đây là hai đầu cơ khí, KHÔNG có nghĩa raw_min < raw_max.
+ * Delta quanh CENTER được tính theo vòng 4096 count để xử lý trường hợp
+ * góc đi qua biên 4095 -> 0.
+ * ============================================================
+ */
+#define AS5600_STARTUP_SETTLE_MS 20U
+#define AS5600_DEBUG_NOT_ATTEMPTED 0xFFU
+
+AS5600_HandleTypeDef As5600_Left;
+AS5600_HandleTypeDef As5600_Right;
+
+/*
+ * Tạm tắt polling AS5600 trong vòng lặp chính để không làm chậm wheel PID.
+ * 0 = không đọc I2C AS5600; 1 = bật lại telemetry/calibration khi xe đang dừng.
+ */
+volatile uint8_t debug_as5600_poll_enable = 0U;
+
+/* Each AS5600 bus is probed only when both bus lines were released HIGH at startup. */
+static uint8_t as5600_left_probe_enabled = 0U;
+static uint8_t as5600_right_probe_enabled = 0U;
+
+volatile uint16_t debug_as5600_left_raw = 0U;
+volatile uint16_t debug_as5600_right_raw = 0U;
+volatile float debug_as5600_left_deg = 0.0f;
+volatile float debug_as5600_right_deg = 0.0f;
+
+volatile uint8_t debug_as5600_left_status = 0U;
+volatile uint8_t debug_as5600_right_status = 0U;
+volatile uint8_t debug_as5600_left_comm_ok = 0U;
+volatile uint8_t debug_as5600_right_comm_ok = 0U;
+volatile uint8_t debug_as5600_left_magnet_detected = 0U;
+volatile uint8_t debug_as5600_right_magnet_detected = 0U;
+volatile uint8_t debug_as5600_left_magnet_too_weak = 0U;
+volatile uint8_t debug_as5600_right_magnet_too_weak = 0U;
+volatile uint8_t debug_as5600_left_magnet_too_strong = 0U;
+volatile uint8_t debug_as5600_right_magnet_too_strong = 0U;
+volatile uint32_t debug_as5600_left_read_ok_count = 0U;
+volatile uint32_t debug_as5600_right_read_ok_count = 0U;
+volatile uint32_t debug_as5600_left_read_fail_count = 0U;
+volatile uint32_t debug_as5600_right_read_fail_count = 0U;
+
+/*
+ * I2C ACK / HAL diagnostics for AS5600.
+ * HAL_StatusTypeDef values: HAL_OK=0, HAL_ERROR=1, HAL_BUSY=2, HAL_TIMEOUT=3.
+ * HAL_I2C_GetError() is a bitmask; common NACK/address failure is HAL_I2C_ERROR_AF.
+ */
+volatile uint8_t debug_as5600_left_device_ready = 0U;
+volatile uint8_t debug_as5600_right_device_ready = 0U;
+volatile uint8_t debug_as5600_left_ready_status = (uint8_t)HAL_ERROR;
+volatile uint8_t debug_as5600_right_ready_status = (uint8_t)HAL_ERROR;
+volatile uint32_t debug_as5600_left_ready_error = HAL_I2C_ERROR_NONE;
+volatile uint32_t debug_as5600_right_ready_error = HAL_I2C_ERROR_NONE;
+volatile uint8_t debug_as5600_left_read_status = (uint8_t)HAL_ERROR;
+volatile uint8_t debug_as5600_right_read_status = (uint8_t)HAL_ERROR;
+volatile uint32_t debug_as5600_left_read_error = HAL_I2C_ERROR_NONE;
+volatile uint32_t debug_as5600_right_read_error = HAL_I2C_ERROR_NONE;
+volatile uint32_t debug_as5600_left_i2c_state = 0U;
+volatile uint32_t debug_as5600_right_i2c_state = 0U;
+
+/* I2C startup bus-recovery diagnostics for both steering AS5600 buses. */
+volatile uint8_t debug_as5600_left_recovery_attempted = 0U;
+volatile uint8_t debug_as5600_left_recovery_pulses = 0U;
+volatile uint8_t debug_as5600_left_recovery_scl_high = 0U;
+volatile uint8_t debug_as5600_left_recovery_sda_high = 0U;
+volatile uint8_t debug_as5600_left_recovery_bus_ok = 0U;
+volatile uint8_t debug_as5600_left_probe_blocked = 1U;
+volatile uint32_t debug_as5600_left_startup_settle_ms = AS5600_STARTUP_SETTLE_MS;
+
+volatile uint8_t debug_as5600_right_recovery_attempted = 0U;
+volatile uint8_t debug_as5600_right_recovery_pulses = 0U;
+volatile uint8_t debug_as5600_right_recovery_scl_high = 0U;
+volatile uint8_t debug_as5600_right_recovery_sda_high = 0U;
+volatile uint8_t debug_as5600_right_recovery_bus_ok = 0U;
+volatile uint8_t debug_as5600_right_probe_blocked = 1U;
+volatile uint32_t debug_as5600_right_startup_settle_ms = AS5600_STARTUP_SETTLE_MS;
+
+volatile uint8_t debug_as5600_cal_command = 0U;
+volatile uint8_t debug_as5600_cal_last_result = 0U; /* 1=OK, 2=LEFT invalid, 3=RIGHT invalid */
+
+volatile uint16_t debug_as5600_left_min_raw = 0U;
+volatile uint16_t debug_as5600_left_center_raw = 0U;
+volatile uint16_t debug_as5600_left_max_raw = 0U;
+volatile uint16_t debug_as5600_right_min_raw = 0U;
+volatile uint16_t debug_as5600_right_center_raw = 0U;
+volatile uint16_t debug_as5600_right_max_raw = 0U;
+
+volatile uint8_t debug_as5600_left_min_valid = 0U;
+volatile uint8_t debug_as5600_left_center_valid = 0U;
+volatile uint8_t debug_as5600_left_max_valid = 0U;
+volatile uint8_t debug_as5600_right_min_valid = 0U;
+volatile uint8_t debug_as5600_right_center_valid = 0U;
+volatile uint8_t debug_as5600_right_max_valid = 0U;
+
+volatile int16_t debug_as5600_left_min_from_center_counts = 0;
+volatile int16_t debug_as5600_left_max_from_center_counts = 0;
+volatile int16_t debug_as5600_right_min_from_center_counts = 0;
+volatile int16_t debug_as5600_right_max_from_center_counts = 0;
+volatile uint16_t debug_as5600_left_span_counts = 0U;
+volatile uint16_t debug_as5600_right_span_counts = 0U;
+
+volatile float debug_as5600_left_min_from_center_deg = 0.0f;
+volatile float debug_as5600_left_max_from_center_deg = 0.0f;
+volatile float debug_as5600_right_min_from_center_deg = 0.0f;
+volatile float debug_as5600_right_max_from_center_deg = 0.0f;
+volatile float debug_as5600_left_span_deg = 0.0f;
+volatile float debug_as5600_right_span_deg = 0.0f;
+
+
+/* ============================================================
+ * WHEEL DATA LOGGER - AUTONOMOUS RAM BUFFER
+ *
+ * USER button workflow (không cần debugger trong lúc xe chạy):
+ *   - Press 1: start log + force wheel PID ON.
+ *   - Press 2: stop log, giữ nguyên dữ liệu trong RAM.
+ *   - Sau khi xe dừng và cắm ST-LINK USB vào PC:
+ *       press USER lần nữa -> dump CSV qua USART3/VCP.
+ *
+ * Khi wheel_log_done = 1, button KHÔNG bao giờ tự ghi đè buffer cũ;
+ * nó chỉ yêu cầu dump lại. Muốn bắt đầu test mới, reset MCU sau khi
+ * đã lưu CSV hoặc chủ động đặt wheel_log_start = 1 trong debugger.
+ *
+ * Buffer 6000 mẫu x 20 ms ~= 120 s.
+ * ============================================================
+ */
+
+/*
+ * Buffer để volatile để compiler không loại bỏ dữ liệu chỉ vì
+ * chương trình chính không đọc lại buffer này.
+ */
+volatile WheelLogSample_t wheel_log[WHEEL_LOG_MAX_SAMPLES];
+
+/* Request từ debugger. Logger tự reset request sau khi nhận. */
+volatile uint8_t wheel_log_start = 0U;
+volatile uint8_t wheel_log_stop = 0U;
+
+/* Trạng thái logger. */
+volatile uint8_t wheel_log_active = 0U;
+volatile uint8_t wheel_log_done = 0U;
+
+/* Số mẫu đã ghi hợp lệ trong wheel_log[]. */
+volatile uint32_t wheel_log_count = 0U;
+
+
+/* Debug thời gian logger. */
+volatile uint32_t wheel_log_start_tick = 0U;
+volatile uint32_t wheel_log_last_tick = 0U;
+
+/* CSV dump through USART3 / ST-LINK Virtual COM Port.
+ * Trigger only after vehicle is stopped and logger has finished.
+ */
+volatile uint8_t wheel_log_dump_request = 0U;
+volatile uint8_t wheel_log_dump_active = 0U;
+volatile uint8_t wheel_log_dump_done = 0U;
+volatile uint8_t wheel_log_dump_status = 0U;
+volatile uint32_t wheel_log_dump_lines = 0U;
+
+/* USER button only posts an event from EXTI; all work is done in main loop. */
+volatile uint8_t wheel_log_button_press_request = 0U;
+volatile uint32_t wheel_log_button_press_count = 0U;
+volatile uint32_t wheel_log_button_last_tick = 0U;
+
+/* 1 = start logger bằng USER button sẽ bật closed-loop PID. */
+volatile uint8_t wheel_log_force_pid_on_start = 1U;
+
+/* Gain/feedforward snapshot taken exactly when a new log starts. */
+volatile float wheel_log_kp_lu_snapshot = 0.0f;
+volatile float wheel_log_ki_lu_snapshot = 0.0f;
+volatile float wheel_log_kd_lu_snapshot = 0.0f;
+volatile float wheel_log_kp_ld_snapshot = 0.0f;
+volatile float wheel_log_ki_ld_snapshot = 0.0f;
+volatile float wheel_log_kd_ld_snapshot = 0.0f;
+volatile float wheel_log_kp_ru_snapshot = 0.0f;
+volatile float wheel_log_ki_ru_snapshot = 0.0f;
+volatile float wheel_log_kd_ru_snapshot = 0.0f;
+volatile float wheel_log_kp_rd_snapshot = 0.0f;
+volatile float wheel_log_ki_rd_snapshot = 0.0f;
+volatile float wheel_log_kd_rd_snapshot = 0.0f;
+volatile float wheel_log_ff_snapshot = 0.0f;
+/* Per-wheel static FF snapshot for cruise/steady-state trim analysis. */
+volatile float wheel_log_ff_k_lu_snapshot = 0.0f;
+volatile float wheel_log_ff_k_ld_snapshot = 0.0f;
+volatile float wheel_log_ff_k_ru_snapshot = 0.0f;
+volatile float wheel_log_ff_k_rd_snapshot = 0.0f;
+volatile float wheel_log_ff_offset_lu_snapshot = 0.0f;
+volatile float wheel_log_ff_offset_ld_snapshot = 0.0f;
+volatile float wheel_log_ff_offset_ru_snapshot = 0.0f;
+volatile float wheel_log_ff_offset_rd_snapshot = 0.0f;
+volatile float wheel_log_ff_offset_rd_reverse_snapshot = 0.0f;
+
+volatile float wheel_log_ka_snapshot = 0.0f;
+volatile float wheel_log_sync_k_snapshot = 0.0f;
+volatile float wheel_log_sync_max_snapshot = 0.0f;
+volatile float wheel_log_sync_enter_snapshot = 0.0f;
+volatile float wheel_log_sync_exit_snapshot = 0.0f;
+volatile float wheel_log_slew_accel_snapshot = 0.0f;
+volatile float wheel_log_slew_decel_snapshot = 0.0f;
+volatile float wheel_log_slew_zero_snapshot = 0.0f;
+volatile uint8_t wheel_log_profile_snapshot = 0U;
+
+volatile float wheel_log_manual_accel_snapshot = 0.0f;
+volatile float wheel_log_manual_decel_snapshot = 0.0f;
+volatile float wheel_log_manual_zero_snapshot = 0.0f;
+volatile float wheel_log_manual_soft_window_snapshot = 0.0f;
+volatile float wheel_log_manual_soft_min_rate_snapshot = 0.0f;
+volatile float wheel_log_manual_zero_soft_window_snapshot = 0.0f;
+volatile float wheel_log_manual_zero_soft_min_rate_snapshot = 0.0f;
+volatile float wheel_log_manual_hysteresis_snapshot = 0.0f;
+volatile float wheel_log_fixed_accel_snapshot = 0.0f;
+volatile float wheel_log_fixed_decel_snapshot = 0.0f;
+volatile float wheel_log_fixed_zero_snapshot = 0.0f;
+
+
 /* ============================================================
  * VC-02 - M1 DEBUG
  *
@@ -237,7 +632,7 @@ volatile uint32_t vc02_dropped_events = 0U;
  * - Zero degrees xóa riêng phần steering pending về thẳng 0 độ.
  * - Lệnh mâu thuẫn không tự ghi đè; cần Clear command
  *   (riêng Zero degrees được phép xóa phần steering).
- * - M2 CHƯA cho voice điều khiển motor.
+ * - M4' hiện cho Voice chạy tiến/lùi open-loop qua tầng ramp.
  * ============================================================
  */
 static VoicePendingCommand_t voice_pending_command;
@@ -269,6 +664,18 @@ volatile ControlMode_t control_mode = CONTROL_MODE_IDLE;
 
 /* =1 khi PS2 hiện có thao tác thủ công được công nhận. */
 volatile uint8_t ps2_manual_active = 0U;
+
+/*
+ * =1 sau khi một thao tác PS2 đã được dùng để HỦY Voice.
+ *
+ * Trong trạng thái này thao tác PS2 đầu tiên KHÔNG được điều khiển motor.
+ * Xe chỉ được yêu cầu giảm tốc về 0. Người dùng phải nhả tay/nút về
+ * neutral trước khi PS2 được phép điều khiển ở thao tác kế tiếp.
+ */
+volatile uint8_t ps2_cancel_hold = 0U;
+
+/* Debug: số lần thao tác PS2 đã hủy Voice và yêu cầu dừng xe. */
+volatile uint32_t ps2_cancel_stop_count = 0U;
 
 /* STOP được giữ cho tới khi tay PS2 trở về neutral. */
 volatile uint8_t control_stop_latched = 0U;
@@ -329,6 +736,453 @@ static void MX_I2C2_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/*
+ * Recover RIGHT AS5600 I2C1 once at startup.
+ * PB8/PB9 are driven only as open-drain: GPIO_PIN_SET releases the line
+ * to the external pull-up; GPIO_PIN_RESET actively pulls it low.
+ * This mirrors the proven LEFT/I2C2 recovery so the same known-good AS5600
+ * can be moved to the RIGHT steering mechanism for manual calibration.
+ */
+static void AS5600_I2C1_BusRecover(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  const uint16_t scl_pin = AS5600_R_SCL_Pin;
+  const uint16_t sda_pin = AS5600_R_SDA_Pin;
+  const uint16_t bus_pins = (uint16_t)(AS5600_R_SCL_Pin | AS5600_R_SDA_Pin);
+  uint8_t pulses = 0U;
+
+  debug_as5600_right_recovery_attempted = 1U;
+
+  (void)HAL_I2C_DeInit(&hi2c1);
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  HAL_GPIO_WritePin(AS5600_R_SCL_GPIO_Port, bus_pins, GPIO_PIN_SET);
+
+  GPIO_InitStruct.Pin = bus_pins;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(AS5600_R_SCL_GPIO_Port, &GPIO_InitStruct);
+
+  HAL_GPIO_WritePin(AS5600_R_SCL_GPIO_Port, bus_pins, GPIO_PIN_SET);
+  HAL_Delay(1U);
+
+  while ((HAL_GPIO_ReadPin(AS5600_R_SDA_GPIO_Port, sda_pin) == GPIO_PIN_RESET) &&
+         (pulses < 9U))
+  {
+    HAL_GPIO_WritePin(AS5600_R_SCL_GPIO_Port, scl_pin, GPIO_PIN_RESET);
+    HAL_Delay(1U);
+    HAL_GPIO_WritePin(AS5600_R_SCL_GPIO_Port, scl_pin, GPIO_PIN_SET);
+    HAL_Delay(1U);
+    pulses++;
+  }
+
+  HAL_GPIO_WritePin(AS5600_R_SDA_GPIO_Port, sda_pin, GPIO_PIN_RESET);
+  HAL_Delay(1U);
+  HAL_GPIO_WritePin(AS5600_R_SCL_GPIO_Port, scl_pin, GPIO_PIN_SET);
+  HAL_Delay(1U);
+  HAL_GPIO_WritePin(AS5600_R_SDA_GPIO_Port, sda_pin, GPIO_PIN_SET);
+  HAL_Delay(1U);
+
+  debug_as5600_right_recovery_pulses = pulses;
+  debug_as5600_right_recovery_scl_high =
+      (HAL_GPIO_ReadPin(AS5600_R_SCL_GPIO_Port, scl_pin) == GPIO_PIN_SET) ? 1U : 0U;
+  debug_as5600_right_recovery_sda_high =
+      (HAL_GPIO_ReadPin(AS5600_R_SDA_GPIO_Port, sda_pin) == GPIO_PIN_SET) ? 1U : 0U;
+
+  debug_as5600_right_recovery_bus_ok =
+      ((debug_as5600_right_recovery_scl_high != 0U) &&
+       (debug_as5600_right_recovery_sda_high != 0U)) ? 1U : 0U;
+
+  as5600_right_probe_enabled = debug_as5600_right_recovery_bus_ok;
+  debug_as5600_right_probe_blocked =
+      (as5600_right_probe_enabled != 0U) ? 0U : 1U;
+
+  HAL_GPIO_DeInit(AS5600_R_SCL_GPIO_Port, bus_pins);
+
+  /* Recreate I2C1 using the 100-kHz timing configured in MX_I2C1_Init(). */
+  MX_I2C1_Init();
+}
+
+/*
+ * Recover LEFT AS5600 I2C2 once at startup.
+ * PB10/PB11 are driven only as open-drain: GPIO_PIN_SET releases the line
+ * to the external pull-up; GPIO_PIN_RESET actively pulls it low.
+ * This clears a slave left mid-byte and also resets the I2C2 peripheral state.
+ */
+static void AS5600_I2C2_BusRecover(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  const uint16_t scl_pin = AS5600_L_SCL_Pin;
+  const uint16_t sda_pin = AS5600_L_SDA_Pin;
+  const uint16_t bus_pins = (uint16_t)(AS5600_L_SCL_Pin | AS5600_L_SDA_Pin);
+  uint8_t pulses = 0U;
+
+  debug_as5600_left_recovery_attempted = 1U;
+
+  /* Fully reset I2C2 before taking temporary GPIO ownership of the bus. */
+  (void)HAL_I2C_DeInit(&hi2c2);
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /* Preload ODR high so open-drain pins are released immediately. */
+  HAL_GPIO_WritePin(AS5600_L_SCL_GPIO_Port, bus_pins, GPIO_PIN_SET);
+
+  GPIO_InitStruct.Pin = bus_pins;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(AS5600_L_SCL_GPIO_Port, &GPIO_InitStruct);
+
+  HAL_GPIO_WritePin(AS5600_L_SCL_GPIO_Port, bus_pins, GPIO_PIN_SET);
+  HAL_Delay(1U);
+
+  /* If SDA is held low, provide up to 9 SCL clocks so a slave can finish a byte. */
+  while ((HAL_GPIO_ReadPin(AS5600_L_SDA_GPIO_Port, sda_pin) == GPIO_PIN_RESET) &&
+         (pulses < 9U))
+  {
+    HAL_GPIO_WritePin(AS5600_L_SCL_GPIO_Port, scl_pin, GPIO_PIN_RESET);
+    HAL_Delay(1U);
+    HAL_GPIO_WritePin(AS5600_L_SCL_GPIO_Port, scl_pin, GPIO_PIN_SET);
+    HAL_Delay(1U);
+    pulses++;
+  }
+
+  /* Generate a STOP condition: SDA low -> SCL released high -> SDA released high. */
+  HAL_GPIO_WritePin(AS5600_L_SDA_GPIO_Port, sda_pin, GPIO_PIN_RESET);
+  HAL_Delay(1U);
+  HAL_GPIO_WritePin(AS5600_L_SCL_GPIO_Port, scl_pin, GPIO_PIN_SET);
+  HAL_Delay(1U);
+  HAL_GPIO_WritePin(AS5600_L_SDA_GPIO_Port, sda_pin, GPIO_PIN_SET);
+  HAL_Delay(1U);
+
+  debug_as5600_left_recovery_pulses = pulses;
+  debug_as5600_left_recovery_scl_high =
+      (HAL_GPIO_ReadPin(AS5600_L_SCL_GPIO_Port, scl_pin) == GPIO_PIN_SET) ? 1U : 0U;
+  debug_as5600_left_recovery_sda_high =
+      (HAL_GPIO_ReadPin(AS5600_L_SDA_GPIO_Port, sda_pin) == GPIO_PIN_SET) ? 1U : 0U;
+
+  debug_as5600_left_recovery_bus_ok =
+      ((debug_as5600_left_recovery_scl_high != 0U) &&
+       (debug_as5600_left_recovery_sda_high != 0U)) ? 1U : 0U;
+
+  /*
+   * If either line is still LOW here, do not continuously hammer I2C2 later.
+   * The blocked flag deliberately survives until reset so Live Expressions
+   * captures the actual startup condition instead of thousands of follow-on errors.
+   */
+  as5600_left_probe_enabled = debug_as5600_left_recovery_bus_ok;
+  debug_as5600_left_probe_blocked =
+      (as5600_left_probe_enabled != 0U) ? 0U : 1U;
+
+  HAL_GPIO_DeInit(AS5600_L_SCL_GPIO_Port, bus_pins);
+
+  /* Recreate I2C2 using the 100-kHz timing configured in MX_I2C2_Init(). */
+  MX_I2C2_Init();
+}
+
+static uint8_t AS5600_DebugReadingValid(uint8_t comm_ok, uint8_t status)
+{
+  return ((comm_ok != 0U) && ((status & AS5600_STATUS_MD) != 0U) &&
+          ((status & (AS5600_STATUS_ML | AS5600_STATUS_MH)) == 0U)) ? 1U : 0U;
+}
+
+
+static void AS5600_DebugRecomputeCalibration(void)
+{
+  if ((debug_as5600_left_center_valid != 0U) &&
+      (debug_as5600_left_min_valid != 0U))
+  {
+    debug_as5600_left_min_from_center_counts =
+        AS5600_ShortestDeltaCounts(debug_as5600_left_center_raw,
+                                   debug_as5600_left_min_raw);
+    debug_as5600_left_min_from_center_deg =
+        AS5600_DeltaCountsToDegrees(debug_as5600_left_min_from_center_counts);
+  }
+
+  if ((debug_as5600_left_center_valid != 0U) &&
+      (debug_as5600_left_max_valid != 0U))
+  {
+    debug_as5600_left_max_from_center_counts =
+        AS5600_ShortestDeltaCounts(debug_as5600_left_center_raw,
+                                   debug_as5600_left_max_raw);
+    debug_as5600_left_max_from_center_deg =
+        AS5600_DeltaCountsToDegrees(debug_as5600_left_max_from_center_counts);
+  }
+
+  if ((debug_as5600_left_min_valid != 0U) &&
+      (debug_as5600_left_max_valid != 0U))
+  {
+    int16_t span = AS5600_ShortestDeltaCounts(debug_as5600_left_min_raw,
+                                              debug_as5600_left_max_raw);
+    if (span < 0)
+    {
+      span = (int16_t)(-span);
+    }
+    debug_as5600_left_span_counts = (uint16_t)span;
+    debug_as5600_left_span_deg = AS5600_DeltaCountsToDegrees(span);
+  }
+
+  if ((debug_as5600_right_center_valid != 0U) &&
+      (debug_as5600_right_min_valid != 0U))
+  {
+    debug_as5600_right_min_from_center_counts =
+        AS5600_ShortestDeltaCounts(debug_as5600_right_center_raw,
+                                   debug_as5600_right_min_raw);
+    debug_as5600_right_min_from_center_deg =
+        AS5600_DeltaCountsToDegrees(debug_as5600_right_min_from_center_counts);
+  }
+
+  if ((debug_as5600_right_center_valid != 0U) &&
+      (debug_as5600_right_max_valid != 0U))
+  {
+    debug_as5600_right_max_from_center_counts =
+        AS5600_ShortestDeltaCounts(debug_as5600_right_center_raw,
+                                   debug_as5600_right_max_raw);
+    debug_as5600_right_max_from_center_deg =
+        AS5600_DeltaCountsToDegrees(debug_as5600_right_max_from_center_counts);
+  }
+
+  if ((debug_as5600_right_min_valid != 0U) &&
+      (debug_as5600_right_max_valid != 0U))
+  {
+    int16_t span = AS5600_ShortestDeltaCounts(debug_as5600_right_min_raw,
+                                              debug_as5600_right_max_raw);
+    if (span < 0)
+    {
+      span = (int16_t)(-span);
+    }
+    debug_as5600_right_span_counts = (uint16_t)span;
+    debug_as5600_right_span_deg = AS5600_DeltaCountsToDegrees(span);
+  }
+}
+
+
+static void AS5600_DebugResetCalibration(void)
+{
+  debug_as5600_left_min_raw = 0U;
+  debug_as5600_left_center_raw = 0U;
+  debug_as5600_left_max_raw = 0U;
+  debug_as5600_right_min_raw = 0U;
+  debug_as5600_right_center_raw = 0U;
+  debug_as5600_right_max_raw = 0U;
+
+  debug_as5600_left_min_valid = 0U;
+  debug_as5600_left_center_valid = 0U;
+  debug_as5600_left_max_valid = 0U;
+  debug_as5600_right_min_valid = 0U;
+  debug_as5600_right_center_valid = 0U;
+  debug_as5600_right_max_valid = 0U;
+
+  debug_as5600_left_min_from_center_counts = 0;
+  debug_as5600_left_max_from_center_counts = 0;
+  debug_as5600_right_min_from_center_counts = 0;
+  debug_as5600_right_max_from_center_counts = 0;
+  debug_as5600_left_span_counts = 0U;
+  debug_as5600_right_span_counts = 0U;
+
+  debug_as5600_left_min_from_center_deg = 0.0f;
+  debug_as5600_left_max_from_center_deg = 0.0f;
+  debug_as5600_right_min_from_center_deg = 0.0f;
+  debug_as5600_right_max_from_center_deg = 0.0f;
+  debug_as5600_left_span_deg = 0.0f;
+  debug_as5600_right_span_deg = 0.0f;
+}
+
+
+static void AS5600_DebugProcessCaptureCommand(void)
+{
+  uint8_t command = debug_as5600_cal_command;
+
+  if (command == 0U)
+  {
+    return;
+  }
+
+  debug_as5600_cal_command = 0U;
+  debug_as5600_cal_last_result = 0U;
+
+  if (command == 7U)
+  {
+    AS5600_DebugResetCalibration();
+    debug_as5600_cal_last_result = 1U;
+    return;
+  }
+
+  if ((command >= 1U) && (command <= 3U))
+  {
+    if (AS5600_DebugReadingValid(debug_as5600_left_comm_ok,
+                                 debug_as5600_left_status) == 0U)
+    {
+      debug_as5600_cal_last_result = 2U;
+      return;
+    }
+
+    if (command == 1U)
+    {
+      debug_as5600_left_min_raw = debug_as5600_left_raw;
+      debug_as5600_left_min_valid = 1U;
+    }
+    else if (command == 2U)
+    {
+      debug_as5600_left_center_raw = debug_as5600_left_raw;
+      debug_as5600_left_center_valid = 1U;
+    }
+    else
+    {
+      debug_as5600_left_max_raw = debug_as5600_left_raw;
+      debug_as5600_left_max_valid = 1U;
+    }
+
+    AS5600_DebugRecomputeCalibration();
+    debug_as5600_cal_last_result = 1U;
+    return;
+  }
+
+  if ((command >= 4U) && (command <= 6U))
+  {
+    if (AS5600_DebugReadingValid(debug_as5600_right_comm_ok,
+                                 debug_as5600_right_status) == 0U)
+    {
+      debug_as5600_cal_last_result = 3U;
+      return;
+    }
+
+    if (command == 4U)
+    {
+      debug_as5600_right_min_raw = debug_as5600_right_raw;
+      debug_as5600_right_min_valid = 1U;
+    }
+    else if (command == 5U)
+    {
+      debug_as5600_right_center_raw = debug_as5600_right_raw;
+      debug_as5600_right_center_valid = 1U;
+    }
+    else
+    {
+      debug_as5600_right_max_raw = debug_as5600_right_raw;
+      debug_as5600_right_max_valid = 1U;
+    }
+
+    AS5600_DebugRecomputeCalibration();
+    debug_as5600_cal_last_result = 1U;
+  }
+}
+
+
+static void AS5600_DebugUpdate(void)
+{
+  uint16_t raw;
+  uint8_t status;
+  HAL_StatusTypeDef ready_result;
+  HAL_StatusTypeDef read_result;
+
+  /*
+   * Probe ACK ở đúng địa chỉ AS5600 trước khi đọc register.
+   * Việc này chỉ phục vụ debug phần cứng/I2C trong giai đoạn calibration.
+   */
+  if (as5600_left_probe_enabled != 0U)
+  {
+    debug_as5600_left_probe_blocked = 0U;
+
+    ready_result = HAL_I2C_IsDeviceReady(As5600_Left.hi2c,
+                                         AS5600_I2C_ADDRESS_HAL,
+                                         1U,
+                                         2U);
+    debug_as5600_left_ready_status = (uint8_t)ready_result;
+    debug_as5600_left_device_ready = (ready_result == HAL_OK) ? 1U : 0U;
+    debug_as5600_left_ready_error = HAL_I2C_GetError(As5600_Left.hi2c);
+
+    read_result = AS5600_ReadRawAndStatus(&As5600_Left, &raw, &status);
+    debug_as5600_left_read_status = (uint8_t)read_result;
+    debug_as5600_left_read_error = HAL_I2C_GetError(As5600_Left.hi2c);
+    debug_as5600_left_i2c_state = (uint32_t)HAL_I2C_GetState(As5600_Left.hi2c);
+
+    if (read_result == HAL_OK)
+    {
+      debug_as5600_left_raw = raw;
+      debug_as5600_left_deg = AS5600_RawToDegrees(raw);
+      debug_as5600_left_status = status;
+      debug_as5600_left_comm_ok = 1U;
+      debug_as5600_left_magnet_detected =
+          ((status & AS5600_STATUS_MD) != 0U) ? 1U : 0U;
+      debug_as5600_left_magnet_too_weak =
+          ((status & AS5600_STATUS_ML) != 0U) ? 1U : 0U;
+      debug_as5600_left_magnet_too_strong =
+          ((status & AS5600_STATUS_MH) != 0U) ? 1U : 0U;
+      debug_as5600_left_read_ok_count++;
+    }
+    else
+    {
+      debug_as5600_left_comm_ok = 0U;
+      debug_as5600_left_read_fail_count++;
+    }
+  }
+  else
+  {
+    /* Startup bus check failed: preserve that condition without repeated traffic. */
+    debug_as5600_left_probe_blocked = 1U;
+    debug_as5600_left_device_ready = 0U;
+    debug_as5600_left_comm_ok = 0U;
+    debug_as5600_left_ready_status = AS5600_DEBUG_NOT_ATTEMPTED;
+    debug_as5600_left_ready_error = HAL_I2C_ERROR_NONE;
+    debug_as5600_left_read_status = AS5600_DEBUG_NOT_ATTEMPTED;
+    debug_as5600_left_read_error = HAL_I2C_ERROR_NONE;
+    debug_as5600_left_i2c_state = (uint32_t)HAL_I2C_GetState(As5600_Left.hi2c);
+  }
+
+  if (as5600_right_probe_enabled != 0U)
+  {
+    debug_as5600_right_probe_blocked = 0U;
+
+    ready_result = HAL_I2C_IsDeviceReady(As5600_Right.hi2c,
+                                         AS5600_I2C_ADDRESS_HAL,
+                                         1U,
+                                         2U);
+    debug_as5600_right_ready_status = (uint8_t)ready_result;
+    debug_as5600_right_device_ready = (ready_result == HAL_OK) ? 1U : 0U;
+    debug_as5600_right_ready_error = HAL_I2C_GetError(As5600_Right.hi2c);
+
+    read_result = AS5600_ReadRawAndStatus(&As5600_Right, &raw, &status);
+    debug_as5600_right_read_status = (uint8_t)read_result;
+    debug_as5600_right_read_error = HAL_I2C_GetError(As5600_Right.hi2c);
+    debug_as5600_right_i2c_state = (uint32_t)HAL_I2C_GetState(As5600_Right.hi2c);
+
+    if (read_result == HAL_OK)
+    {
+      debug_as5600_right_raw = raw;
+      debug_as5600_right_deg = AS5600_RawToDegrees(raw);
+      debug_as5600_right_status = status;
+      debug_as5600_right_comm_ok = 1U;
+      debug_as5600_right_magnet_detected =
+          ((status & AS5600_STATUS_MD) != 0U) ? 1U : 0U;
+      debug_as5600_right_magnet_too_weak =
+          ((status & AS5600_STATUS_ML) != 0U) ? 1U : 0U;
+      debug_as5600_right_magnet_too_strong =
+          ((status & AS5600_STATUS_MH) != 0U) ? 1U : 0U;
+      debug_as5600_right_read_ok_count++;
+    }
+    else
+    {
+      debug_as5600_right_comm_ok = 0U;
+      debug_as5600_right_read_fail_count++;
+    }
+  }
+  else
+  {
+    debug_as5600_right_probe_blocked = 1U;
+    debug_as5600_right_device_ready = 0U;
+    debug_as5600_right_comm_ok = 0U;
+    debug_as5600_right_ready_status = AS5600_DEBUG_NOT_ATTEMPTED;
+    debug_as5600_right_ready_error = HAL_I2C_ERROR_NONE;
+    debug_as5600_right_read_status = AS5600_DEBUG_NOT_ATTEMPTED;
+    debug_as5600_right_read_error = HAL_I2C_ERROR_NONE;
+    debug_as5600_right_i2c_state = (uint32_t)HAL_I2C_GetState(As5600_Right.hi2c);
+  }
+
+  AS5600_DebugProcessCaptureCommand();
+}
+
+
 static int16_t PS2_Convert_LY_To_PWM(uint8_t ly)
 {
   if (ly < PS2_LY_FORWARD_LIMIT)
@@ -346,13 +1200,6 @@ static int16_t PS2_Convert_LY_To_PWM(uint8_t ly)
   return 0;
 }
 
-static void Wheel_Motors_SetSpeed(int16_t pwm_duty)
-{
-  Motor_SetSpeed_PWM(&Motor_LeftUp, pwm_duty);
-  Motor_SetSpeed_PWM(&Motor_RightUp, pwm_duty);
-  Motor_SetSpeed_PWM(&Motor_LeftDown, pwm_duty);
-  Motor_SetSpeed_PWM(&Motor_RightDown, pwm_duty);
-}
 
 static void Turn_Motors_Stop(void)
 {
@@ -365,10 +1212,628 @@ static void Turn_Motors_Stop(void)
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
 }
 
-static void All_Motors_Stop(void)
+/*
+ * STOP khẩn cấp cấp xe: wheel_control cắt 4 motor bánh và reset
+ * state điều khiển; main giữ trách nhiệm dừng riêng 2 motor đánh lái.
+ */
+static void Wheel_EmergencyStop(void)
 {
-  Wheel_Motors_SetSpeed(0);
+  WheelControl_EmergencyStop();
   Turn_Motors_Stop();
+}
+
+
+/*
+ * ============================================================
+ * WHEEL DATA LOGGER UPDATE
+ *
+ * Gọi liên tục trong main loop.
+ *
+ * - Không blocking.
+ * - Không dùng HAL_Delay riêng.
+ * - Ghi 1 mẫu mỗi WHEEL_LOG_PERIOD_MS.
+ * - Tự dừng khi buffer đầy.
+ * ============================================================
+ */
+static int32_t Wheel_LogFloatToMilli(float value)
+{
+  float scaled = value * WHEEL_LOG_CSV_SCALE;
+
+  if (scaled >= 0.0f)
+  {
+    return (int32_t)(scaled + 0.5f);
+  }
+
+  return (int32_t)(scaled - 0.5f);
+}
+
+
+static uint8_t Wheel_LogUartWrite(const char *text)
+{
+  uint16_t length;
+
+  if (text == NULL)
+  {
+    return 0U;
+  }
+
+  length = (uint16_t)strlen(text);
+
+  if (HAL_UART_Transmit(&huart3,
+                        (uint8_t *)text,
+                        length,
+                        1000U) != HAL_OK)
+  {
+    return 0U;
+  }
+
+  return 1U;
+}
+
+
+/*
+ * Dump completed RAM log as integer-scaled CSV over USART3.
+ * Float printf is intentionally avoided, so CubeIDE does not need
+ * the -u _printf_float linker option. RPM/gains are sent x1000.
+ *
+ * Status:
+ *   0 = idle / no request yet
+ *   1 = dump complete
+ *   2 = rejected: log is empty/not finished
+ *   3 = rejected: vehicle command/PWM is not zero
+ *   4 = UART transmit error
+ */
+static void Wheel_LogDumpCsvUpdate(void)
+{
+  char line[WHEEL_LOG_CSV_LINE_MAX];
+  uint32_t i;
+  int length;
+
+  if (wheel_log_dump_request == 0U)
+  {
+    return;
+  }
+
+  wheel_log_dump_request = 0U;
+  wheel_log_dump_done = 0U;
+  wheel_log_dump_lines = 0U;
+
+  if ((wheel_log_active != 0U) ||
+      (wheel_log_done == 0U) ||
+      (wheel_log_count == 0U))
+  {
+    wheel_log_dump_status = 2U;
+    return;
+  }
+
+  /* Never block the control loop for a serial dump while the vehicle moves. */
+  if ((wheel_ctrl_debug.target_command != 0) ||
+      (wheel_ctrl_debug.ramp_command != 0) ||
+      (wheel_pwm_lu != 0) ||
+      (wheel_pwm_ld != 0) ||
+      (wheel_pwm_ru != 0) ||
+      (wheel_pwm_rd != 0))
+  {
+    wheel_log_dump_status = 3U;
+    return;
+  }
+
+  wheel_log_dump_active = 1U;
+  wheel_log_dump_status = 0U;
+  HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
+
+  if (Wheel_LogUartWrite("#WHEEL_ANALOG_CSV_BEGIN\r\n") == 0U)
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  length = snprintf(line, sizeof(line),
+                    "#format,command_shaper_v5_zero_ff_taper_steady_hold_ru_capture_plateau_i_v1\r\n"
+                    "#samples,%lu\r\n"
+                    "#period_ms,%lu\r\n",
+                    (unsigned long)wheel_log_count,
+                    (unsigned long)WHEEL_LOG_PERIOD_MS);
+  if ((length <= 0) ||
+      (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                         (uint16_t)length, 1000U) != HAL_OK))
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  length = snprintf(line, sizeof(line),
+                    "#LU_gains_x1000,%ld,%ld,%ld\r\n"
+                    "#LD_gains_x1000,%ld,%ld,%ld\r\n"
+                    "#RU_gains_x1000,%ld,%ld,%ld\r\n"
+                    "#RD_gains_x1000,%ld,%ld,%ld\r\n",
+                    (long)Wheel_LogFloatToMilli(wheel_log_kp_lu_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ki_lu_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_kd_lu_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_kp_ld_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ki_ld_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_kd_ld_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_kp_ru_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ki_ru_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_kd_ru_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_kp_rd_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ki_rd_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_kd_rd_snapshot));
+  if ((length <= 0) ||
+      (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                         (uint16_t)length, 1000U) != HAL_OK))
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  length = snprintf(line, sizeof(line),
+                    "#FF_K_x1000,%ld,%ld,%ld,%ld\r\n"
+                    "#FF_OFFSET_x1000,%ld,%ld,%ld,%ld\r\n"
+                    "#FF_OFFSET_RD_REVERSE_x1000,%ld\r\n",
+                    (long)Wheel_LogFloatToMilli(wheel_log_ff_k_lu_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ff_k_ld_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ff_k_ru_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ff_k_rd_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ff_offset_lu_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ff_offset_ld_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ff_offset_ru_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ff_offset_rd_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_ff_offset_rd_reverse_snapshot));
+  if ((length <= 0) ||
+      ((size_t)length >= sizeof(line)) ||
+      (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                         (uint16_t)length, 1000U) != HAL_OK))
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  length = snprintf(line, sizeof(line),
+                    "#Ka_x1000,%ld\r\n"
+                    "#sync_x1000,%ld,%ld,%ld,%ld\r\n"
+                    "#profile_at_start,%u\r\n"
+                    "#active_slew_at_start_x1000,%ld,%ld,%ld\r\n"
+                    "#manual_slew_x1000,%ld,%ld,%ld\r\n"
+                    "#manual_softlanding_x1000,%ld,%ld,%ld\r\n"
+                    "#manual_zero_softlanding_x1000,%ld,%ld\r\n"
+                    "#manual_zero_ff_taper,offset_only,uses_zero_soft_window\r\n"
+                    "#fixed_slew_x1000,%ld,%ld,%ld\r\n",
+                    (long)Wheel_LogFloatToMilli(wheel_log_ka_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_sync_k_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_sync_max_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_sync_enter_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_sync_exit_snapshot),
+                    (unsigned int)wheel_log_profile_snapshot,
+                    (long)Wheel_LogFloatToMilli(wheel_log_slew_accel_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_slew_decel_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_slew_zero_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_manual_accel_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_manual_decel_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_manual_zero_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_manual_soft_window_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_manual_soft_min_rate_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_manual_hysteresis_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_manual_zero_soft_window_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_manual_zero_soft_min_rate_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_fixed_accel_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_fixed_decel_snapshot),
+                    (long)Wheel_LogFloatToMilli(wheel_log_fixed_zero_snapshot));
+  if ((length <= 0) ||
+      (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                         (uint16_t)length, 1000U) != HAL_OK))
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  length = snprintf(line, sizeof(line),
+                    "#encoder_available_lu,%u\r\n"
+                    "#encoder_cpr_lu_x1000,%ld\r\n",
+                    (unsigned int)wheel_encoder_available_lu,
+                    (long)Wheel_LogFloatToMilli(Motor_LeftUp.counts_per_revolution));
+  if ((length <= 0) ||
+      ((uint32_t)length >= (uint32_t)sizeof(line)) ||
+      (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                         (uint16_t)length, 1000U) != HAL_OK))
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  length = snprintf(line, sizeof(line),
+                    "#steady_hold,%u,%ld,%ld,%u,%u,%ld,%ld\r\n",
+                    (unsigned int)wheel_pid_hunt_enable,
+                    (long)Wheel_LogFloatToMilli(wheel_pid_hunt_enter_error_rpm),
+                    (long)Wheel_LogFloatToMilli(wheel_pid_hunt_exit_error_rpm),
+                    (unsigned int)wheel_pid_hunt_enter_samples,
+                    (unsigned int)wheel_pid_hunt_exit_samples,
+                    (long)Wheel_LogFloatToMilli(wheel_pid_hunt_i_deadband_rpm),
+                    (long)Wheel_LogFloatToMilli(wheel_pid_hunt_ki_scale));
+  if ((length <= 0) ||
+      ((uint32_t)length >= (uint32_t)sizeof(line)) ||
+      (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                         (uint16_t)length, 1000U) != HAL_OK))
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  length = snprintf(line, sizeof(line),
+                    "#ru_capture_assist,%u,%ld,%ld,%lu,%lu,%lu\r\n",
+                    (unsigned int)wheel_ru_capture_assist_enable,
+                    (long)Wheel_LogFloatToMilli(wheel_ru_capture_assist_k_pwm_per_rpm),
+                    (long)Wheel_LogFloatToMilli(wheel_ru_capture_assist_max_pwm),
+                    (unsigned long)wheel_ru_capture_assist_timeout_ms,
+                    (unsigned long)wheel_ru_capture_assist_entry_count,
+                    (unsigned long)wheel_ru_capture_assist_timeout_count);
+  if ((length <= 0) ||
+      ((uint32_t)length >= (uint32_t)sizeof(line)) ||
+      (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                         (uint16_t)length, 1000U) != HAL_OK))
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  length = snprintf(line, sizeof(line),
+                    "#plateau_adapt_i,%u,%u,%ld,%ld,%ld,%lu\r\n",
+                    (unsigned int)wheel_plateau_adapt_i_enable,
+                    (unsigned int)wheel_plateau_adapt_i_wheels,
+                    (long)Wheel_LogFloatToMilli(wheel_plateau_adapt_i_ki),
+                    (long)Wheel_LogFloatToMilli(wheel_plateau_adapt_i_min_error_rpm),
+                    (long)Wheel_LogFloatToMilli(wheel_plateau_adapt_i_max_step_pwm),
+                    (unsigned long)wheel_plateau_adapt_i_sample_count);
+  if ((length <= 0) ||
+      ((uint32_t)length >= (uint32_t)sizeof(line)) ||
+      (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                         (uint16_t)length, 1000U) != HAL_OK))
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  if (Wheel_LogUartWrite(
+      "time_ms,ps2_ly,control_mode,command_profile,target_pwm,"
+      "raw_target_mrpm,command_target_mrpm,pid_target_mrpm,"
+      "lu_mrpm,ld_mrpm,ru_mrpm,rd_mrpm,"
+      "lu_pwm,ld_pwm,ru_pwm,rd_pwm,"
+      "integral_hold,soft_landing_active,zero_soft_landing_active,zero_ff_taper_x1000,sync_active,hunt_lu,hunt_ld,hunt_ru,hunt_rd,capture_ru_active,plateau_adapt_i_mask,sync_spread_mrpm,ff_accel_pwm_x1000,capture_ru_pwm_x1000,"
+      "lu_err_mrpm,ld_err_mrpm,ru_err_mrpm,rd_err_mrpm\r\n") == 0U)
+  {
+    wheel_log_dump_status = 4U;
+    wheel_log_dump_active = 0U;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    return;
+  }
+
+  for (i = 0U; i < wheel_log_count; i++)
+  {
+    int32_t raw_target =
+        Wheel_LogFloatToMilli(wheel_log[i].raw_target_rpm);
+    int32_t command_target =
+        Wheel_LogFloatToMilli(wheel_log[i].command_target_rpm);
+    int32_t pid_target =
+        Wheel_LogFloatToMilli(wheel_log[i].pid_target_rpm);
+    int32_t lu = Wheel_LogFloatToMilli(wheel_log[i].lu_rpm);
+    int32_t ld = Wheel_LogFloatToMilli(wheel_log[i].ld_rpm);
+    int32_t ru = Wheel_LogFloatToMilli(wheel_log[i].ru_rpm);
+    int32_t rd = Wheel_LogFloatToMilli(wheel_log[i].rd_rpm);
+    int32_t sync_spread =
+        Wheel_LogFloatToMilli(wheel_log[i].sync_spread_rpm);
+    int32_t ff_accel =
+        Wheel_LogFloatToMilli(wheel_log[i].ff_accel_pwm);
+    int32_t capture_ru_pwm =
+        Wheel_LogFloatToMilli(wheel_log[i].capture_ru_pwm);
+
+    length = snprintf(
+        line, sizeof(line),
+        "%lu,%u,%u,%u,%d,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%ld,%ld,%ld,%ld,%ld,%ld,%ld\r\n",
+        (unsigned long)wheel_log[i].time_ms,
+        (unsigned int)wheel_log[i].ps2_ly,
+        (unsigned int)wheel_log[i].control_mode,
+        (unsigned int)wheel_log[i].command_profile,
+        (int)wheel_log[i].target_pwm,
+        (long)raw_target,
+        (long)command_target,
+        (long)pid_target,
+        (long)lu,
+        (long)ld,
+        (long)ru,
+        (long)rd,
+        (int)wheel_log[i].lu_pwm,
+        (int)wheel_log[i].ld_pwm,
+        (int)wheel_log[i].ru_pwm,
+        (int)wheel_log[i].rd_pwm,
+        (unsigned int)wheel_log[i].integral_hold,
+        (unsigned int)wheel_log[i].soft_landing_active,
+        (unsigned int)wheel_log[i].zero_soft_landing_active,
+        (unsigned int)wheel_log[i].zero_ff_taper_x1000,
+        (unsigned int)wheel_log[i].sync_active,
+        (unsigned int)wheel_log[i].hunt_lu,
+        (unsigned int)wheel_log[i].hunt_ld,
+        (unsigned int)wheel_log[i].hunt_ru,
+        (unsigned int)wheel_log[i].hunt_rd,
+        (unsigned int)wheel_log[i].capture_ru_active,
+        (unsigned int)wheel_log[i].plateau_adapt_i_mask,
+        (long)sync_spread,
+        (long)ff_accel,
+        (long)capture_ru_pwm,
+        (long)(pid_target - lu),
+        (long)(pid_target - ld),
+        (long)(pid_target - ru),
+        (long)(pid_target - rd));
+
+    if ((length <= 0) ||
+        ((uint32_t)length >= (uint32_t)sizeof(line)) ||
+        (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                           (uint16_t)length, 1000U) != HAL_OK))
+    {
+      wheel_log_dump_status = 4U;
+      wheel_log_dump_active = 0U;
+      HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+      return;
+    }
+
+    wheel_log_dump_lines = i + 1U;
+  }
+
+  (void)Wheel_LogUartWrite("#WHEEL_ANALOG_CSV_END\r\n");
+
+  wheel_log_dump_status = 1U;
+  wheel_log_dump_done = 1U;
+  wheel_log_dump_active = 0U;
+  HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+}
+
+
+/*
+ * USER button state machine.
+ *
+ *  - No completed log + not active -> START.
+ *  - Active -> STOP.
+ *  - Completed log -> DUMP (buffer is protected from overwrite).
+ *
+ * Start from the button can force PID ON so the manual/ground test
+ * always validates the closed-loop controller rather than open-loop.
+ */
+static void Wheel_LogButtonUpdate(void)
+{
+  if (wheel_log_button_press_request == 0U)
+  {
+    return;
+  }
+
+  wheel_log_button_press_request = 0U;
+
+  /* Auto FF test owns its own logger start/stop sequence. */
+  if (wheel_ff_test_active != 0U)
+  {
+    return;
+  }
+
+  if (wheel_log_active != 0U)
+  {
+    wheel_log_stop = 1U;
+    return;
+  }
+
+  if (wheel_log_done != 0U)
+  {
+    wheel_log_dump_request = 1U;
+    return;
+  }
+
+  if (wheel_log_force_pid_on_start != 0U)
+  {
+    wheel_pid_enable = 1U;
+  }
+
+  wheel_log_start = 1U;
+}
+
+
+static void Wheel_LogUpdate(void)
+{
+  uint32_t now = HAL_GetTick();
+  uint32_t index;
+
+  /*
+   * START request có ưu tiên trước.
+   * Debugger vẫn có thể đặt wheel_log_start=1 để chủ động ghi đè log cũ.
+   * USER button thì không bao giờ ghi đè khi wheel_log_done=1.
+   */
+  if (wheel_log_start != 0U)
+  {
+    wheel_log_start = 0U;
+    wheel_log_stop = 0U;
+
+    wheel_log_count = 0U;
+    wheel_log_done = 0U;
+    wheel_log_active = 1U;
+
+    wheel_log_dump_done = 0U;
+    wheel_log_dump_status = 0U;
+    wheel_log_dump_lines = 0U;
+
+    wheel_log_kp_lu_snapshot = wheel_pid_lu.kp;
+    wheel_log_ki_lu_snapshot = wheel_pid_lu.ki;
+    wheel_log_kd_lu_snapshot = wheel_pid_lu.kd;
+    wheel_log_kp_ld_snapshot = wheel_pid_ld.kp;
+    wheel_log_ki_ld_snapshot = wheel_pid_ld.ki;
+    wheel_log_kd_ld_snapshot = wheel_pid_ld.kd;
+    wheel_log_kp_ru_snapshot = wheel_pid_ru.kp;
+    wheel_log_ki_ru_snapshot = wheel_pid_ru.ki;
+    wheel_log_kd_ru_snapshot = wheel_pid_ru.kd;
+    wheel_log_kp_rd_snapshot = wheel_pid_rd.kp;
+    wheel_log_ki_rd_snapshot = wheel_pid_rd.ki;
+    wheel_log_kd_rd_snapshot = wheel_pid_rd.kd;
+    wheel_log_ff_snapshot = wheel_ff_pwm_per_rpm;
+    wheel_log_ff_k_lu_snapshot = wheel_ff_k_lu;
+    wheel_log_ff_k_ld_snapshot = wheel_ff_k_ld;
+    wheel_log_ff_k_ru_snapshot = wheel_ff_k_ru;
+    wheel_log_ff_k_rd_snapshot = wheel_ff_k_rd;
+    wheel_log_ff_offset_lu_snapshot = wheel_ff_offset_lu;
+    wheel_log_ff_offset_ld_snapshot = wheel_ff_offset_ld;
+    wheel_log_ff_offset_ru_snapshot = wheel_ff_offset_ru;
+    wheel_log_ff_offset_rd_snapshot = wheel_ff_offset_rd;
+    wheel_log_ff_offset_rd_reverse_snapshot = wheel_ff_offset_rd_reverse;
+
+    wheel_log_ka_snapshot = wheel_ff_accel_k;
+    wheel_log_sync_k_snapshot = wheel_sync_k_pwm_per_rpm;
+    wheel_log_sync_max_snapshot = wheel_sync_max_pwm;
+    wheel_log_sync_enter_snapshot = wheel_sync_spread_enter_rpm;
+    wheel_log_sync_exit_snapshot = wheel_sync_spread_exit_rpm;
+    wheel_log_slew_accel_snapshot = wheel_target_accel_rpm_per_s;
+    wheel_log_slew_decel_snapshot = wheel_target_decel_rpm_per_s;
+    wheel_log_slew_zero_snapshot = wheel_target_zero_rpm_per_s;
+    wheel_log_profile_snapshot = (uint8_t)wheel_command_profile;
+
+    wheel_log_manual_accel_snapshot = wheel_manual_accel_rpm_per_s;
+    wheel_log_manual_decel_snapshot = wheel_manual_decel_rpm_per_s;
+    wheel_log_manual_zero_snapshot = wheel_manual_zero_rpm_per_s;
+    wheel_log_manual_soft_window_snapshot = wheel_manual_soft_landing_window_rpm;
+    wheel_log_manual_soft_min_rate_snapshot =
+        wheel_manual_soft_landing_min_rate_rpm_per_s;
+    wheel_log_manual_zero_soft_window_snapshot =
+        wheel_manual_zero_soft_landing_window_rpm;
+    wheel_log_manual_zero_soft_min_rate_snapshot =
+        wheel_manual_zero_soft_landing_min_rate_rpm_per_s;
+    wheel_log_manual_hysteresis_snapshot = wheel_manual_target_hysteresis_rpm;
+    wheel_log_fixed_accel_snapshot = wheel_fixed_accel_rpm_per_s;
+    wheel_log_fixed_decel_snapshot = wheel_fixed_decel_rpm_per_s;
+    wheel_log_fixed_zero_snapshot = wheel_fixed_zero_rpm_per_s;
+
+    wheel_log_start_tick = now;
+
+    /*
+     * Cho phép ghi mẫu đầu tiên ngay ở lần gọi kế tiếp,
+     * không cần chờ thêm 20 ms.
+     */
+    wheel_log_last_tick = now - WHEEL_LOG_PERIOD_MS;
+
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+  }
+
+  /*
+   * STOP request: dừng ghi nhưng giữ nguyên toàn bộ dữ liệu RAM.
+   */
+  if (wheel_log_stop != 0U)
+  {
+    wheel_log_stop = 0U;
+    wheel_log_active = 0U;
+    wheel_log_done = 1U;
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+    return;
+  }
+
+  if (wheel_log_active == 0U)
+  {
+    return;
+  }
+
+  if ((uint32_t)(now - wheel_log_last_tick) < WHEEL_LOG_PERIOD_MS)
+  {
+    return;
+  }
+
+  wheel_log_last_tick = now;
+
+  index = wheel_log_count;
+
+  if (index >= WHEEL_LOG_MAX_SAMPLES)
+  {
+    wheel_log_active = 0U;
+    wheel_log_done = 1U;
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+    return;
+  }
+
+  wheel_log[index].time_ms =
+      (uint32_t)(now - wheel_log_start_tick);
+
+  /* Command path: analog -> raw -> hysteresis/accepted -> slew -> PID. */
+  wheel_log[index].ps2_ly = PS2_Pad.LY;
+  wheel_log[index].control_mode = (uint8_t)control_mode;
+  wheel_log[index].integral_hold = wheel_pid_integral_hold_active;
+  wheel_log[index].sync_active = wheel_sync_active;
+  wheel_log[index].hunt_lu = wheel_pid_hunt_active_lu;
+  wheel_log[index].hunt_ld = wheel_pid_hunt_active_ld;
+  wheel_log[index].hunt_ru = wheel_pid_hunt_active_ru;
+  wheel_log[index].hunt_rd = wheel_pid_hunt_active_rd;
+  wheel_log[index].capture_ru_active = wheel_ru_capture_assist_active;
+  wheel_log[index].plateau_adapt_i_mask = wheel_plateau_adapt_i_mask;
+  wheel_log[index].target_pwm = wheel_target_pwm;
+  wheel_log[index].command_profile = (uint8_t)wheel_command_profile;
+  wheel_log[index].soft_landing_active = wheel_manual_soft_landing_active;
+  wheel_log[index].zero_soft_landing_active =
+      (uint16_t)wheel_manual_zero_soft_landing_active;
+  {
+    int32_t taper_x1000 =
+        Wheel_LogFloatToMilli(wheel_manual_zero_ff_taper_scale);
+    if (taper_x1000 < 0)
+    {
+      taper_x1000 = 0;
+    }
+    else if (taper_x1000 > 1000)
+    {
+      taper_x1000 = 1000;
+    }
+    wheel_log[index].zero_ff_taper_x1000 = (uint16_t)taper_x1000;
+  }
+
+  wheel_log[index].raw_target_rpm = wheel_target_raw_rpm;
+  wheel_log[index].command_target_rpm = wheel_command_target_rpm;
+  wheel_log[index].pid_target_rpm = wheel_pid_target_rpm;
+
+  wheel_log[index].lu_rpm = Motor_LeftUp.current_rpm;
+  wheel_log[index].ld_rpm = Motor_LeftDown.current_rpm;
+  wheel_log[index].ru_rpm = Motor_RightUp.current_rpm;
+  wheel_log[index].rd_rpm = Motor_RightDown.current_rpm;
+
+  wheel_log[index].sync_spread_rpm = wheel_sync_spread_rpm;
+  wheel_log[index].ff_accel_pwm = wheel_ff_accel_pwm;
+  wheel_log[index].capture_ru_pwm = wheel_ru_capture_assist_pwm;
+
+  /* PWM thực đang cấp cho từng bánh. */
+  wheel_log[index].lu_pwm = wheel_pwm_lu;
+  wheel_log[index].ld_pwm = wheel_pwm_ld;
+  wheel_log[index].ru_pwm = wheel_pwm_ru;
+  wheel_log[index].rd_pwm = wheel_pwm_rd;
+
+  wheel_log_count = index + 1U;
+
+  /*
+   * Đủ buffer thì khóa log lại, không ghi tràn RAM.
+   */
+  if (wheel_log_count >= WHEEL_LOG_MAX_SAMPLES)
+  {
+    wheel_log_active = 0U;
+    wheel_log_done = 1U;
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+  }
 }
 
 
@@ -651,12 +2116,15 @@ static void Control_RequestStop(void)
   control_stop_latched = 1U;
   control_stop_count++;
 
-  All_Motors_Stop();
+  voice_execution_pwm = 0;
+
+  Wheel_EmergencyStop();
 }
 
 
 /*
- * M4' - đổi 5 mức speed voice sang PWM open-loop.
+ * Đổi 5 mức speed Voice sang command scale -999..999.
+ * Khi PID bật, wheel_control sẽ ánh xạ command này sang target RPM.
  */
 static uint16_t Voice_SpeedLevelToPWM(uint8_t speed_level)
 {
@@ -741,6 +2209,9 @@ static void Voice_StartExecution(void)
     return;
   }
 
+  /* Voice hiện là lệnh tốc độ rời rạc; dùng cùng profile FIXED với autonomous. */
+  WheelControl_SetCommandProfile(WHEEL_COMMAND_PROFILE_FIXED);
+
   pwm_magnitude = Voice_SpeedLevelToPWM(voice_active_command.speed_level);
 
   if (voice_active_command.movement == VOICE_MOVE_BACKWARD)
@@ -762,7 +2233,8 @@ static void Voice_StartExecution(void)
 
 
 /*
- * M4' - thực thi 4 bánh open-loop, không blocking.
+ * Phát command truyền động 4 bánh, không blocking.
+ * wheel_control quyết định open-loop hay closed-loop theo wheel_pid_enable.
  */
 static void Voice_ExecuteMotorControl(void)
 {
@@ -779,15 +2251,17 @@ static void Voice_ExecuteMotorControl(void)
 
   if (voice_execution_elapsed_ms >= voice_execution_duration_ms)
   {
-    Wheel_Motors_SetSpeed(0);
+    /* Hết TIME là dừng bình thường -> giảm tốc bằng ramp. */
+    WheelControl_SetTargetPWM(0);
     Turn_Motors_Stop();
 
+    voice_execution_pwm = 0;
     voice_execution_active = 0U;
     voice_execution_finish_count++;
     return;
   }
 
-  Wheel_Motors_SetSpeed(voice_execution_pwm);
+  WheelControl_SetTargetPWM(voice_execution_pwm);
   Turn_Motors_Stop();
 }
 
@@ -832,16 +2306,27 @@ static void PS2_ApplyManualControl(void)
 {
   int16_t pwm_duty = PS2_Convert_LY_To_PWM(PS2_Pad.LY);
 
-  if ((pwm_duty == 0) && (PS2_Pad.Up == 1U))
+  /*
+   * LY analog = MANUAL profile.
+   * D-pad Up/Down = một cấp tốc độ cố định nên dùng FIXED profile.
+   * Như vậy bài test nút bấm thật sự kiểm tra đúng shaper fixed-speed.
+   */
+  if (pwm_duty != 0)
   {
+    WheelControl_SetCommandProfile(WHEEL_COMMAND_PROFILE_MANUAL);
+  }
+  else if (PS2_Pad.Up == 1U)
+  {
+    WheelControl_SetCommandProfile(WHEEL_COMMAND_PROFILE_FIXED);
     pwm_duty = MOTOR_DPAD_PWM;
   }
-  else if ((pwm_duty == 0) && (PS2_Pad.Down == 1U))
+  else if (PS2_Pad.Down == 1U)
   {
+    WheelControl_SetCommandProfile(WHEEL_COMMAND_PROFILE_FIXED);
     pwm_duty = -MOTOR_DPAD_PWM;
   }
 
-  Wheel_Motors_SetSpeed(pwm_duty);
+  WheelControl_SetTargetPWM(pwm_duty);
   Turn_Motors_Stop();
 }
 
@@ -859,14 +2344,15 @@ static void Control_Arbitrate(void)
 
   /*
    * 1) STOP cao nhất.
-   * Nếu PS2 đang bị giữ lệch/nhấn, latch vẫn giữ STOP cho tới
-   * khi người dùng nhả tay về neutral. Nhờ vậy PS2 không thể
-   * làm xe chạy lại ngay 20 ms sau lệnh Stop.
+   *
+   * STOP vẫn là dừng khẩn cấp: bỏ qua ramp và cắt PWM ngay.
+   * Nếu PS2 đang bị giữ lệch/nhấn, latch giữ STOP cho tới khi
+   * người dùng nhả tay về neutral.
    */
   if (control_stop_latched != 0U)
   {
     control_mode = CONTROL_MODE_STOP;
-    All_Motors_Stop();
+    Wheel_EmergencyStop();
 
     if (ps2_manual_active == 0U)
     {
@@ -877,20 +2363,71 @@ static void Control_Arbitrate(void)
   }
 
   /*
-   * 2) Có thao tác PS2 -> PS2 giành quyền và hủy voice.
+   * 2) PS2 CANCEL HOLD.
+   *
+   * Khi thao tác PS2 vừa được dùng để hủy Voice, thao tác đó chỉ
+   * có chức năng CANCEL + STOP, KHÔNG được phép điều khiển motor.
+   *
+   * Giữ trạng thái này cho tới khi toàn bộ input PS2 trở về neutral.
+   * Sau khi đã neutral, một thao tác PS2 MỚI mới được quyền điều khiển.
+   *
+   * Dừng ở đây là dừng bình thường qua ramp để tránh giật cơ khí.
+   */
+  if (ps2_cancel_hold != 0U)
+  {
+    control_mode = CONTROL_MODE_IDLE;
+
+    WheelControl_SetTargetPWM(0);
+    Turn_Motors_Stop();
+
+    if (ps2_manual_active == 0U)
+    {
+      ps2_cancel_hold = 0U;
+    }
+
+    return;
+  }
+
+  /*
+   * 3) Có thao tác PS2.
    */
   if (ps2_manual_active != 0U)
   {
-    Voice_CancelByPS2();
+    /*
+     * Nếu Voice đang pending / ready / active thì thao tác PS2
+     * đầu tiên CHỈ hủy Voice và yêu cầu xe giảm tốc về 0.
+     *
+     * Không gọi PS2_ApplyManualControl() trong nhánh này.
+     */
+    if ((voice_execution_active != 0U) ||
+        (voice_command_ready != 0U) ||
+        (Voice_HasPendingData() != 0U))
+    {
+      Voice_CancelByPS2();
 
+      ps2_cancel_hold = 1U;
+      ps2_cancel_stop_count++;
+
+      control_mode = CONTROL_MODE_IDLE;
+
+      WheelControl_SetTargetPWM(0);
+      Turn_Motors_Stop();
+
+      return;
+    }
+
+    /*
+     * Không còn Voice và PS2 không bị cancel-hold:
+     * PS2 được điều khiển bình thường.
+     */
     control_mode = CONTROL_MODE_PS2;
     PS2_ApplyManualControl();
     return;
   }
 
   /*
-   * 3) Không có PS2 manual. Nếu có command voice vừa TIME chốt
-   * và chưa có voice đang active thì nhận command đó.
+   * 4) Không có PS2 manual. Nếu có command Voice vừa TIME chốt
+   * và chưa có Voice đang active thì nhận command đó.
    */
   if ((voice_execution_active == 0U) &&
       (voice_command_ready != 0U))
@@ -911,17 +2448,23 @@ static void Control_Arbitrate(void)
     if (voice_execution_active == 0U)
     {
       control_mode = CONTROL_MODE_IDLE;
-      All_Motors_Stop();
+
+      /* Dừng bình thường: ramp về 0 thay vì cắt PWM đột ngột. */
+      WheelControl_SetTargetPWM(0);
+      Turn_Motors_Stop();
     }
 
     return;
   }
 
-  /* 4) Không ai có quyền điều khiển. */
+  /*
+   * 5) Không ai có quyền điều khiển.
+   */
   control_mode = CONTROL_MODE_IDLE;
-  All_Motors_Stop();
-}
 
+  WheelControl_SetTargetPWM(0);
+  Turn_Motors_Stop();
+}
 
 /* ============================================================
  * VC-02 M2 - nhận event và gom command không phụ thuộc thứ tự.
@@ -1118,6 +2661,26 @@ int main(void)
   MX_I2C1_Init();
   MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
+  /*
+   * Allow the externally-powered AS5600 module/pull-ups to settle first.
+   * Recover/check BOTH buses before any AS5600 transaction is allowed.
+   * This lets one known-good module be moved between LEFT and RIGHT during
+   * manual steering calibration without changing firmware again.
+   */
+  HAL_Delay(AS5600_STARTUP_SETTLE_MS);
+  AS5600_I2C1_BusRecover();
+  AS5600_I2C2_BusRecover();
+
+  /*
+   * AS5600 steering sensors:
+   *   RIGHT -> I2C1
+   *   LEFT  -> I2C2
+   * Chỉ đọc góc để manual calibration; steering motor vẫn chưa được start PWM.
+   */
+  AS5600_Init(&As5600_Right, &hi2c1);
+  AS5600_Init(&As5600_Left, &hi2c2);
+  AS5600_DebugResetCalibration();
+
   PS2_Init(&hspi1, PS2_CS_GPIO_Port, PS2_CS_Pin);
 
   if (HAL_TIM_PWM_Start(&htim9, TIM_CHANNEL_1) != HAL_OK ||
@@ -1136,27 +2699,80 @@ int main(void)
     Error_Handler();
   }
 
+  /*
+   * Mốc ban đầu cho bộ đếm mở rộng 32-bit.
+   */
+  debug_enc_lu_prev = (uint16_t)__HAL_TIM_GET_COUNTER(&htim8);
+  debug_enc_ru_prev = (uint16_t)__HAL_TIM_GET_COUNTER(&htim1);
+  debug_enc_ld_prev = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
+  debug_enc_rd_prev = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
+
+  debug_enc_lu_total = 0;
+  debug_enc_ru_total = 0;
+  debug_enc_ld_total = 0;
+  debug_enc_rd_total = 0;
+
+  /*
+   * Encoder 2 motor đánh lái:
+   *
+   * LEFT  -> TIM4 encoder mode
+   * RIGHT -> LPTIM1 encoder mode
+   *
+   * Không đưa vào Error_Handler nếu start steering encoder lỗi để vẫn
+   * có thể chạy chương trình và xem trực tiếp mức A/B trong debugger.
+   */
+  debug_turn_left_start_ok =
+      (HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL) == HAL_OK) ? 1U : 0U;
+
+  debug_turn_right_start_ok =
+      (HAL_LPTIM_Encoder_Start(&hlptim1, 0xFFFFU) == HAL_OK) ? 1U : 0U;
+
   Motor_Init_TIM(&Motor_LeftUp, &htim9, TIM_CHANNEL_1,
                  MOTOR_DIR_left_up_GPIO_Port, MOTOR_DIR_left_up_Pin,
-                 &htim8, WHEEL_ENCODER_COUNTS_PER_REV,
+                 &htim8, WHEEL_ENCODER_COUNTS_PER_REV_LU,
                  MOTOR_LEFT_UP_DIR_INVERTED);
 
   Motor_Init_TIM(&Motor_RightUp, &htim11, TIM_CHANNEL_1,
                  MOTOR_DIR_right_up_GPIO_Port, MOTOR_DIR_right_up_Pin,
-                 &htim1, WHEEL_ENCODER_COUNTS_PER_REV,
+                 &htim1, WHEEL_ENCODER_COUNTS_PER_REV_OTHER,
                  MOTOR_RIGHT_UP_DIR_INVERTED);
 
   Motor_Init_TIM(&Motor_LeftDown, &htim10, TIM_CHANNEL_1,
                  MOTOR_DIR_left_down_GPIO_Port, MOTOR_DIR_left_down_Pin,
-                 &htim2, WHEEL_ENCODER_COUNTS_PER_REV,
+                 &htim2, WHEEL_ENCODER_COUNTS_PER_REV_OTHER,
                  MOTOR_LEFT_DOWN_DIR_INVERTED);
 
   Motor_Init_TIM(&Motor_RightDown, &htim9, TIM_CHANNEL_2,
                  MOTOR_DIR_right_down_GPIO_Port, MOTOR_DIR_right_down_Pin,
-                 &htim3, WHEEL_ENCODER_COUNTS_PER_REV,
+                 &htim3, WHEEL_ENCODER_COUNTS_PER_REV_OTHER,
                  MOTOR_RIGHT_DOWN_DIR_INVERTED);
 
-  All_Motors_Stop();
+  /*
+   * Chuẩn hóa dấu encoder độc lập với cờ đảo DIR motor.
+   * Sau đoạn này: chiều xe tiến được quy ước là RPM dương.
+   */
+  Motor_SetEncoderDirectionInverted(&Motor_LeftUp,
+                                    ENCODER_LEFT_UP_DIR_INVERTED);
+  Motor_SetEncoderDirectionInverted(&Motor_RightUp,
+                                    ENCODER_RIGHT_UP_DIR_INVERTED);
+  Motor_SetEncoderDirectionInverted(&Motor_LeftDown,
+                                    ENCODER_LEFT_DOWN_DIR_INVERTED);
+  Motor_SetEncoderDirectionInverted(&Motor_RightDown,
+                                    ENCODER_RIGHT_DOWN_DIR_INVERTED);
+
+  /*
+   * Gắn 4 Motor_HandleTypeDef vào module wheel_control.
+   * LU đã có encoder 16 P/R; closed-loop LU được chuẩn bị trong wheel_control.
+   * Cờ wheel_encoder_available_lu khởi động ở 0 để kiểm tra dấu encoder trước,
+   * sau đó có thể bật =1 trong Live Expressions mà không cần flash lại.
+   */
+  WheelControl_Init(&Motor_LeftUp,
+                    &Motor_RightUp,
+                    &Motor_LeftDown,
+                    &Motor_RightDown,
+                    MOTOR_PWM_MAX);
+
+  Wheel_EmergencyStop();
 
   /* Khởi tạo command builder M2; speed mặc định đã là Medium. */
   Voice_ResetPendingCommand();
@@ -1174,13 +2790,13 @@ int main(void)
   {
     /*
      * ==========================================================
-     * VC-02 - M2 BUILDER + M3 ARBITRATION + M4' OPEN-LOOP
+     * VC-02 - M2 BUILDER + M3 ARBITRATION + M6 WHEEL CONTROL
      * ==========================================================
      *
      * Lấy hết event trong FIFO và gom command theo kiểu
      * không phụ thuộc thứ tự. TIME là trigger chốt cuối.
-     * TIME tạo command hoàn chỉnh; M4' thực thi tiến/lùi
-     * open-loop khi arbitration cấp quyền cho VOICE.
+     * TIME tạo command hoàn chỉnh; arbitration cấp quyền cho VOICE,
+     * còn wheel_control thực thi open-loop hoặc PID tùy mode M6.
      */
     while (VC02_GetEvent(&vc02_event) != 0U)
     {
@@ -1200,6 +2816,85 @@ int main(void)
     Motor_Update_RPM(&Motor_LeftDown);
     Motor_Update_RPM(&Motor_RightDown);
 
+    /*
+     * Copy counter phần cứng ra biến thường để Live Expressions
+     * đọc ổn định, tránh lỗi "Failed to evaluate expression"
+     * khi nhập trực tiếp TIMx->CNT.
+     */
+    debug_enc_lu_cnt = __HAL_TIM_GET_COUNTER(&htim8);
+    debug_enc_ru_cnt = __HAL_TIM_GET_COUNTER(&htim1);
+    debug_enc_ld_cnt = __HAL_TIM_GET_COUNTER(&htim2);
+    debug_enc_rd_cnt = __HAL_TIM_GET_COUNTER(&htim3);
+
+    /*
+     * Mở rộng counter 16-bit thành total 32-bit có dấu.
+     * Ép về int16_t xử lý đúng cả wrap 65535->0 và 0->65535.
+     * RU/RD được đảo dấu để chiều xe tiến có total dương như LD.
+     */
+    {
+      uint16_t current;
+
+      current = (uint16_t)debug_enc_lu_cnt;
+      {
+        int16_t d = (int16_t)(current - debug_enc_lu_prev);
+        debug_enc_lu_total += (Motor_LeftUp.encoder_direction_inverted != 0U) ? -d : d;
+      }
+      debug_enc_lu_prev = current;
+
+      current = (uint16_t)debug_enc_ru_cnt;
+      {
+        int16_t d = (int16_t)(current - debug_enc_ru_prev);
+        debug_enc_ru_total += (Motor_RightUp.encoder_direction_inverted != 0U) ? -d : d;
+      }
+      debug_enc_ru_prev = current;
+
+      current = (uint16_t)debug_enc_ld_cnt;
+      {
+        int16_t d = (int16_t)(current - debug_enc_ld_prev);
+        debug_enc_ld_total += (Motor_LeftDown.encoder_direction_inverted != 0U) ? -d : d;
+      }
+      debug_enc_ld_prev = current;
+
+      current = (uint16_t)debug_enc_rd_cnt;
+      {
+        int16_t d = (int16_t)(current - debug_enc_rd_prev);
+        debug_enc_rd_total += (Motor_RightDown.encoder_direction_inverted != 0U) ? -d : d;
+      }
+      debug_enc_rd_prev = current;
+    }
+
+    /*
+     * Encoder 2 motor đánh lái.
+     */
+    debug_turn_left_cnt = __HAL_TIM_GET_COUNTER(&htim4);
+    debug_turn_right_cnt = (uint32_t)hlptim1.Instance->CNT;
+
+    /*
+     * Đọc trực tiếp mức A/B để phân biệt lỗi encoder/dây với lỗi peripheral.
+     * GPIO vẫn đọc được IDR khi chân đang ở Alternate Function.
+     */
+    debug_turn_left_a =
+        (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_12) == GPIO_PIN_SET) ? 1U : 0U;
+    debug_turn_left_b =
+        (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_13) == GPIO_PIN_SET) ? 1U : 0U;
+
+    debug_turn_right_a =
+        (HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_12) == GPIO_PIN_SET) ? 1U : 0U;
+    debug_turn_right_b =
+        (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_1) == GPIO_PIN_SET) ? 1U : 0U;
+
+    /*
+     * AS5600 telemetry/calibration tạm tắt mặc định trong giai đoạn tune 4 bánh.
+     * Các giao dịch I2C debug là blocking và trước đây đã kéo chu kỳ main
+     * từ ~24-25 ms lên ~50 ms khi một bus/sensor không sẵn sàng.
+     *
+     * Chỉ bật debug_as5600_poll_enable = 1 khi cần đọc AS5600 và xe đang dừng.
+     */
+    if (debug_as5600_poll_enable != 0U)
+    {
+      AS5600_DebugUpdate();
+    }
+
 
     /*
      * ==========================================================
@@ -1209,36 +2904,58 @@ int main(void)
      * Đọc PS2 trước, sau đó arbitration quyết định ai có quyền:
      * STOP > PS2 manual > Voice > Idle.
      *
-     * Quan trọng: PS2 chỉ "được kết nối" nhưng đang neutral sẽ
-     * KHÔNG còn tự động gọi All_Motors_Stop() để đè voice.
+     * Khi Voice đang chạy, thao tác PS2 đầu tiên chỉ HỦY Voice và
+     * yêu cầu xe ramp về 0. Phải nhả PS2 về neutral rồi thao tác lại
+     * thì PS2 mới được phép điều khiển motor.
+     *
+     * PS2 chỉ "được kết nối" nhưng đang neutral sẽ không đè Voice.
      */
     PS2_Read_Data();
 
     Control_Arbitrate();
+
     /*
-     * ==========================================================
-     * DEBUG MOTOR RIGHT DOWN
-     * DIR = PE4
-     * PWM = TIM9_CH2
-     * ==========================================================
+     * USER button posts only a request from EXTI.
+     * Process it here, before wheel-control, so a manual validation
+     * start can enable PID in the same control cycle.
      */
-
-    /* Mức mà STM32 đang yêu cầu xuất ra PE4 */
-    debug_rd_dir_odr =
-        ((MOTOR_DIR_right_down_GPIO_Port->ODR &
-          MOTOR_DIR_right_down_Pin) != 0U) ? 1U : 0U;
+    Wheel_LogButtonUpdate();
 
 
-    /* Đọc lại mức logic thực tế tại chân PE4 */
-    debug_rd_dir_pin =
-        (HAL_GPIO_ReadPin(MOTOR_DIR_right_down_GPIO_Port,
-                          MOTOR_DIR_right_down_Pin)
-         == GPIO_PIN_SET) ? 1U : 0U;
+    /*
+     * M6 wheel-control module:
+     * - ramp + reverse dead-time;
+     * - PID OFF: giữ open-loop cũ;
+     * - PID ON: feedforward + PID tốc độ từng bánh có encoder.
+     */
+    WheelControl_Update();
 
+    /*
+     * Auto feedforward-calibration test:
+     * chỉ cần đặt wheel_ff_test_start = 1 trong Live Expressions.
+     * Wheel-control module yêu cầu logger start/stop qua 2 pulse flag này.
+     */
+    if (wheel_ff_test_log_start_request != 0U)
+    {
+      wheel_ff_test_log_start_request = 0U;
+      wheel_log_start = 1U;
+    }
 
-    /* PWM hiện đang xuất cho RightDown */
-    debug_rd_pwm =
-        __HAL_TIM_GET_COMPARE(&htim9, TIM_CHANNEL_2);
+    if (wheel_ff_test_log_stop_request != 0U)
+    {
+      wheel_ff_test_log_stop_request = 0U;
+      wheel_log_stop = 1U;
+    }
+
+    /*
+     * Ghi dữ liệu chạy xe vào RAM.
+     * Logger chỉ thực sự ghi khi wheel_log_active = 1.
+     */
+    Wheel_LogUpdate();
+
+    /* CSV dump is accepted only after logging is complete and PWM = 0. */
+    Wheel_LogDumpCsvUpdate();
+
     HAL_Delay(20);  /* Chu kỳ điều khiển khoảng 50 Hz */
 
     /* USER CODE END WHILE */
@@ -1370,7 +3087,8 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x2010091A;
+  /* 48-MHz I2C kernel clock, Standard-mode ~100 kHz (same as I2C2). */
+  hi2c1.Init.Timing = 0xB0420F13;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -1418,7 +3136,8 @@ static void MX_I2C2_Init(void)
 
   /* USER CODE END I2C2_Init 1 */
   hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x2010091A;
+  /* 48-MHz I2C kernel clock, Standard-mode ~100 kHz (RM0410 Table 217). */
+  hi2c2.Init.Timing = 0xB0420F13;
   hi2c2.Init.OwnAddress1 = 0;
   hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -2243,6 +3962,23 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == USER_Btn_Pin)
+  {
+    uint32_t now = HAL_GetTick();
+
+    if ((wheel_log_button_press_count == 0U) ||
+        ((uint32_t)(now - wheel_log_button_last_tick) >=
+         WHEEL_LOG_BUTTON_DEBOUNCE_MS))
+    {
+      wheel_log_button_last_tick = now;
+      wheel_log_button_press_count++;
+      wheel_log_button_press_request = 1U;
+    }
+  }
+}
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
