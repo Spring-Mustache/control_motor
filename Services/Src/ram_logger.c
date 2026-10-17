@@ -63,7 +63,189 @@ void RamLogger_OnUserButtonInterrupt(uint32_t tick_ms)
  * Buffer để volatile để compiler không loại bỏ dữ liệu chỉ vì
  * chương trình chính không đọc lại buffer này.
  */
+
+/* Retained across warm reset only; invalid after loss of SRAM power.
+ * 6000 x 72 bytes and metadata are placed in NOLOAD linker section.
+ */
+#define WC_LOG_MAGIC 0x4D365233UL
+#define WC_LOG_VERSION 1UL
+typedef struct {
+  uint32_t magic, version, count, samples_crc, config_crc;
+  float config[41];
+  uint8_t profile, pad[3];
+} WC_LogRetained_t;
+
+__attribute__((section(".noinit.wheel_log"), aligned(8), used))
 volatile WheelLogSample_t wheel_log[WHEEL_LOG_MAX_SAMPLES];
+__attribute__((section(".noinit.wheel_log"), aligned(8), used))
+static volatile WC_LogRetained_t wc_log_retained;
+
+/* Visible in Live Expressions: 1=recovered; 2=power reset; 3=invalid. */
+volatile uint32_t wheel_log_boot_reset_flags = 0U;
+volatile uint8_t wheel_log_recovered = 0U;
+volatile uint8_t wheel_log_recovery_status = 0U;
+
+static uint32_t WC_LogCrcStep(uint32_t crc, uint8_t byte)
+{
+  uint32_t n;
+  crc ^= byte;
+  for (n = 0U; n < 8U; ++n)
+    crc = (crc & 1U) ? ((crc >> 1U) ^ 0xEDB88320UL) : (crc >> 1U);
+  return crc;
+}
+
+static uint32_t WC_LogCrcBuffer(const volatile uint8_t *data, uint32_t size)
+{
+  uint32_t crc = 0xFFFFFFFFUL, n;
+  for (n = 0U; n < size; ++n) crc = WC_LogCrcStep(crc, data[n]);
+  return ~crc;
+}
+
+static uint32_t WC_LogSamplesCrc(uint32_t count)
+{
+  return WC_LogCrcBuffer((const volatile uint8_t *)wheel_log,
+                         count * (uint32_t)sizeof(WheelLogSample_t));
+}
+
+static uint32_t WC_LogConfigCrc(void)
+{
+  return WC_LogCrcBuffer((const volatile uint8_t *)&wc_log_retained.config[0],
+                         (uint32_t)sizeof(wc_log_retained.config) + 4U);
+}
+
+static void WC_LogInvalidate(void) { wc_log_retained.magic = 0U; __DSB(); }
+
+static void WC_LogCommit(void)
+{
+  uint32_t i = 0U;
+  wc_log_retained.magic = 0U;
+  wc_log_retained.version = WC_LOG_VERSION;
+  wc_log_retained.count = wheel_log_count;
+  wc_log_retained.config[i++] = wheel_log_kp_lu_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ki_lu_snapshot;
+  wc_log_retained.config[i++] = wheel_log_kd_lu_snapshot;
+  wc_log_retained.config[i++] = wheel_log_kp_ld_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ki_ld_snapshot;
+  wc_log_retained.config[i++] = wheel_log_kd_ld_snapshot;
+  wc_log_retained.config[i++] = wheel_log_kp_ru_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ki_ru_snapshot;
+  wc_log_retained.config[i++] = wheel_log_kd_ru_snapshot;
+  wc_log_retained.config[i++] = wheel_log_kp_rd_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ki_rd_snapshot;
+  wc_log_retained.config[i++] = wheel_log_kd_rd_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_k_lu_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_k_ld_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_k_ru_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_k_rd_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_offset_lu_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_offset_ld_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_offset_ru_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_offset_rd_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ff_offset_rd_reverse_snapshot;
+  wc_log_retained.config[i++] = wheel_log_ka_snapshot;
+  wc_log_retained.config[i++] = wheel_log_sync_k_snapshot;
+  wc_log_retained.config[i++] = wheel_log_sync_max_snapshot;
+  wc_log_retained.config[i++] = wheel_log_sync_enter_snapshot;
+  wc_log_retained.config[i++] = wheel_log_sync_exit_snapshot;
+  wc_log_retained.config[i++] = wheel_log_slew_accel_snapshot;
+  wc_log_retained.config[i++] = wheel_log_slew_decel_snapshot;
+  wc_log_retained.config[i++] = wheel_log_slew_zero_snapshot;
+  wc_log_retained.config[i++] = wheel_log_manual_accel_snapshot;
+  wc_log_retained.config[i++] = wheel_log_manual_decel_snapshot;
+  wc_log_retained.config[i++] = wheel_log_manual_zero_snapshot;
+  wc_log_retained.config[i++] = wheel_log_manual_soft_window_snapshot;
+  wc_log_retained.config[i++] = wheel_log_manual_soft_min_rate_snapshot;
+  wc_log_retained.config[i++] = wheel_log_manual_zero_soft_window_snapshot;
+  wc_log_retained.config[i++] = wheel_log_manual_zero_soft_min_rate_snapshot;
+  wc_log_retained.config[i++] = wheel_log_manual_hysteresis_snapshot;
+  wc_log_retained.config[i++] = wheel_log_fixed_accel_snapshot;
+  wc_log_retained.config[i++] = wheel_log_fixed_decel_snapshot;
+  wc_log_retained.config[i++] = wheel_log_fixed_zero_snapshot;
+  wc_log_retained.profile = wheel_log_profile_snapshot;
+  wc_log_retained.pad[0] = wc_log_retained.pad[1] = wc_log_retained.pad[2] = 0U;
+  wc_log_retained.samples_crc = WC_LogSamplesCrc(wheel_log_count);
+  wc_log_retained.config_crc = WC_LogConfigCrc();
+  __DSB();
+  wc_log_retained.magic = WC_LOG_MAGIC; /* commit marker must be last */
+  __DSB();
+}
+
+void RamLogger_BootRecover(uint32_t reset_flags)
+{
+  uint32_t i = 0U;
+  wheel_log_boot_reset_flags = reset_flags;
+  wheel_log_recovered = 0U;
+  wheel_log_recovery_status = 0U;
+  if ((reset_flags & (RCC_CSR_PORRSTF | RCC_CSR_BORRSTF)) != 0U) {
+    WC_LogInvalidate();
+    wheel_log_recovery_status = 2U;
+    return;
+  }
+  if ((wc_log_retained.magic != WC_LOG_MAGIC) ||
+      (wc_log_retained.version != WC_LOG_VERSION) ||
+      (wc_log_retained.count == 0U) ||
+      (wc_log_retained.count > WHEEL_LOG_MAX_SAMPLES)) {
+    wheel_log_recovery_status = 3U;
+    return;
+  }
+  if ((wc_log_retained.samples_crc != WC_LogSamplesCrc(wc_log_retained.count)) ||
+      (wc_log_retained.config_crc != WC_LogConfigCrc())) {
+    WC_LogInvalidate();
+    wheel_log_recovery_status = 3U;
+    return;
+  }
+  wheel_log_count = wc_log_retained.count;
+  wheel_log_kp_lu_snapshot = wc_log_retained.config[i++];
+  wheel_log_ki_lu_snapshot = wc_log_retained.config[i++];
+  wheel_log_kd_lu_snapshot = wc_log_retained.config[i++];
+  wheel_log_kp_ld_snapshot = wc_log_retained.config[i++];
+  wheel_log_ki_ld_snapshot = wc_log_retained.config[i++];
+  wheel_log_kd_ld_snapshot = wc_log_retained.config[i++];
+  wheel_log_kp_ru_snapshot = wc_log_retained.config[i++];
+  wheel_log_ki_ru_snapshot = wc_log_retained.config[i++];
+  wheel_log_kd_ru_snapshot = wc_log_retained.config[i++];
+  wheel_log_kp_rd_snapshot = wc_log_retained.config[i++];
+  wheel_log_ki_rd_snapshot = wc_log_retained.config[i++];
+  wheel_log_kd_rd_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_k_lu_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_k_ld_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_k_ru_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_k_rd_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_offset_lu_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_offset_ld_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_offset_ru_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_offset_rd_snapshot = wc_log_retained.config[i++];
+  wheel_log_ff_offset_rd_reverse_snapshot = wc_log_retained.config[i++];
+  wheel_log_ka_snapshot = wc_log_retained.config[i++];
+  wheel_log_sync_k_snapshot = wc_log_retained.config[i++];
+  wheel_log_sync_max_snapshot = wc_log_retained.config[i++];
+  wheel_log_sync_enter_snapshot = wc_log_retained.config[i++];
+  wheel_log_sync_exit_snapshot = wc_log_retained.config[i++];
+  wheel_log_slew_accel_snapshot = wc_log_retained.config[i++];
+  wheel_log_slew_decel_snapshot = wc_log_retained.config[i++];
+  wheel_log_slew_zero_snapshot = wc_log_retained.config[i++];
+  wheel_log_manual_accel_snapshot = wc_log_retained.config[i++];
+  wheel_log_manual_decel_snapshot = wc_log_retained.config[i++];
+  wheel_log_manual_zero_snapshot = wc_log_retained.config[i++];
+  wheel_log_manual_soft_window_snapshot = wc_log_retained.config[i++];
+  wheel_log_manual_soft_min_rate_snapshot = wc_log_retained.config[i++];
+  wheel_log_manual_zero_soft_window_snapshot = wc_log_retained.config[i++];
+  wheel_log_manual_zero_soft_min_rate_snapshot = wc_log_retained.config[i++];
+  wheel_log_manual_hysteresis_snapshot = wc_log_retained.config[i++];
+  wheel_log_fixed_accel_snapshot = wc_log_retained.config[i++];
+  wheel_log_fixed_decel_snapshot = wc_log_retained.config[i++];
+  wheel_log_fixed_zero_snapshot = wc_log_retained.config[i++];
+  wheel_log_profile_snapshot = wc_log_retained.profile;
+  wheel_log_active = 0U;
+  wheel_log_done = 1U;
+  wheel_log_recovered = 1U;
+  wheel_log_recovery_status = 1U;
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+}
+
 
 /* Request từ debugger. Logger tự reset request sau khi nhận. */
 volatile uint8_t wheel_log_start = 0U;
@@ -590,6 +772,7 @@ void RamLogger_Update(uint8_t ps2_ly, uint8_t mode_value)
     wheel_log_start = 0U;
     wheel_log_stop = 0U;
 
+    WC_LogInvalidate();
     wheel_log_count = 0U;
     wheel_log_done = 0U;
     wheel_log_active = 1U;
@@ -666,6 +849,7 @@ void RamLogger_Update(uint8_t ps2_ly, uint8_t mode_value)
     wheel_log_stop = 0U;
     wheel_log_active = 0U;
     wheel_log_done = 1U;
+    WC_LogCommit();
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
     return;
@@ -689,6 +873,7 @@ void RamLogger_Update(uint8_t ps2_ly, uint8_t mode_value)
   {
     wheel_log_active = 0U;
     wheel_log_done = 1U;
+    WC_LogCommit();
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
     return;
@@ -755,6 +940,7 @@ void RamLogger_Update(uint8_t ps2_ly, uint8_t mode_value)
   {
     wheel_log_active = 0U;
     wheel_log_done = 1U;
+    WC_LogCommit();
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
   }
