@@ -153,10 +153,10 @@ typedef enum
  * Đổi riêng từ 0U thành 1U nếu sau khi kiểm tra thực tế một motor
  * quay ngược chiều chuyển động mong muốn.
  */
-#define MOTOR_LEFT_UP_DIR_INVERTED          0U
-#define MOTOR_RIGHT_UP_DIR_INVERTED         0U
-#define MOTOR_LEFT_DOWN_DIR_INVERTED        1U
-#define MOTOR_RIGHT_DOWN_DIR_INVERTED       0U
+#define MOTOR_LEFT_UP_DIR_INVERTED          1U
+#define MOTOR_RIGHT_UP_DIR_INVERTED         1U
+#define MOTOR_LEFT_DOWN_DIR_INVERTED        0U
+#define MOTOR_RIGHT_DOWN_DIR_INVERTED       1U
 
 /*
  * Chuẩn hóa dấu encoder theo chiều chuyển động của xe:
