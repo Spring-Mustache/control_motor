@@ -25,7 +25,7 @@
 | M6-S02 | FIXED S-curve 1 s, PI + FF, dấu chiều động cơ và encoder, ±40 RPM | **PASS trên giá treo** | Bài 4 bánh × 4 plateau đạt 16/16 sai số trung bình trong ±0,5 RPM; log tiến/lùi tiếp theo 8/8 đoạn plateau đạt |
 | M6-S03a | Giữ RAM log qua RESET / cắm lại USB, CRC, giữ USER 3 s để xóa | **PASS chức năng trên giá treo** | Đã xuất CSV sau reset/rút-cắm USB; bài thử 1.128 mẫu và bài có điều khiển 1.714 mẫu không thấy thiếu dòng/cột |
 | M6-S03b | Tốc độ bánh **trên mặt đất có tải** | **CHƯA LÀM** | Không được gọi M6-S03 loaded PASS vì cả 4 bánh vẫn đang treo |
-| M7-S01 | Nhận/kiểm tra 4 công tắc hành trình lái | **TIẾP THEO** | Xem chi tiết bên dưới |
+| M7-S01 | Nhận/kiểm tra 4 công tắc hành trình lái | **ĐÃ CODE, CHỜ THỬ TRÊN BO** | Nhánh `feature/m7-s01-limit-switch-inputs`; xem bài test bên dưới |
 | M7-S02 | Chặn motor lái ở giới hạn, cho phép thoát khỏi giới hạn, motor PWM thấp | Chưa làm | Cần M7-S01 PASS trước |
 | M7-S03 | Phản hồi encoder/AS5600 hai bên, hiệu chuẩn tâm và biên lái | Chưa nghiệm thu | Có mã debug và khởi tạo, chưa có bằng chứng đủ điều kiện đóng vòng |
 | M7-S04 | Điều khiển vị trí đánh lái trái/phải, dừng đúng góc, lỗi an toàn | Chưa làm | Test trên giá treo |
@@ -56,7 +56,7 @@
 | `LIMIT_L_MIN` | PD10 | EXTI15_10 |
 | `LIMIT_L_MAX` | PD11 | EXTI15_10 |
 
-Source `Core/Src/main.c` cấu hình bốn chân `GPIO_MODE_IT_RISING` + `GPIO_PULLUP`; `Core/Src/stm32f7xx_it.c` chuyển 4 IRQ qua `HAL_GPIO_EXTI_IRQHandler`. Nhưng callback `HAL_GPIO_EXTI_Callback` hiện **chỉ xử lý USER**, chưa cập nhật trạng thái/counter cho 4 LIMIT. **Chưa xác nhận logic điện khi nhấn/công tắc nhả**. Nếu tiếp điểm NO kéo GND, cạnh kích hoạt lúc nhấn là FALLING nên cấu hình RISING hiện tại chưa đủ để bắt sự kiện nhấn.
+Source `Core/Src/main.c` giữ `GPIO_MODE_IT_RISING` + `GPIO_PULLUP`, đúng theo sơ đồ đã chọn **NC -> GPIO, COM -> GND** (tiếp điểm NC đóng = LOW; nhấn công tắc/mất dây NC = HIGH). Nhánh M7-S01 bổ sung callback đếm cạnh RISING và hàm đọc 4 chân tại main loop với chống dội 40 ms. **Mạch thực tế chưa được đo xác nhận**, không đánh dấu PASS trước khi xem Live Expressions. Không thay đổi PWM motor lái hay thuật toán bánh.
 
 ### Mục tiêu M7-S01 (chưa cấp PWM cho motor đánh lái)
 
@@ -64,6 +64,9 @@ Source `Core/Src/main.c` cấu hình bốn chân `GPIO_MODE_IT_RISING` + `GPIO_P
 - Ghi biến Live Expressions: mức logic, trạng thái active, đếm cạnh/chuyển trạng thái, phát hiện dội nút nếu có.
 - Xác minh đúng công tắc ↔ GPIO; xác định cực tính bằng bằng chứng trên bo, không đoán NO/NC.
 - Nhận đủ 4 công tắc khi thao tác bằng tay; không làm ảnh hưởng logger hoặc điều khiển bánh.
+- **Debug trong Live Expressions:** `debug_limit_r_max`, `debug_limit_r_min`, `debug_limit_l_min`, `debug_limit_l_max` (mở rộng struct để xem `.raw`, `.active`, `.activate_count`, `.release_count`, `.exti_rise_count`); `debug_limit_raw_mask` và `debug_limit_active_mask` (bit0 R_MAX, bit1 R_MIN, bit2 L_MIN, bit3 L_MAX), `debug_limit_same_side_both_active` (bit0 phải, bit1 trái).
+- **Test lần đầu không chạy motor:** khi 4 công tắc NC nhả, chờ ≥0,1 s, cả 4 `raw/active=0` và hai mask =0. Bấm giữ từng công tắc ≥0,2 s: chỉ công tắc đó lên `raw=1,active=1`, `activate_count` tăng 1, `exti_rise_count` tăng ít nhất 1 (có thể >1 do dội). Nhả ≥0,2 s: trở về `0`, `release_count` tăng 1. Lặp từng công tắc đúng một lần.
+- Nếu chân HIGH liên tục khi chưa nhấn: có thể đang đứt dây/lắp sai tiếp điểm/công tắc đang bị chạm, không tự kết luận module hỏng. Hai biên cùng phía HIGH đồng thời làm `debug_limit_same_side_both_active` khác 0, cần kiểm tra dây trước khi cấp PWM.
 - Kết thúc M7-S01 mới cho phép test motor lái PWM thấp và xây dựng chặn quá giới hạn.
 
 ### Nền đánh lái đã có trong firmware nhưng chưa nghiệm thu
