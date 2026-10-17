@@ -61,7 +61,7 @@
 #define WC_SYNC_MIN_TARGET_ACCEL_RPM_PER_S   1.0f
 
 #define WC_PID_KP_INIT                      4.5f
-#define WC_PID_KI_INIT                      2.3f
+#define WC_PID_KI_INIT                      3.5f
 #define WC_PID_KD_INIT                      0.0f
 #define WC_PID_INTEGRAL_LIMIT_PWM         300.0f
 
@@ -73,7 +73,7 @@
  * An explicit enable switch permits A/B comparisons with the same binary.
  * This first experiment intentionally does NOT modify steady-hold itself.
  */
-#define WC_PLATEAU_ADAPT_I_ENABLE_INIT            1U
+#define WC_PLATEAU_ADAPT_I_ENABLE_INIT            0U
 #define WC_PLATEAU_ADAPT_I_WHEELS_INIT            0x0FU
 #define WC_PLATEAU_ADAPT_I_KI_INIT               20.0f
 #define WC_PLATEAU_ADAPT_I_MIN_ERROR_RPM_INIT     0.8f
@@ -98,7 +98,7 @@
 #define WC_PID_FEEDBACK_MA_SAMPLES             5U
 #define WC_PID_ZERO_EPS_RPM                 0.01f
 #define WC_PID_INTEGRAL_HOLD_GAP_RPM_INIT      0.5f
-#define WC_PID_HUNT_ENABLE_INIT                    1U
+#define WC_PID_HUNT_ENABLE_INIT                    0U
 #define WC_PID_HUNT_ENTER_ERROR_RPM_INIT         0.8f
 #define WC_PID_HUNT_EXIT_ERROR_RPM_INIT          1.5f
 #define WC_PID_HUNT_ENTER_SAMPLES_INIT           3U
@@ -123,7 +123,7 @@
  * the current assist is explicitly transferred into I before removal so PWM
  * does not step.
  */
-#define WC_RU_CAPTURE_ASSIST_ENABLE_INIT              1U
+#define WC_RU_CAPTURE_ASSIST_ENABLE_INIT              0U
 #define WC_RU_CAPTURE_ASSIST_K_PWM_PER_RPM_INIT      6.0f
 #define WC_RU_CAPTURE_ASSIST_MAX_PWM_INIT            8.0f
 #define WC_RU_CAPTURE_ASSIST_TIMEOUT_MS_INIT          600U
@@ -474,7 +474,7 @@ volatile float wheel_ff_accel_pwm = 0.0f;
  * Có hysteresis ENTER/EXIT để không bật-tắt theo từng nấc lượng tử encoder.
  * Có thể A/B nhanh bằng wheel_sync_enable = 0/1 trong Live Expressions.
  */
-volatile uint8_t wheel_sync_enable = 1U;
+volatile uint8_t wheel_sync_enable = 0U;
 volatile uint8_t wheel_sync_active = 0U;
 volatile float wheel_sync_k_pwm_per_rpm = WC_SYNC_K_PWM_PER_RPM_INIT;
 volatile float wheel_sync_max_pwm = WC_SYNC_MAX_PWM_INIT;
@@ -1912,7 +1912,7 @@ void WheelControl_Init(Motor_HandleTypeDef *left_up,
   wc_ff_accel_prev_target_rpm = 0.0f;
   wc_ff_accel_prev_valid = 0U;
 
-  wheel_sync_enable = 1U;
+  wheel_sync_enable = 0U;
   wheel_sync_k_pwm_per_rpm = WC_SYNC_K_PWM_PER_RPM_INIT;
   wheel_sync_max_pwm = WC_SYNC_MAX_PWM_INIT;
   wheel_sync_spread_enter_rpm = WC_SYNC_SPREAD_ENTER_RPM_INIT;
