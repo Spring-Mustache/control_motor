@@ -165,6 +165,18 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM
 
+  /* Reset-surviving log storage; excluded from .data/.bss initialization. */
+  . = ALIGN(8);
+  .noinit (NOLOAD) :
+  {
+    . = ALIGN(8);
+    __wheel_log_noinit_start__ = .;
+    KEEP(*(.noinit.wheel_log))
+    KEEP(*(.noinit.wheel_log*))
+    . = ALIGN(8);
+    __wheel_log_noinit_end__ = .;
+  } >RAM
+
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :
   {
