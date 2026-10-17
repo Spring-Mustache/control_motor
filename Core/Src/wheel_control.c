@@ -273,7 +273,10 @@ volatile int16_t wheel_current_pwm = 0;
 volatile uint8_t wheel_reverse_wait_active = 0U;
 volatile uint32_t wheel_reverse_count = 0U;
 
-volatile uint8_t wheel_pid_enable = 0U;
+/* Normal drive uses encoder speed PI + FF from boot.
+ * Set wheel_pid_enable=0 explicitly only for diagnostic open-loop tests.
+ */
+volatile uint8_t wheel_pid_enable = 1U;
 volatile uint8_t wheel_pid_active = 0U;
 
 /* Integral-hold debug/tuning.
@@ -1993,7 +1996,10 @@ void WheelControl_Init(Motor_HandleTypeDef *left_up,
            WC_PID_KD_INIT,
            WC_PID_INTEGRAL_LIMIT_PWM);
 
-  wheel_pid_enable = 0U;
+  /* Close the speed loop by default for PS2/Voice, independently of logger.
+   * EmergencyStop still forces zero PWM without disabling this default mode.
+   */
+  wheel_pid_enable = 1U;
   wheel_pid_active = 0U;
   wheel_pid_integral_hold_active = 0U;
   wheel_target_raw_rpm = 0.0f;
