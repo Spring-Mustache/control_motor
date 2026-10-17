@@ -1,7 +1,7 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
 **Cập nhật:** 2026-10-17  
-**Firmware đang dùng:** `feature/m6-s03-log-retention`  
+**Firmware đang dùng:** `feature/m7-s01-limit-switch-inputs` (M7-S01 PASS theo xác nhận thử nghiệm thực tế của người dùng)  
 **Quy tắc nghiệm thu:** Chỉ đánh dấu PASS trong điều kiện đã kiểm chứng. PASS trên giá treo **không** có nghĩa đã PASS trên mặt đất có tải.
 
 ## Quyết định triển khai (2026-10-17)
@@ -25,8 +25,8 @@
 | M6-S02 | FIXED S-curve 1 s, PI + FF, dấu chiều động cơ và encoder, ±40 RPM | **PASS trên giá treo** | Bài 4 bánh × 4 plateau đạt 16/16 sai số trung bình trong ±0,5 RPM; log tiến/lùi tiếp theo 8/8 đoạn plateau đạt |
 | M6-S03a | Giữ RAM log qua RESET / cắm lại USB, CRC, giữ USER 3 s để xóa | **PASS chức năng trên giá treo** | Đã xuất CSV sau reset/rút-cắm USB; bài thử 1.128 mẫu và bài có điều khiển 1.714 mẫu không thấy thiếu dòng/cột |
 | M6-S03b | Tốc độ bánh **trên mặt đất có tải** | **CHƯA LÀM** | Không được gọi M6-S03 loaded PASS vì cả 4 bánh vẫn đang treo |
-| M7-S01 | Nhận/kiểm tra 4 công tắc hành trình lái | **ĐÃ CODE, CHỜ THỬ TRÊN BO** | Nhánh `feature/m7-s01-limit-switch-inputs`; xem bài test bên dưới |
-| M7-S02 | Chặn motor lái ở giới hạn, cho phép thoát khỏi giới hạn, motor PWM thấp | Chưa làm | Cần M7-S01 PASS trước |
+| M7-S01 | Nhận/kiểm tra 4 công tắc hành trình lái | **PASS — trên bo, thử bằng tay** | Người dùng xác nhận ngày 2026-10-17: cả 4 công tắc chuyển trạng thái đúng và ổn định; chưa thử cắt PWM motor |
+| M7-S02 | Chặn motor lái ở giới hạn, cho phép thoát khỏi giới hạn, motor PWM thấp | **TIẾP THEO** | Cần xác định chiều quay thực của từng motor và công tắc tương ứng trước khi cấp PWM; test từng motor riêng khi treo |
 | M7-S03 | Phản hồi encoder/AS5600 hai bên, hiệu chuẩn tâm và biên lái | Chưa nghiệm thu | Có mã debug và khởi tạo, chưa có bằng chứng đủ điều kiện đóng vòng |
 | M7-S04 | Điều khiển vị trí đánh lái trái/phải, dừng đúng góc, lỗi an toàn | Chưa làm | Test trên giá treo |
 | M7-S05 | Tích hợp **chạy bánh + đánh lái** trên giá treo | Chưa làm | Điều kiện kết thúc giai đoạn giá treo |
@@ -45,7 +45,7 @@
 
 **Mốc firmware:** `feature/m6-s02-fixed-scurve` ~ `fbaa452e` (không thay đổi); `feature/m6-s03-log-retention` firmware commit `4697e11f`. Không sửa baseline A/B.
 
-## M7-S01 — Bước kế tiếp: kiểm chứng công tắc hành trình
+## M7-S01 — PASS đọc 4 công tắc; M7-S02 là mốc tiếp theo
 
 ### Bản đồ tín hiệu hiện có trong source
 
@@ -56,7 +56,7 @@
 | `LIMIT_L_MIN` | PD10 | EXTI15_10 |
 | `LIMIT_L_MAX` | PD11 | EXTI15_10 |
 
-Source `Core/Src/main.c` giữ `GPIO_MODE_IT_RISING` + `GPIO_PULLUP`, đúng theo sơ đồ đã chọn **NC -> GPIO, COM -> GND** (tiếp điểm NC đóng = LOW; nhấn công tắc/mất dây NC = HIGH). Nhánh M7-S01 bổ sung callback đếm cạnh RISING và hàm đọc 4 chân tại main loop với chống dội 40 ms. **Mạch thực tế chưa được đo xác nhận**, không đánh dấu PASS trước khi xem Live Expressions. Không thay đổi PWM motor lái hay thuật toán bánh.
+Source `Core/Src/main.c` giữ `GPIO_MODE_IT_RISING` + `GPIO_PULLUP`, đúng theo sơ đồ đã chọn **NC -> GPIO, COM -> GND** (tiếp điểm NC đóng = LOW; nhấn công tắc/mất dây NC = HIGH). Nhánh M7-S01 bổ sung callback đếm cạnh RISING và hàm đọc 4 chân tại main loop với chống dội 40 ms. **Người dùng đã xác nhận trên bo cả 4 công tắc đọc đúng và ổn định theo bài test thao tác tay**. Chưa có xác nhận giới hạn đã chặn PWM motor thực tế. Không thay đổi PWM motor lái hay thuật toán bánh.
 
 ### Mục tiêu M7-S01 (chưa cấp PWM cho motor đánh lái)
 
@@ -67,7 +67,7 @@ Source `Core/Src/main.c` giữ `GPIO_MODE_IT_RISING` + `GPIO_PULLUP`, đúng the
 - **Debug trong Live Expressions:** `debug_limit_r_max`, `debug_limit_r_min`, `debug_limit_l_min`, `debug_limit_l_max` (mở rộng struct để xem `.raw`, `.active`, `.activate_count`, `.release_count`, `.exti_rise_count`); `debug_limit_raw_mask` và `debug_limit_active_mask` (bit0 R_MAX, bit1 R_MIN, bit2 L_MIN, bit3 L_MAX), `debug_limit_same_side_both_active` (bit0 phải, bit1 trái).
 - **Test lần đầu không chạy motor:** khi 4 công tắc NC nhả, chờ ≥0,1 s, cả 4 `raw/active=0` và hai mask =0. Bấm giữ từng công tắc ≥0,2 s: chỉ công tắc đó lên `raw=1,active=1`, `activate_count` tăng 1, `exti_rise_count` tăng ít nhất 1 (có thể >1 do dội). Nhả ≥0,2 s: trở về `0`, `release_count` tăng 1. Lặp từng công tắc đúng một lần.
 - Nếu chân HIGH liên tục khi chưa nhấn: có thể đang đứt dây/lắp sai tiếp điểm/công tắc đang bị chạm, không tự kết luận module hỏng. Hai biên cùng phía HIGH đồng thời làm `debug_limit_same_side_both_active` khác 0, cần kiểm tra dây trước khi cấp PWM.
-- Kết thúc M7-S01 mới cho phép test motor lái PWM thấp và xây dựng chặn quá giới hạn.
+- **M7-S01 đã PASS** (nhận 4 công tắc khi nhấn/nhả bằng tay); chưa cấp PWM. M7-S02 tiếp tục thiết lập an toàn về chiều motor và chặn tại giới hạn trước khi chạy cơ cấu.
 
 ### Nền đánh lái đã có trong firmware nhưng chưa nghiệm thu
 
@@ -89,3 +89,9 @@ Source `Core/Src/main.c` giữ `GPIO_MODE_IT_RISING` + `GPIO_PULLUP`, đúng the
 - Không ép motor lái chạy tới chặn cơ khí trước khi xác nhận từng công tắc.
 - Không xóa log trước khi xuất và kiểm tra CSV; thao tác xóa chủ động là giữ USER 3 giây.
 - Giữ nhánh baseline, tránh tự ghi đè những mốc đã nghiệm thu.
+
+## Biên bản cập nhật sau bài thử M7-S01 (2026-10-17)
+
+- Bài test do người dùng thao tác trực tiếp trên bo với cả 4 công tắc NC–COM nối GND: **cả bốn đều đúng và ổn định**. Mốc **M7-S01 PASS** chỉ trong phạm vi đọc tín hiệu GPIO/Live Expressions.
+- Không có bằng chứng mới về hoạt động motor đánh lái hoặc hiệu chuẩn góc; không suy rộng PASS sang M7-S02, M7-S03, M7-S04, hoặc Gate A.
+- Tiếp theo M7-S02: xác nhận đường PWM/DIR, kiểm tra ngắt giới hạn, xác định ánh xạ chiều thực tế của motor trái/phải đến MIN/MAX; thử xung PWM thấp, giới hạn thời gian, dừng an toàn, và chỉ thử từng motor trên giá treo khi đủ điều kiện bảo vệ.
