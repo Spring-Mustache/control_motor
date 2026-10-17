@@ -176,7 +176,7 @@
 
 /* M6-S02 experimental FIXED-speed S-curve. MANUAL and FF calibration stay legacy. */
 #define WC_FIXED_SCURVE_ENABLE_INIT              1U
-#define WC_FIXED_SCURVE_40RPM_S_INIT             2.0f
+#define WC_FIXED_SCURVE_40RPM_S_INIT             1.0f
 #define WC_FIXED_SCURVE_REFERENCE_RPM            40.0f
 #define WC_FIXED_SCURVE_MIN_SEGMENT_S            0.20f
 #define WC_FIXED_SCURVE_MAX_SEGMENT_S            5.00f
