@@ -174,6 +174,13 @@
 #define WC_FIXED_DECEL_RPM_PER_S_INIT       80.0f
 #define WC_FIXED_ZERO_RPM_PER_S_INIT       100.0f
 
+/* M6-S02 experimental FIXED-speed S-curve. MANUAL and FF calibration stay legacy. */
+#define WC_FIXED_SCURVE_ENABLE_INIT              1U
+#define WC_FIXED_SCURVE_40RPM_S_INIT             2.0f
+#define WC_FIXED_SCURVE_REFERENCE_RPM            40.0f
+#define WC_FIXED_SCURVE_MIN_SEGMENT_S            0.20f
+#define WC_FIXED_SCURVE_MAX_SEGMENT_S            5.00f
+
 #define WC_TARGET_DT_MAX_S                   0.100f
 #define WC_REVERSE_DEADTIME_MS             150U
 
@@ -206,6 +213,12 @@ static Motor_HandleTypeDef *wc_motor_rd = NULL;
 static int16_t wc_pwm_max = 999;
 static uint32_t wc_reverse_wait_start_tick = 0U;
 static uint32_t wc_target_last_tick = 0U;
+
+/* Private quintic segment state; only used for FIXED commands. */
+static float wc_fixed_scurve_start_rpm = 0.0f;
+static float wc_fixed_scurve_goal_rpm = 0.0f;
+static float wc_fixed_scurve_elapsed_s = 0.0f;
+static float wc_fixed_scurve_duration_s = 0.0f;
 static uint8_t wc_pid_enable_prev = 0U;
 static float wc_pid_prev_target_rpm = 0.0f;
 
@@ -426,6 +439,14 @@ volatile float wheel_manual_zero_ff_taper_scale = 1.0f;
 volatile float wheel_fixed_accel_rpm_per_s = WC_FIXED_ACCEL_RPM_PER_S_INIT;
 volatile float wheel_fixed_decel_rpm_per_s = WC_FIXED_DECEL_RPM_PER_S_INIT;
 volatile float wheel_fixed_zero_rpm_per_s = WC_FIXED_ZERO_RPM_PER_S_INIT;
+
+/* M6-S02 opt-in test path for FIXED commands, default ON only on this branch.
+ * Set enable=0 to run the exact M6-S01 linear FIXED shaper for A/B comparison.
+ * Duration is for a 40 RPM change; e.g. 0 -> 40 in 2 s and 40 -> 0 in 2 s.
+ */
+volatile uint8_t wheel_fixed_scurve_enable = WC_FIXED_SCURVE_ENABLE_INIT;
+volatile float wheel_fixed_scurve_40rpm_s = WC_FIXED_SCURVE_40RPM_S_INIT;
+volatile uint8_t wheel_fixed_scurve_active = 0U;
 
 /* Rate ĐANG được dùng; giữ tên cũ để Live Expressions/logger vẫn dễ theo dõi. */
 volatile float wheel_target_accel_rpm_per_s = WC_FIXED_ACCEL_RPM_PER_S_INIT;
@@ -1118,6 +1139,68 @@ static float WC_MoveTowardFloat(float current,
   return current;
 }
 
+/*
+ * Quintic smoothstep setpoint (zero first and second derivatives at both ends).
+ * Only reshapes the speed target. FF + PI, encoder, pwm limits are unchanged.
+ * A new FIXED command starts a new segment from the current setpoint.
+ * No sudden setpoint step when the operator changes a FIXED command.
+ */
+static void WC_FixedSCurveReset(void)
+{
+  wheel_fixed_scurve_active = 0U;
+  wc_fixed_scurve_start_rpm = 0.0f;
+  wc_fixed_scurve_goal_rpm = 0.0f;
+  wc_fixed_scurve_elapsed_s = 0.0f;
+  wc_fixed_scurve_duration_s = 0.0f;
+}
+
+static float WC_FixedSCurveStep(float current, float goal, float dt_s)
+{
+  float distance;
+  float scale;
+  float progress;
+  float smooth;
+
+  distance = WC_AbsFloat(goal - current);
+
+  if (distance <= WC_PID_ZERO_EPS_RPM)
+  {
+    WC_FixedSCurveReset();
+    return goal;
+  }
+
+  if ((wheel_fixed_scurve_active == 0U) ||
+      (WC_AbsFloat(goal - wc_fixed_scurve_goal_rpm) > WC_PID_ZERO_EPS_RPM))
+  {
+    wc_fixed_scurve_start_rpm = current;
+    wc_fixed_scurve_goal_rpm = goal;
+    wc_fixed_scurve_elapsed_s = 0.0f;
+    scale = WC_ClampFloat(wheel_fixed_scurve_40rpm_s, 1.0f, 4.0f);
+    wheel_fixed_scurve_40rpm_s = scale;
+    wc_fixed_scurve_duration_s = WC_ClampFloat(
+        (distance / WC_FIXED_SCURVE_REFERENCE_RPM) * scale,
+        WC_FIXED_SCURVE_MIN_SEGMENT_S,
+        WC_FIXED_SCURVE_MAX_SEGMENT_S);
+    wheel_fixed_scurve_active = 1U;
+  }
+
+  /* dt_s is already limited to 100 ms: a debugger pause cannot skip the ramp. */
+  wc_fixed_scurve_elapsed_s += dt_s;
+
+  if (wc_fixed_scurve_elapsed_s >= wc_fixed_scurve_duration_s)
+  {
+    WC_FixedSCurveReset();
+    return goal;
+  }
+
+  progress = wc_fixed_scurve_elapsed_s / wc_fixed_scurve_duration_s;
+  smooth = progress * progress * progress *
+           (progress * (progress * 6.0f - 15.0f) + 10.0f);
+
+  return wc_fixed_scurve_start_rpm +
+         (wc_fixed_scurve_goal_rpm - wc_fixed_scurve_start_rpm) * smooth;
+}
+
 static int16_t WC_TargetRPMToCommand(float target_rpm)
 {
   float command;
@@ -1303,6 +1386,7 @@ static void WC_TargetRPMUpdate(uint32_t now)
 
   if (wheel_reverse_wait_active != 0U)
   {
+    WC_FixedSCurveReset();
     wheel_pid_target_rpm = 0.0f;
     wheel_current_pwm = 0;
 
@@ -1331,6 +1415,52 @@ static void WC_TargetRPMUpdate(uint32_t now)
   {
     reversing = 1U;
   }
+
+  /*
+   * M6-S02 first stage: S-curve for clean FIXED targets only.
+   * - MANUAL joystick and FF auto-calibration keep their validated behavior.
+   * - Reverse still goes through zero + existing 150 ms dead-time.
+   * - EmergencyStop() bypasses this shaper and resets the segment.
+   */
+  if ((profile == WHEEL_COMMAND_PROFILE_FIXED) &&
+      (wheel_fixed_scurve_enable != 0U) &&
+      (wheel_ff_test_active == 0U))
+  {
+    if (reversing != 0U)
+    {
+      current = WC_FixedSCurveStep(current, 0.0f, dt_s);
+
+      if (WC_AbsFloat(current) <= WC_PID_ZERO_EPS_RPM)
+      {
+        current = 0.0f;
+        WC_FixedSCurveReset();
+        wheel_reverse_wait_active = 1U;
+        wc_reverse_wait_start_tick = now;
+        wheel_reverse_count++;
+      }
+    }
+    else
+    {
+      current = WC_FixedSCurveStep(current, command_target, dt_s);
+    }
+
+    current = WC_ClampFloat(current,
+                            -WC_TARGET_RPM_MAX,
+                             WC_TARGET_RPM_MAX);
+
+    if ((zero_command != 0U) &&
+        (WC_AbsFloat(current) <= WC_PID_ZERO_EPS_RPM))
+    {
+      current = 0.0f;
+      WC_FixedSCurveReset();
+    }
+
+    wheel_pid_target_rpm = current;
+    wheel_current_pwm = WC_TargetRPMToCommand(current);
+    return;
+  }
+
+  WC_FixedSCurveReset();
 
   if (reversing != 0U)
   {
@@ -1888,6 +2018,9 @@ void WheelControl_Init(Motor_HandleTypeDef *left_up,
   wheel_fixed_accel_rpm_per_s = WC_FIXED_ACCEL_RPM_PER_S_INIT;
   wheel_fixed_decel_rpm_per_s = WC_FIXED_DECEL_RPM_PER_S_INIT;
   wheel_fixed_zero_rpm_per_s = WC_FIXED_ZERO_RPM_PER_S_INIT;
+  wheel_fixed_scurve_enable = WC_FIXED_SCURVE_ENABLE_INIT;
+  wheel_fixed_scurve_40rpm_s = WC_FIXED_SCURVE_40RPM_S_INIT;
+  WC_FixedSCurveReset();
 
   wheel_target_accel_rpm_per_s = WC_FIXED_ACCEL_RPM_PER_S_INIT;
   wheel_target_decel_rpm_per_s = WC_FIXED_DECEL_RPM_PER_S_INIT;
@@ -2039,6 +2172,7 @@ void WheelControl_EmergencyStop(void)
   wheel_reverse_wait_active = 0U;
   wc_reverse_wait_start_tick = 0U;
   wc_target_last_tick = HAL_GetTick();
+  WC_FixedSCurveReset();
 
   wheel_pid_active = 0U;
   wheel_pid_integral_hold_active = 0U;
