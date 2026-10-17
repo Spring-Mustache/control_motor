@@ -16,6 +16,8 @@ extern "C" {
 #define WHEEL_LOG_CSV_SCALE                   1000.0f
 #define WHEEL_LOG_CSV_LINE_MAX                512U
 #define WHEEL_LOG_BUTTON_DEBOUNCE_MS           250U
+#define WHEEL_LOG_USER_EDGE_DEBOUNCE_MS         40U
+#define WHEEL_LOG_USER_LONG_PRESS_MS          3000U
 
 /* Original 72-byte sample; 6000 entries (432000 bytes) in RAM. */
 typedef struct
@@ -78,6 +80,8 @@ extern volatile uint32_t wheel_log_dump_lines;
 extern volatile uint8_t wheel_log_button_press_request;
 extern volatile uint32_t wheel_log_button_press_count;
 extern volatile uint32_t wheel_log_button_last_tick;
+extern volatile uint32_t wheel_log_user_clear_count;
+extern volatile uint8_t wheel_log_user_clear_blocked;
 extern volatile uint8_t wheel_log_force_pid_on_start;
 extern volatile float wheel_log_kp_lu_snapshot;
 extern volatile float wheel_log_ki_lu_snapshot;
