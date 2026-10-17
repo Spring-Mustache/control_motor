@@ -46,14 +46,15 @@ void RamLogger_OnUserButtonInterrupt(uint32_t tick_ms)
  * WHEEL DATA LOGGER - AUTONOMOUS RAM BUFFER
  *
  * USER button workflow (không cần debugger trong lúc xe chạy):
- *   - Press 1: start log + force wheel PID ON.
- *   - Press 2: stop log, giữ nguyên dữ liệu trong RAM.
- *   - Sau khi xe dừng và cắm ST-LINK USB vào PC:
- *       press USER lần nữa -> dump CSV qua USART3/VCP.
+ *   - Nhấn USER ngắn (thả trước 3 giây): START -> STOP -> DUMP.
+ *   - Giữ USER đủ 3 giây khi xe đứng yên và log đã hoàn tất:
+ *       xóa log, LD3 OFF, cho phép bài đo mới.
+ *   - RESET: khởi tạo lại điều khiển, giữ log hợp lệ đã hoàn tất.
  *
- * Khi wheel_log_done = 1, button KHÔNG bao giờ tự ghi đè buffer cũ;
- * nó chỉ yêu cầu dump lại. Muốn bắt đầu test mới, reset MCU sau khi
- * đã lưu CSV hoặc chủ động đặt wheel_log_start = 1 trong debugger.
+ * Khi wheel_log_done=1, mọi yêu cầu START (kể cả debugger) bị từ chối.
+ * Sau khi đã lưu CSV, dùng giữ USER 3 giây để mở khóa bài ghi mới.
+ * Dữ liệu trong .noinit chỉ giữ được khi SRAM còn nguồn và không bị
+ * debugger/programmer ghi đè; RESET khi còn nguồn không cố tình xóa log.
  *
  * Buffer 6000 mẫu x 20 ms ~= 120 s.
  * ============================================================
@@ -276,6 +277,8 @@ volatile uint32_t wheel_log_dump_lines = 0U;
 volatile uint8_t wheel_log_button_press_request = 0U;
 volatile uint32_t wheel_log_button_press_count = 0U;
 volatile uint32_t wheel_log_button_last_tick = 0U;
+volatile uint32_t wheel_log_user_clear_count = 0U;
+volatile uint8_t wheel_log_user_clear_blocked = 0U;
 
 /* 1 = start logger bằng USER button sẽ bật closed-loop PID. */
 volatile uint8_t wheel_log_force_pid_on_start = 1U;
@@ -712,51 +715,155 @@ void RamLogger_DumpCsvUpdate(void)
 }
 
 
+
 /*
- * USER button state machine.
- *
- *  - No completed log + not active -> START.
- *  - Active -> STOP.
- *  - Completed log -> DUMP (buffer is protected from overwrite).
- *
- * Start from the button can force PID ON so the manual/ground test
- * always validates the closed-loop controller rather than open-loop.
+ * USER short press is dispatched on debounced RELEASE, not on EXTI rising,
+ * so holding for 3 s never accidentally queues a CSV dump or starts a log.
+ * PC13 is HIGH when the NUCLEO USER button is pressed.
  */
-void RamLogger_ButtonUpdate(void)
+static uint8_t WC_LogVehicleStopped(void)
 {
-  if (wheel_log_button_press_request == 0U)
+  if ((wheel_ctrl_debug.target_command != 0) ||
+      (wheel_ctrl_debug.ramp_command != 0) ||
+      (wheel_pwm_lu != 0) || (wheel_pwm_ld != 0) ||
+      (wheel_pwm_ru != 0) || (wheel_pwm_rd != 0))
   {
-    return;
+    return 0U;
   }
 
-  wheel_log_button_press_request = 0U;
+  /* Guard residual motion, even with zero requested PWM. */
+  if (((s_motor_lu != NULL) &&
+       ((s_motor_lu->current_rpm > 2.0f) || (s_motor_lu->current_rpm < -2.0f))) ||
+      ((s_motor_ld != NULL) &&
+       ((s_motor_ld->current_rpm > 2.0f) || (s_motor_ld->current_rpm < -2.0f))) ||
+      ((s_motor_ru != NULL) &&
+       ((s_motor_ru->current_rpm > 2.0f) || (s_motor_ru->current_rpm < -2.0f))) ||
+      ((s_motor_rd != NULL) &&
+       ((s_motor_rd->current_rpm > 2.0f) || (s_motor_rd->current_rpm < -2.0f))))
+  {
+    return 0U;
+  }
+  return 1U;
+}
 
-  /* Auto FF test owns its own logger start/stop sequence. */
+static void WC_LogHandleShortUserPress(void)
+{
   if (wheel_ff_test_active != 0U)
   {
     return;
   }
-
   if (wheel_log_active != 0U)
   {
     wheel_log_stop = 1U;
     return;
   }
-
   if (wheel_log_done != 0U)
   {
     wheel_log_dump_request = 1U;
     return;
   }
 
+  if ((wheel_log_dump_active != 0U) || (WC_LogVehicleStopped() == 0U))
+  {
+    return; /* Do not start logger from an unsafe state. */
+  }
   if (wheel_log_force_pid_on_start != 0U)
   {
     wheel_pid_enable = 1U;
   }
-
   wheel_log_start = 1U;
 }
 
+/* Only USER >=3s can discard a completed log. No motor or UART output
+ * is interrupted; a rejected long hold is consumed, never a short press.
+ */
+static void WC_LogHandleLongUserPress(void)
+{
+  if ((wheel_log_done == 0U) || (wheel_log_active != 0U) ||
+      (wheel_log_dump_active != 0U) ||
+      (wheel_log_dump_request != 0U) ||
+      (wheel_ff_test_active != 0U) ||
+      (WC_LogVehicleStopped() == 0U))
+  {
+    wheel_log_user_clear_blocked = 1U;
+    return;
+  }
+
+  WC_LogInvalidate();
+  wheel_log_start = 0U;
+  wheel_log_stop = 0U;
+  wheel_log_active = 0U;
+  wheel_log_done = 0U;
+  wheel_log_count = 0U;
+  wheel_log_start_tick = 0U;
+  wheel_log_last_tick = 0U;
+  wheel_log_dump_request = 0U;
+  wheel_log_dump_done = 0U;
+  wheel_log_dump_status = 0U;
+  wheel_log_dump_lines = 0U;
+  wheel_log_recovered = 0U;
+  wheel_log_recovery_status = 0U;
+  wheel_log_user_clear_blocked = 0U;
+  wheel_log_user_clear_count++;
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+}
+
+void RamLogger_ButtonUpdate(void)
+{
+  static uint8_t last_raw = 0U;
+  static uint8_t stable = 0U;
+  static uint8_t long_processed = 0U;
+  static uint32_t raw_changed_at = 0U;
+  static uint32_t pressed_at = 0U;
+  uint32_t now = HAL_GetTick();
+  uint8_t raw = (HAL_GPIO_ReadPin(USER_Btn_GPIO_Port, USER_Btn_Pin) ==
+                 GPIO_PIN_SET) ? 1U : 0U;
+
+  /* Existing EXTI callback remains for press count/time debug; polling
+   * determines actual button duration and safely consumes its request.
+   */
+  wheel_log_button_press_request = 0U;
+
+  if (raw != last_raw)
+  {
+    last_raw = raw;
+    raw_changed_at = now;
+  }
+
+  if ((raw != stable) &&
+      ((uint32_t)(now - raw_changed_at) >=
+       WHEEL_LOG_USER_EDGE_DEBOUNCE_MS))
+  {
+    stable = raw;
+    if (stable != 0U)
+    {
+      pressed_at = now;
+      long_processed = 0U;
+    }
+    else if (long_processed == 0U)
+    {
+      /* If scheduler was delayed across the 3s boundary, preserve the
+       * duration decision rather than treating a long hold as a tap.
+       */
+      if ((uint32_t)(now - pressed_at) >= WHEEL_LOG_USER_LONG_PRESS_MS)
+      {
+        WC_LogHandleLongUserPress();
+      }
+      else
+      {
+        WC_LogHandleShortUserPress();
+      }
+    }
+  }
+
+  if ((stable != 0U) && (raw != 0U) && (long_processed == 0U) &&
+      ((uint32_t)(now - pressed_at) >= WHEEL_LOG_USER_LONG_PRESS_MS))
+  {
+    long_processed = 1U;
+    WC_LogHandleLongUserPress();
+  }
+}
 
 void RamLogger_Update(uint8_t ps2_ly, uint8_t mode_value)
 {
@@ -765,12 +872,17 @@ void RamLogger_Update(uint8_t ps2_ly, uint8_t mode_value)
 
   /*
    * START request có ưu tiên trước.
-   * Debugger vẫn có thể đặt wheel_log_start=1 để chủ động ghi đè log cũ.
-   * USER button thì không bao giờ ghi đè khi wheel_log_done=1.
+   * Dù qua USER hay debugger, START không được ghi đè log hoàn tất.
+   * Chỉ giữ USER 3 giây khi xe dừng mới xóa log trước bài tiếp theo.
    */
   if (wheel_log_start != 0U)
   {
     wheel_log_start = 0U;
+    if ((wheel_log_done != 0U) || (wheel_log_active != 0U) ||
+        (wheel_log_dump_active != 0U) || (wheel_log_dump_request != 0U))
+    {
+      return; /* never overwrite completed/ongoing data by START */
+    }
     wheel_log_stop = 0U;
 
     WC_LogInvalidate();
