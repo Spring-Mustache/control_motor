@@ -2022,7 +2022,15 @@ static void Control_Arbitrate(void)
   control_mode = CONTROL_MODE_IDLE;
 
   WheelControl_SetTargetPWM(0);
-  Turn_Motors_Stop();
+  /* M7-S02: a manually armed 200-ms pulse owns the steering PWM in IDLE.
+   * Do not blank its output on every arbitration iteration; the pulse
+   * service and limit EXTI stop it. All STOP/PS2/Voice paths above still
+   * call Turn_Motors_Stop() immediately as before.
+   */
+  if (steer_test_running == 0U)
+  {
+    Turn_Motors_Stop();
+  }
 }
 
 /* ============================================================
