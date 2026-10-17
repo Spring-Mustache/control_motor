@@ -534,6 +534,7 @@ void RamLogger_DumpCsvUpdate(void)
                     (long)Wheel_LogFloatToMilli(wheel_log_fixed_decel_snapshot),
                     (long)Wheel_LogFloatToMilli(wheel_log_fixed_zero_snapshot));
   if ((length <= 0) ||
+      ((size_t)length >= sizeof(line)) ||
       (HAL_UART_Transmit(s_uart3, (uint8_t *)line,
                          (uint16_t)length, 1000U) != HAL_OK))
   {
