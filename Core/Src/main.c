@@ -1983,6 +1983,13 @@ int main(void)
                  &Motor_RightUp,
                  &Motor_RightDown);
 
+  /* Capture reset cause and restore validated completed log if SRAM survived. */
+  {
+    uint32_t reset_flags = RCC->CSR;
+    __HAL_RCC_CLEAR_RESET_FLAGS();
+    RamLogger_BootRecover(reset_flags);
+  }
+
   Wheel_EmergencyStop();
 
   /* Khởi tạo command builder M2; speed mặc định đã là Medium. */
