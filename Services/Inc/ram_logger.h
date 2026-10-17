@@ -129,6 +129,10 @@ void RamLogger_Init(UART_HandleTypeDef *uart3,
                     Motor_HandleTypeDef *motor_ru,
                     Motor_HandleTypeDef *motor_rd);
 
+extern volatile uint32_t wheel_log_boot_reset_flags;
+extern volatile uint8_t wheel_log_recovered;
+extern volatile uint8_t wheel_log_recovery_status;
+void RamLogger_BootRecover(uint32_t reset_flags);
 void RamLogger_OnUserButtonInterrupt(uint32_t tick_ms);
 void RamLogger_ButtonUpdate(void);
 void RamLogger_Update(uint8_t ps2_ly, uint8_t mode_value);
