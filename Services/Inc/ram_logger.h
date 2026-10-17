@@ -14,7 +14,7 @@ extern "C" {
 #define WHEEL_LOG_PERIOD_MS                  20U
 #define WHEEL_LOG_MAX_SAMPLES                6000U
 #define WHEEL_LOG_CSV_SCALE                   1000.0f
-#define WHEEL_LOG_CSV_LINE_MAX                320U
+#define WHEEL_LOG_CSV_LINE_MAX                512U
 #define WHEEL_LOG_BUTTON_DEBOUNCE_MS           250U
 
 /* Original 72-byte sample; 6000 entries (432000 bytes) in RAM. */
