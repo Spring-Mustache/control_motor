@@ -114,10 +114,28 @@ typedef enum
 } ControlMode_t;
 
 
+/*
+ * M7-S01: input-only limit switch diagnostics (no steering PWM output).
+ * Wiring agreed for each switch: NC -> GPIO, COM -> STM32 GND.
+ * Active HIGH = NC opened by actuation or by broken/disconnected wiring.
+ */
+typedef struct
+{
+  uint8_t raw;                    /* unfiltered GPIO IDR, 0=NC closed */
+  uint8_t active;                 /* debounced HIGH, 1=limit open */
+  uint32_t activate_count;       /* debounced transitions 0 -> 1 */
+  uint32_t release_count;        /* debounced transitions 1 -> 0 */
+  uint32_t exti_rise_count;      /* raw rising EXTI events (can bounce) */
+  uint8_t initialized;
+  uint8_t candidate;
+  uint32_t candidate_since_ms;
+} SteeringLimitDebug_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define STEERING_LIMIT_DEBOUNCE_MS        40U
 #define MOTOR_PWM_MAX                     999
 #define MOTOR_DPAD_PWM                    400
 
@@ -526,6 +544,19 @@ volatile int16_t voice_execution_pwm = 0;
 volatile uint32_t voice_execution_finish_count = 0U;
 volatile uint32_t voice_unsupported_command_count = 0U;
 volatile uint32_t voice_ignored_during_execution_count = 0U;
+
+/* M7-S01: visible directly in CubeIDE Live Expressions.
+ * Bit0 R_MAX (PF5); bit1 R_MIN (PF8); bit2 L_MIN (PD10); bit3 L_MAX (PD11).
+ * No motor command or motor safety policy is implemented at this stage.
+ */
+volatile SteeringLimitDebug_t debug_limit_r_max = {0};
+volatile SteeringLimitDebug_t debug_limit_r_min = {0};
+volatile SteeringLimitDebug_t debug_limit_l_min = {0};
+volatile SteeringLimitDebug_t debug_limit_l_max = {0};
+volatile uint8_t debug_limit_raw_mask = 0U;
+volatile uint8_t debug_limit_active_mask = 0U;
+volatile uint8_t debug_limit_same_side_both_active = 0U;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -999,6 +1030,80 @@ static void AS5600_DebugUpdate(void)
   }
 
   AS5600_DebugProcessCaptureCommand();
+}
+
+
+/*
+ * M7-S01 -- input-only limit switch monitor. No I2C, motor PWM, blocking
+ * delays or UART traffic. Polling debounces actual state; EXTI counts edges.
+ * A stuck/missing NC wire reads HIGH, so it is treated as active, not safe.
+ */
+static void SteeringLimits_DebugSampleOne(volatile SteeringLimitDebug_t *state,
+                                          GPIO_TypeDef *port,
+                                          uint16_t pin,
+                                          uint32_t now)
+{
+  uint8_t raw = (HAL_GPIO_ReadPin(port, pin) == GPIO_PIN_SET) ? 1U : 0U;
+  state->raw = raw;
+
+  if (state->initialized == 0U)
+  {
+    state->candidate = raw;
+    state->active = raw;
+    state->candidate_since_ms = now;
+    state->initialized = 1U;
+    return;
+  }
+
+  if (raw != state->candidate)
+  {
+    state->candidate = raw;
+    state->candidate_since_ms = now;
+  }
+  else if ((raw != state->active) &&
+           ((uint32_t)(now - state->candidate_since_ms) >=
+            STEERING_LIMIT_DEBOUNCE_MS))
+  {
+    state->active = raw;
+    if (raw != 0U)
+    {
+      state->activate_count++;
+    }
+    else
+    {
+      state->release_count++;
+    }
+  }
+}
+
+static void SteeringLimits_DebugUpdate(void)
+{
+  uint8_t raw_mask;
+  uint8_t active_mask;
+  uint32_t now = HAL_GetTick();
+
+  SteeringLimits_DebugSampleOne(&debug_limit_r_max,
+                                LIMIT_R_MAX_GPIO_Port, LIMIT_R_MAX_Pin, now);
+  SteeringLimits_DebugSampleOne(&debug_limit_r_min,
+                                LIMIT_R_MIN_GPIO_Port, LIMIT_R_MIN_Pin, now);
+  SteeringLimits_DebugSampleOne(&debug_limit_l_min,
+                                LIMIT_L_MIN_GPIO_Port, LIMIT_L_MIN_Pin, now);
+  SteeringLimits_DebugSampleOne(&debug_limit_l_max,
+                                LIMIT_L_MAX_GPIO_Port, LIMIT_L_MAX_Pin, now);
+
+  raw_mask = (uint8_t)((debug_limit_r_max.raw << 0) |
+                       (debug_limit_r_min.raw << 1) |
+                       (debug_limit_l_min.raw << 2) |
+                       (debug_limit_l_max.raw << 3));
+  active_mask = (uint8_t)((debug_limit_r_max.active << 0) |
+                          (debug_limit_r_min.active << 1) |
+                          (debug_limit_l_min.active << 2) |
+                          (debug_limit_l_max.active << 3));
+  debug_limit_raw_mask = raw_mask;
+  debug_limit_active_mask = active_mask;
+  debug_limit_same_side_both_active =
+      (uint8_t)((((active_mask & 0x03U) == 0x03U) ? 0x01U : 0U) |
+                (((active_mask & 0x0CU) == 0x0CU) ? 0x02U : 0U));
 }
 
 
@@ -2006,6 +2111,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    /* M7-S01 limit switch inputs only: sample regardless of control mode. */
+    SteeringLimits_DebugUpdate();
+
     /*
      * ==========================================================
      * VC-02 - M2 BUILDER + M3 ARBITRATION + M6 WHEEL CONTROL
@@ -3186,6 +3294,22 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   if (GPIO_Pin == USER_Btn_Pin)
   {
     RamLogger_OnUserButtonInterrupt(HAL_GetTick());
+  }
+  else if (GPIO_Pin == LIMIT_R_MAX_Pin)
+  {
+    debug_limit_r_max.exti_rise_count++;
+  }
+  else if (GPIO_Pin == LIMIT_R_MIN_Pin)
+  {
+    debug_limit_r_min.exti_rise_count++;
+  }
+  else if (GPIO_Pin == LIMIT_L_MIN_Pin)
+  {
+    debug_limit_l_min.exti_rise_count++;
+  }
+  else if (GPIO_Pin == LIMIT_L_MAX_Pin)
+  {
+    debug_limit_l_max.exti_rise_count++;
   }
 }
 
