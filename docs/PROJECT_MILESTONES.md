@@ -1,7 +1,7 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
 **Cập nhật:** 2026-10-17  
-**Firmware đang dùng:** `feature/m7-s01-limit-switch-inputs` (M7-S01 PASS theo xác nhận thử nghiệm thực tế của người dùng)  
+**Firmware đang phát triển:** `feature/m7-s02-steering-pulse-10pct`; M7-S01 PASS theo xác nhận thực tế của người dùng; M7-S02 chờ nghiệm thu trên giá treo  
 **Quy tắc nghiệm thu:** Chỉ đánh dấu PASS trong điều kiện đã kiểm chứng. PASS trên giá treo **không** có nghĩa đã PASS trên mặt đất có tải.
 
 ## Quyết định triển khai (2026-10-17)
@@ -26,7 +26,7 @@
 | M6-S03a | Giữ RAM log qua RESET / cắm lại USB, CRC, giữ USER 3 s để xóa | **PASS chức năng trên giá treo** | Đã xuất CSV sau reset/rút-cắm USB; bài thử 1.128 mẫu và bài có điều khiển 1.714 mẫu không thấy thiếu dòng/cột |
 | M6-S03b | Tốc độ bánh **trên mặt đất có tải** | **CHƯA LÀM** | Không được gọi M6-S03 loaded PASS vì cả 4 bánh vẫn đang treo |
 | M7-S01 | Nhận/kiểm tra 4 công tắc hành trình lái | **PASS — trên bo, thử bằng tay** | Người dùng xác nhận ngày 2026-10-17: cả 4 công tắc chuyển trạng thái đúng và ổn định; chưa thử cắt PWM motor |
-| M7-S02 | Chặn motor lái ở giới hạn, cho phép thoát khỏi giới hạn, motor PWM thấp | **TIẾP THEO** | Cần xác định chiều quay thực của từng motor và công tắc tương ứng trước khi cấp PWM; test từng motor riêng khi treo |
+| M7-S02 | Chặn motor lái ở giới hạn, cho phép thoát khỏi giới hạn, motor PWM thấp | **ĐÃ CODE PULSE 10%, CHỜ TEST TRÊN BO** | Giai đoạn 1: PWM 100/999, tối đa 200 ms, riêng mỗi motor, chặn nếu bất kỳ LIMIT tác động; chưa cho phép thoát giới hạn khi chưa xác định chiều DIR thực tế |
 | M7-S03 | Phản hồi encoder/AS5600 hai bên, hiệu chuẩn tâm và biên lái | Chưa nghiệm thu | Có mã debug và khởi tạo, chưa có bằng chứng đủ điều kiện đóng vòng |
 | M7-S04 | Điều khiển vị trí đánh lái trái/phải, dừng đúng góc, lỗi an toàn | Chưa làm | Test trên giá treo |
 | M7-S05 | Tích hợp **chạy bánh + đánh lái** trên giá treo | Chưa làm | Điều kiện kết thúc giai đoạn giá treo |
@@ -95,3 +95,27 @@ Source `Core/Src/main.c` giữ `GPIO_MODE_IT_RISING` + `GPIO_PULLUP`, đúng the
 - Bài test do người dùng thao tác trực tiếp trên bo với cả 4 công tắc NC–COM nối GND: **cả bốn đều đúng và ổn định**. Mốc **M7-S01 PASS** chỉ trong phạm vi đọc tín hiệu GPIO/Live Expressions.
 - Không có bằng chứng mới về hoạt động motor đánh lái hoặc hiệu chuẩn góc; không suy rộng PASS sang M7-S02, M7-S03, M7-S04, hoặc Gate A.
 - Tiếp theo M7-S02: xác nhận đường PWM/DIR, kiểm tra ngắt giới hạn, xác định ánh xạ chiều thực tế của motor trái/phải đến MIN/MAX; thử xung PWM thấp, giới hạn thời gian, dừng an toàn, và chỉ thử từng motor trên giá treo khi đủ điều kiện bảo vệ.
+
+## M7-S02 — Bài thử nhận dạng chiều motor đánh lái PWM 10% (CHƯA PASS)
+
+**Phiên bản:** `feature/m7-s02-steering-pulse-10pct`. Đây mới là firmware và hướng dẫn, chưa có log/quan sát chạy motor từ người dùng.
+
+**Đấu nối hiện có:** LEFT PWM PB15/TIM12_CH2, DIR PD14; RIGHT PWM PF9/TIM14_CH1, DIR PF10. Các kênh được start ở duty 0 khi boot; không tự chạy.
+
+**Cố định cho giai đoạn 1:** PWM 100 / (999 + 1) = 10%; xung 200 ms qua phần mềm. Một lệnh cần arm riêng, không chỉnh được duty/time từ Live Expressions. Phải giữ **xe treo chắc và cơ cấu lái cách xa hai đầu hành trình**. Không dừng debugger/breakpoint trong lúc motor đang chạy: nếu CPU halt, bộ hẹn giờ phần mềm có thể không kịp tắt PWM. Chuẩn bị cắt nguồn motor bằng tay khi cần.
+
+### Live Expressions
+
+- `steer_test_arm` (mặc định 0) → đặt 1 để cho phép đúng **một** xung.
+- `steer_test_request` → đặt 1 (LEFT, DIR=0), 2 (LEFT, DIR=1), 3 (RIGHT, DIR=0), 4 (RIGHT, DIR=1). **DIR điện 0/1 chưa đồng nghĩa đi về MIN/MAX.**
+- `steer_test_running`, `steer_test_pwm_applied`, `steer_test_elapsed_ms`, `steer_test_encoder_delta`, `steer_test_last_command`, `steer_test_trip_mask`, `steer_test_result`, `steer_test_run_count`, `steer_test_rejected_count`, `steer_test_limit_stop_count`.
+- `steer_test_result`: 0 chưa chạy, 1 đang chạy, 2 xung kết thúc bình thường, 3 từ chối do chưa arm/không an toàn, 4 LIMIT ngắt, 5 bị hủy, 6 mã lệnh không hợp lệ.
+
+### Điều kiện và tiêu chí giai đoạn 1
+
+- **Trước thử:** Bốn limit NC đóng (`debug_limit_raw_mask=0` và `debug_limit_active_mask=0`), cơ cấu cách xa cả hai đầu giới hạn, bánh xe và giọng nói/PS2 đứng yên, không đang ghi/xuất CSV; `debug_as5600_poll_enable=0`; kiểm tra nguồn và dây driver.
+- Chỉ thử **LEFT DIR=0** đầu tiên: đặt `steer_test_arm=1` rồi `steer_test_request=1`. Để chương trình chạy tự do; không nhấn Pause. Motor không được tự chạy trước lệnh. Sau một xung, xem `steer_test_result` và `steer_test_encoder_delta`; đồng thời quan sát cơ cấu tiến về công tắc nào, hay không chuyển động.
+- Sau khi xác nhận kết quả xung 1 mới chuyển DIR=1 hoặc motor phải. Không tự tăng PWM, kéo dài xung, hoặc lặp khi chưa rõ tình trạng.
+- Trong mỗi xung: **bất cứ LIMIT nào mở (raw lên HIGH) thì EXTI lập tức đặt PWM hai kênh lái về 0**, khóa xung đó và đặt `steer_test_result=4`. Nếu limit mở sẵn, firmware **từ chối mọi xung**, kể cả xung có thể thoát giới hạn.
+- Nếu STOP/PS2/Voice/bánh chạy/đang logger thì xung bị từ chối hoặc hủy. Reset xóa trạng thái xung, **không chủ ý xóa log hoàn tất**.
+- **Phần chưa triển khai:** ánh xạ chiều DIR0/1 ↔ MIN/MAX, cho phép thoát khỏi limit một cách có kiểm soát; kiểm thử thời gian đáp ứng motor khi bị kẹt. Chỉ làm khi có bằng chứng vật lý từ xung đầu.
