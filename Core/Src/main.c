@@ -136,6 +136,9 @@ typedef struct
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define STEERING_LIMIT_DEBOUNCE_MS        40U
+/* M7-S02 diagnosis: 100/(999+1) = 10%; 200 ms maximum per pulse. */
+#define STEER_TEST_PWM_DUTY              100U
+#define STEER_TEST_PULSE_MS              200U
 #define MOTOR_PWM_MAX                     999
 #define MOTOR_DPAD_PWM                    400
 
@@ -556,6 +559,29 @@ volatile SteeringLimitDebug_t debug_limit_l_max = {0};
 volatile uint8_t debug_limit_raw_mask = 0U;
 volatile uint8_t debug_limit_active_mask = 0U;
 volatile uint8_t debug_limit_same_side_both_active = 0U;
+
+/* M7-S02: one-shot, manually armed only; 1=L DIR0, 2=L DIR1,
+ * 3=R DIR0, 4=R DIR1. DIR electrical level is NOT yet a calibrated
+ * steering direction (MIN / MAX mapping must be measured).
+ *
+ * Result: 0 idle, 1 running, 2 timed out as planned (200 ms),
+ * 3 refused/unsafe, 4 limit tripped, 5 aborted, 6 invalid request.
+ */
+volatile uint8_t steer_test_arm = 0U;
+volatile uint8_t steer_test_request = 0U;
+volatile uint8_t steer_test_abort = 0U;
+volatile uint8_t steer_test_running = 0U;
+volatile uint8_t steer_test_result = 0U;
+volatile uint8_t steer_test_last_command = 0U;
+volatile uint8_t steer_test_trip_mask = 0U;
+volatile uint16_t steer_test_pwm_applied = 0U;
+volatile uint32_t steer_test_start_tick = 0U;
+volatile uint32_t steer_test_elapsed_ms = 0U;
+volatile uint32_t steer_test_run_count = 0U;
+volatile uint32_t steer_test_rejected_count = 0U;
+volatile uint32_t steer_test_limit_stop_count = 0U;
+volatile uint16_t steer_test_encoder_start = 0U;
+volatile int16_t steer_test_encoder_delta = 0;
 
 /* USER CODE END PV */
 
@@ -1104,6 +1130,229 @@ static void SteeringLimits_DebugUpdate(void)
   debug_limit_same_side_both_active =
       (uint8_t)((((active_mask & 0x03U) == 0x03U) ? 0x01U : 0U) |
                 (((active_mask & 0x0CU) == 0x0CU) ? 0x02U : 0U));
+}
+
+
+
+/*
+ * M7-S02: phase 1 hardware polarity identification only.
+ * No self-running motion and no assumption about physical MIN/MAX direction.
+ * REFUSE EVERY pulse if any of the four NC limit switches is open.
+ * EXTI immediately removes PWM if any limit opens while a pulse is active.
+ */
+static void Steering_TestOutputsOff(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+  __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+  steer_test_pwm_applied = 0U;
+}
+
+static uint8_t Steering_TestRawLimitMask(void)
+{
+  return (uint8_t)(
+      (((HAL_GPIO_ReadPin(LIMIT_R_MAX_GPIO_Port, LIMIT_R_MAX_Pin) ==
+          GPIO_PIN_SET) ? 1U : 0U) << 0) |
+      (((HAL_GPIO_ReadPin(LIMIT_R_MIN_GPIO_Port, LIMIT_R_MIN_Pin) ==
+          GPIO_PIN_SET) ? 1U : 0U) << 1) |
+      (((HAL_GPIO_ReadPin(LIMIT_L_MIN_GPIO_Port, LIMIT_L_MIN_Pin) ==
+          GPIO_PIN_SET) ? 1U : 0U) << 2) |
+      (((HAL_GPIO_ReadPin(LIMIT_L_MAX_GPIO_Port, LIMIT_L_MAX_Pin) ==
+          GPIO_PIN_SET) ? 1U : 0U) << 3));
+}
+
+static uint16_t Steering_TestEncoderCount(uint8_t command)
+{
+  if ((command == 1U) || (command == 2U))
+  {
+    return (uint16_t)__HAL_TIM_GET_COUNTER(&htim4);
+  }
+  if ((command == 3U) || (command == 4U))
+  {
+    return (uint16_t)hlptim1.Instance->CNT;
+  }
+  return 0U;
+}
+
+static void Steering_TestFinish(uint8_t result)
+{
+  Steering_TestOutputsOff();
+  if (steer_test_running != 0U)
+  {
+    steer_test_encoder_delta = (int16_t)(
+        (uint16_t)(Steering_TestEncoderCount(steer_test_last_command) -
+                   steer_test_encoder_start));
+  }
+  steer_test_running = 0U;
+  steer_test_result = result;
+}
+
+static uint8_t Steering_TestVehicleIsIdle(void)
+{
+  /* Strictly isolate this test from all drive modes, active logging,
+   * auto FF, blocking AS5600 or CSV output. Don't start with spinning wheels.
+   */
+  if ((control_mode != CONTROL_MODE_IDLE) ||
+      (control_stop_latched != 0U) ||
+      (ps2_manual_active != 0U) ||
+      (ps2_cancel_hold != 0U) ||
+      (voice_execution_active != 0U) ||
+      (voice_command_ready != 0U) ||
+      (wheel_target_pwm != 0) ||
+      (wheel_current_pwm != 0) ||
+      (wheel_pwm_lu != 0) || (wheel_pwm_ld != 0) ||
+      (wheel_pwm_ru != 0) || (wheel_pwm_rd != 0) ||
+      (wheel_pid_target_rpm > 0.5f) ||
+      (wheel_pid_target_rpm < -0.5f) ||
+      (wheel_ff_test_active != 0U) ||
+      (wheel_log_active != 0U) ||
+      (wheel_log_dump_request != 0U) ||
+      (wheel_log_dump_active != 0U) ||
+      (debug_as5600_poll_enable != 0U))
+  {
+    return 0U;
+  }
+
+  if ((Motor_LeftUp.current_rpm > 2.0f) ||
+      (Motor_LeftUp.current_rpm < -2.0f) ||
+      (Motor_LeftDown.current_rpm > 2.0f) ||
+      (Motor_LeftDown.current_rpm < -2.0f) ||
+      (Motor_RightUp.current_rpm > 2.0f) ||
+      (Motor_RightUp.current_rpm < -2.0f) ||
+      (Motor_RightDown.current_rpm > 2.0f) ||
+      (Motor_RightDown.current_rpm < -2.0f))
+  {
+    return 0U;
+  }
+  return 1U;
+}
+
+static uint8_t Steering_TestLimitsClear(void)
+{
+  if ((debug_limit_r_max.initialized == 0U) ||
+      (debug_limit_r_min.initialized == 0U) ||
+      (debug_limit_l_min.initialized == 0U) ||
+      (debug_limit_l_max.initialized == 0U) ||
+      (debug_limit_active_mask != 0U) ||
+      (debug_limit_raw_mask != 0U) ||
+      (Steering_TestRawLimitMask() != 0U))
+  {
+    return 0U;
+  }
+  return 1U;
+}
+
+static void Steering_TestPulseUpdate(void)
+{
+  uint8_t cmd = steer_test_request;
+  uint32_t now = HAL_GetTick();
+  uint32_t previous_primask;
+
+  if (cmd != 0U)
+  {
+    steer_test_request = 0U;
+    if (steer_test_running != 0U)
+    {
+      Steering_TestFinish(5U); /* never extend an existing pulse */
+      steer_test_arm = 0U;
+      return;
+    }
+
+    if (cmd > 4U)
+    {
+      steer_test_arm = 0U;
+      steer_test_result = 6U;
+      return;
+    }
+
+    if ((steer_test_arm == 0U) ||
+        (Steering_TestVehicleIsIdle() == 0U) ||
+        (Steering_TestLimitsClear() == 0U))
+    {
+      steer_test_arm = 0U;
+      steer_test_result = 3U;
+      steer_test_rejected_count++;
+      return;
+    }
+
+    /* One command consumes one arm. Must arm again before next pulse. */
+    steer_test_arm = 0U;
+    steer_test_last_command = cmd;
+    steer_test_trip_mask = 0U;
+    steer_test_encoder_start = Steering_TestEncoderCount(cmd);
+    steer_test_encoder_delta = 0;
+    steer_test_start_tick = now;
+    steer_test_elapsed_ms = 0U;
+    steer_test_running = 1U;
+    steer_test_result = 1U;
+    steer_test_run_count++;
+  }
+
+  if (steer_test_abort != 0U)
+  {
+    steer_test_abort = 0U;
+    steer_test_arm = 0U;
+    if (steer_test_running != 0U) Steering_TestFinish(5U);
+    return;
+  }
+
+  if (steer_test_running == 0U) return;
+
+  steer_test_elapsed_ms = (uint32_t)(now - steer_test_start_tick);
+  if (steer_test_elapsed_ms >= STEER_TEST_PULSE_MS)
+  {
+    Steering_TestFinish(2U);
+    return;
+  }
+
+  if (Steering_TestVehicleIsIdle() == 0U)
+  {
+    Steering_TestFinish(5U);
+    return;
+  }
+
+  /*
+   * Atomic raw-input validation plus PWM write: EXTI cannot intervene
+   * between the limit check and compare update. After IRQ unmask any
+   * pending rising-edge callback stops the PWM immediately.
+   */
+  previous_primask = __get_PRIMASK();
+  __disable_irq();
+  if ((steer_test_running != 0U) &&
+      (Steering_TestLimitsClear() != 0U))
+  {
+    GPIO_TypeDef *dir_port = (steer_test_last_command <= 2U) ?
+        MOTOR_DIR_TURN_left_GPIO_Port : MOTOR_DIR_TURN_right_GPIO_Port;
+    uint16_t dir_pin = (steer_test_last_command <= 2U) ?
+        MOTOR_DIR_TURN_left_Pin : MOTOR_DIR_TURN_right_Pin;
+    GPIO_PinState dir_level =
+        ((steer_test_last_command == 2U) ||
+         (steer_test_last_command == 4U)) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+
+    HAL_GPIO_WritePin(dir_port, dir_pin, dir_level);
+    if (steer_test_last_command <= 2U)
+      __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, STEER_TEST_PWM_DUTY);
+    else
+      __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, STEER_TEST_PWM_DUTY);
+    steer_test_pwm_applied = STEER_TEST_PWM_DUTY;
+  }
+  else
+  {
+    steer_test_trip_mask |= Steering_TestRawLimitMask();
+    steer_test_limit_stop_count++;
+    Steering_TestFinish(4U);
+  }
+  if (previous_primask == 0U) __enable_irq();
+}
+
+/* Invoked from HAL_GPIO_EXTI_Callback on a rising NC-open edge. */
+static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
+{
+  if (steer_test_running != 0U)
+  {
+    steer_test_trip_mask |= switch_mask;
+    steer_test_limit_stop_count++;
+    Steering_TestFinish(4U);
+  }
 }
 
 
@@ -2001,6 +2250,17 @@ int main(void)
     Error_Handler();
   }
 
+  /* M7-S02: start steering PWM channels at ZERO duty only.
+   * No steering motion can occur without manual Live Expressions request.
+   */
+  __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+  __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+  if (HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2) != HAL_OK ||
+      HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   if (HAL_TIM_Encoder_Start(&htim8, TIM_CHANNEL_ALL) != HAL_OK ||
       HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL) != HAL_OK ||
       HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL) != HAL_OK ||
@@ -2278,6 +2538,12 @@ int main(void)
      * Logger chỉ thực sự ghi khi wheel_log_active = 1.
      */
     RamLogger_Update(PS2_Pad.LY, (uint8_t)control_mode);
+
+    /* M7-S02: one motor, at most 200 ms at 10% duty, explicit arm only.
+     * Placed after arbitration and wheel-control so STOP/PS2/Voice cannot
+     * accidentally command the steering test.
+     */
+    Steering_TestPulseUpdate();
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
     RamLogger_DumpCsvUpdate();
@@ -3298,18 +3564,22 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   else if (GPIO_Pin == LIMIT_R_MAX_Pin)
   {
     debug_limit_r_max.exti_rise_count++;
+    Steering_TestOnLimitInterrupt(0x01U);
   }
   else if (GPIO_Pin == LIMIT_R_MIN_Pin)
   {
     debug_limit_r_min.exti_rise_count++;
+    Steering_TestOnLimitInterrupt(0x02U);
   }
   else if (GPIO_Pin == LIMIT_L_MIN_Pin)
   {
     debug_limit_l_min.exti_rise_count++;
+    Steering_TestOnLimitInterrupt(0x04U);
   }
   else if (GPIO_Pin == LIMIT_L_MAX_Pin)
   {
     debug_limit_l_max.exti_rise_count++;
+    Steering_TestOnLimitInterrupt(0x08U);
   }
 }
 
