@@ -163,6 +163,15 @@ extern volatile float wheel_fixed_accel_rpm_per_s;
 extern volatile float wheel_fixed_decel_rpm_per_s;
 extern volatile float wheel_fixed_zero_rpm_per_s;
 
+/* M6-S02 experimental FIXED-command S-curve (no effect on MANUAL/FF test).
+ * enable: 1=quintic speed target, 0=M6-S01 linear ramp.
+ * 40rpm_s: segment duration for a 40 RPM speed change (default 2.0 seconds).
+ * active: read-only observation in Live Expressions.
+ */
+extern volatile uint8_t wheel_fixed_scurve_enable;
+extern volatile float wheel_fixed_scurve_40rpm_s;
+extern volatile uint8_t wheel_fixed_scurve_active;
+
 extern volatile float wheel_target_accel_rpm_per_s;
 extern volatile float wheel_target_decel_rpm_per_s;
 extern volatile float wheel_target_zero_rpm_per_s;
