@@ -163,18 +163,16 @@ typedef enum
  * - Xe chạy TIẾN  -> RPM / total dương.
  * - Xe chạy LÙI   -> RPM / total âm.
  *
- * Kết quả test thực tế:
- * - LD đếm tăng khi xe tiến  -> không đảo.
- * - RU đếm giảm khi xe tiến  -> đảo dấu.
- * - RD đếm giảm khi xe tiến  -> đảo dấu.
- *
- * LU hiện giữ mặc định không đảo; đổi thành 1U sau này nếu encoder LU
- * thực tế đếm giảm khi xe chạy tiến.
+ * M6-S02 (kiểm tra trên xe, sau khi đổi cấu hình MOTOR_*_DIR_INVERTED):
+ * - Lệnh -40 RPM làm xe LÙI đúng chiều vật lý.
+ * - Cả bốn giá trị RPM encoder lại DƯƠNG khi target là -40 RPM.
+ * - Vì vậy chỉ đảo dấu encoder của cả bốn bánh, GIỮ NGUYÊN chiều motor.
+ * Cần xác nhận dấu RPM bằng Live Expressions sau khi flash lại.
  */
-#define ENCODER_LEFT_UP_DIR_INVERTED         0U
-#define ENCODER_RIGHT_UP_DIR_INVERTED        1U
-#define ENCODER_LEFT_DOWN_DIR_INVERTED       0U
-#define ENCODER_RIGHT_DOWN_DIR_INVERTED      1U
+#define ENCODER_LEFT_UP_DIR_INVERTED         1U
+#define ENCODER_RIGHT_UP_DIR_INVERTED        0U
+#define ENCODER_LEFT_DOWN_DIR_INVERTED       1U
+#define ENCODER_RIGHT_DOWN_DIR_INVERTED      0U
 
 
 
