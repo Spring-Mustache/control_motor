@@ -181,3 +181,11 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - Đặt cơ cấu gần giữa hành trình, đảm bảo mối hàn đã xử lý và tay tránh xa cơ khí. Chuẩn bị ngắt nguồn động lực motor độc lập. Không Pause/breakpoint CPU trong lúc PWM đang phát (HAL_GetTick sẽ bị dừng). Nếu tiếng rít lớn, đứng yên, nóng, iOVER hay ERR sáng, ngừng thử và kiểm tra phần cứng/dòng.
 - Sau test đọc `steer_test_result`, `steer_test_elapsed_ms`, `steer_test_encoder_delta`; quan sát có chuyển động về L_MIN/L_MAX và trạng thái ERR/iOVER trên CCS_SHB12.
 - **Chưa build/kiểm thử phiên bản 20% này trên máy hay bo của người dùng**; chưa được PASS.
+
+
+## M7-S02 — Thử LEFT DIR0 PWM 20% trong 1 giây (2026-10-20)
+
+- Người dùng đã hàn lại cực motor lái trái và thử phiên bản **PWM 20%, 500 ms** trên giá treo; quan sát motor **có quay nhẹ / nhích một đoạn**, nhưng chưa xác định liệu chuyển động nhỏ do thiếu mô-men hay thời gian ngắn. `steer_test_result=2`, `steer_test_elapsed_ms=500`, `steer_test_encoder_delta=0`, hai limit mask=0.
+- Theo yêu cầu người dùng, tăng **chỉ** thời gian tối đa thành `STEER_TEST_MAX_RUN_MS=1000U`, tương đương **1.000 ms (1 giây)**. Giữ `STEER_TEST_PWM_DUTY=200U` (**20%**), **chỉ cho phép LEFT DIR0** (`steer_test_request=1`) và giữ nguyên ngắt limit EXTI, kiểm tra an toàn, cấp quyền `arm` trước mỗi lệnh.
+- Đây là thử nghiệm **chưa chạy trên bo**. `steer_test_result=2` trong bản này là đã đủ 1 giây, không chứng minh motor quay liên tục. Nếu tiếng rít bất thường, motor giật/kẹt hoặc driver báo lỗi, ngừng thử; không tăng PWM/thời gian tiếp khi chưa phân biệt nguyên nhân. CPU dừng ở breakpoint sẽ làm mất đảm bảo giới hạn thời gian phần mềm.
+- **M7-S02 chưa PASS:** cần quan sát chuyển động trơn tru, hướng tiến về L_MIN/L_MAX, encoder trái và phản ứng chạm limit.
