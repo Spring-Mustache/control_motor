@@ -164,3 +164,20 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - Người dùng phát hiện **mối hàn dây vào motor đánh lái trái tiếp xúc không tốt**; hiện được xem là **nguyên nhân nghi ngờ chính cho hiện tượng đánh lái trái không chuyển động**. Chưa xác nhận sau khi hàn lại bằng bài thử thực tế.
 - Quyết định: ưu tiên sửa và kiểm tra thông mạch mối hàn khi đã ngắt nguồn, phục hồi encoder LU, bảo đảm mỗi đầu ra cầu H nối đúng motor được chỉ định; chưa sửa firmware hoặc tăng PWM thử.
 - Sau khi sửa, thử đánh lái trái với PWM 10%, DIR=0, vị trí giữa hành trình, giới hạn NC hoạt động, có đường ngắt nguồn công suất thủ công; nghiệm thu theo chuyển động/encoder/limit. M7-S02 chưa PASS toàn bộ.
+
+
+## M7-S02 — Bài thử tăng PWM ngắn cho motor đánh lái trái (2026-10-20)
+
+**Nhánh chẩn đoán tách biệt:** `feature/m7-s02-left-startup-20pct`. Không chỉnh nhánh 10% trước đó và không thay đổi firmware bánh xe.
+
+**Dữ kiện mới do người dùng quan sát:** kết nối motor đánh lái trái với CCS_SHB12, chạy lệnh `steer_test_arm=1` rồi `steer_test_request=1` ở PWM 10%, nghe tiếng rít/chói tai, không thấy quay; sau 5 giây tiếng kết thúc. Có thể do motor thiếu mô-men khởi động, stall cơ khí, tiếp xúc dây/mối hàn kém, hoặc giới hạn dòng/bảo vệ driver; **chưa phân biệt được nguyên nhân**.
+
+**Cấu hình thử có giới hạn an toàn:**
+- `STEER_TEST_PWM_DUTY=200` trên ARR=999: đúng 20% duty.
+- `STEER_TEST_MAX_RUN_MS=500`: một lệnh dài tối đa 500 ms. **Không giữ PWM 20% liên tục 5 giây khi chưa xác định tiếng rít.**
+- Chỉ cho phép `steer_test_request=1` (LEFT DIR0); `request=2/3/4` bị từ chối với `result=6`. Phải đặt `steer_test_arm=1` cho mỗi lần thử mới; tự reset arm khi chấp nhận yêu cầu. Không tự chạy sau khởi động.
+- Bốn công tắc NC đều phải LOW trước khi bắt đầu; RISING EXTI bất kỳ lập tức đặt PWM lái về 0. STOP/PS2/Voice/xe chạy/logger vẫn ngăn hoặc hủy thử.
+- `steer_test_result=2` = hết 500ms (không chứng minh motor đã quay); `4` = chạm limit; `5` = hủy; xem `steer_test_abort_cause` và `steer_test_abort_reason_mask` nếu có lỗi.
+- Đặt cơ cấu gần giữa hành trình, đảm bảo mối hàn đã xử lý và tay tránh xa cơ khí. Chuẩn bị ngắt nguồn động lực motor độc lập. Không Pause/breakpoint CPU trong lúc PWM đang phát (HAL_GetTick sẽ bị dừng). Nếu tiếng rít lớn, đứng yên, nóng, iOVER hay ERR sáng, ngừng thử và kiểm tra phần cứng/dòng.
+- Sau test đọc `steer_test_result`, `steer_test_elapsed_ms`, `steer_test_encoder_delta`; quan sát có chuyển động về L_MIN/L_MAX và trạng thái ERR/iOVER trên CCS_SHB12.
+- **Chưa build/kiểm thử phiên bản 20% này trên máy hay bo của người dùng**; chưa được PASS.
