@@ -189,3 +189,12 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - Theo yêu cầu người dùng, tăng **chỉ** thời gian tối đa thành `STEER_TEST_MAX_RUN_MS=1000U`, tương đương **1.000 ms (1 giây)**. Giữ `STEER_TEST_PWM_DUTY=200U` (**20%**), **chỉ cho phép LEFT DIR0** (`steer_test_request=1`) và giữ nguyên ngắt limit EXTI, kiểm tra an toàn, cấp quyền `arm` trước mỗi lệnh.
 - Đây là thử nghiệm **chưa chạy trên bo**. `steer_test_result=2` trong bản này là đã đủ 1 giây, không chứng minh motor quay liên tục. Nếu tiếng rít bất thường, motor giật/kẹt hoặc driver báo lỗi, ngừng thử; không tăng PWM/thời gian tiếp khi chưa phân biệt nguyên nhân. CPU dừng ở breakpoint sẽ làm mất đảm bảo giới hạn thời gian phần mềm.
 - **M7-S02 chưa PASS:** cần quan sát chuyển động trơn tru, hướng tiến về L_MIN/L_MAX, encoder trái và phản ứng chạm limit.
+
+
+## M7-S02 — Quan sát motor trái quay về phía LU ở 20%/1s
+
+- Người dùng xác nhận sau khi hàn lại dây, chạy lệnh LEFT DIR0 (`steer_test_arm=1`, `steer_test_request=1`) trên nhánh `feature/m7-s02-left-startup-20pct`, PWM 20% tối đa 1 giây, **motor đánh lái trái đã quay thực tế**.
+- Quan sát cơ khí: cơ cấu đang dịch chuyển **về phía LU (Left Up)**; đây là mô tả hướng quan sát, **chưa đồng nhất với tên công tắc L_MIN hoặc L_MAX** vì chưa có xác nhận vị trí tương ứng.
+- Chuyển động chưa tới công tắc giới hạn trong thời gian thử; **chưa nghiệm thu khả năng dừng tại L_MIN/L_MAX cho motor trái**. Chưa có giá trị encoder delta và kết quả `steer_test_result` của riêng lượt thử này.
+- Chưa xác định chắc nguyên nhân tốc độ chậm/quãng đường ngắn: duty, gia tốc mềm của CCS_SHB12, tải cơ khí hoặc thời gian thử; không tự tăng PWM/thời gian khi chưa làm rõ tình trạng tiếng rít/stall bất thường được báo trước đó.
+- Trạng thái M7-S02: RIGHT DIR0→R_MIN đã quan sát dừng; LEFT DIR0 hiện **có chuyển động** nhưng chưa map MIN/MAX, chưa kiểm chứng dừng tại limit. **Chưa PASS toàn bộ**.
