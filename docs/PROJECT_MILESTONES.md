@@ -198,3 +198,15 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - Chuyển động chưa tới công tắc giới hạn trong thời gian thử; **chưa nghiệm thu khả năng dừng tại L_MIN/L_MAX cho motor trái**. Chưa có giá trị encoder delta và kết quả `steer_test_result` của riêng lượt thử này.
 - Chưa xác định chắc nguyên nhân tốc độ chậm/quãng đường ngắn: duty, gia tốc mềm của CCS_SHB12, tải cơ khí hoặc thời gian thử; không tự tăng PWM/thời gian khi chưa làm rõ tình trạng tiếng rít/stall bất thường được báo trước đó.
 - Trạng thái M7-S02: RIGHT DIR0→R_MIN đã quan sát dừng; LEFT DIR0 hiện **có chuyển động** nhưng chưa map MIN/MAX, chưa kiểm chứng dừng tại limit. **Chưa PASS toàn bộ**.
+
+
+## M7-S02 — Thử PWM 30% LEFT 500 ms / khôi phục RIGHT 10% (2026-10-20)
+
+- Theo quan sát thực tế của người dùng, LEFT ở 20%/1 s đã quay được về phía bánh LU nhưng còn **tiếng rít**, chưa tới công tắc hành trình; chưa biết là cơ cấu tải lớn, điều kiện gia tốc của CCS_SHB12, hoặc motor/driver đang stall hay giới hạn dòng.
+- **Theo yêu cầu người dùng**, tạo nhánh riêng `feature/m7-s02-left30-right10-diagnostic` để tăng duty LEFT DIR0 **30%**, chỉ trong **500 ms** nhằm hạn chế rủi ro khi tiếng rít vẫn chưa giải thích được. Không suy ra duty cao hơn chắc giải quyết tiếng rít, không tăng thêm nếu vẫn có tiếng rít/driver quá dòng.
+- Khôi phục lệnh `steer_test_request=3` RIGHT DIR0 với **10%**, giới hạn phần mềm **5000 ms** như bài thử đã đạt; chú ý RIGHT DIR0 đã được xác nhận chạy về R_MIN. **Không thử RIGHT DIR0 nếu R_MIN còn HIGH hoặc cơ cấu sát R_MIN**.
+- Chỉ chấp nhận `steer_test_request=1` (LEFT DIR0) hoặc `3` (RIGHT DIR0), phải dùng `steer_test_arm=1` cho từng lần riêng, chỉ chạy một motor mỗi lúc; lệnh 2/4 bị từ chối (`steer_test_result=6`).
+- Tất cả công tắc hành trình NC phải nhả (bốn bit = 0) trước khi chạy; bất kỳ RISING EXTI limit nào cũng cắt PWM cả hai motor và đặt `steer_test_result=4`. STOP/PS2/Voice/xe chạy/logger chặn hoặc hủy lệnh như trước.
+- PWM 30% không đồng nghĩa dòng/mô-men đã kiểm soát, và tiếng rít khi motor không quay có thể đi kèm dòng lớn. Không thử đi thử lại liên tục. Cần chuẩn bị ngắt nguồn động lực riêng và không ngừng CPU ở breakpoint khi PWM đang chạy.
+- Xem sau lượt LEFT: có chuyển động thật không, tốc độ tăng ra sao, tiếng rít tăng/giảm, `steer_test_result`, `steer_test_elapsed_ms`, `steer_test_encoder_delta`, trạng thái đèn ERR/iOVER của CCS_SHB12.
+- **Trạng thái:** Firmware cập nhật trên GitHub; **chưa có kết quả build CubeIDE và thử nghiệm bo cho phiên bản 30%**; M7-S02 vẫn CHƯA PASS toàn bộ.
