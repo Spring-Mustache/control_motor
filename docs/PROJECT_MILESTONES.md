@@ -146,3 +146,13 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - Chưa xác nhận **RIGHT DIR=1 → R_MAX**, chưa đo độc lập tốc độ cắt PWM/nguồn cấp của driver và chưa nghiệm thu cơ cấu trái. Không đánh dấu M7-S02 PASS toàn bộ.
 - RIGHT đang ở R_MIN (mask=2): firmware giai đoạn này **không cho chạy bất kỳ motor nào nếu có LIMIT active**, nên không yêu cầu thử đảo chiều bằng debug khi limit chưa nhả; phải có quy trình thoát giới hạn an toàn sau khi xác nhận hướng vật lý.
 - Motor LEFT DIR=0 trước đó có lệnh PWM nhưng encoder delta=0 và motor không thấy quay. Driver LEFT CCS_SHB12 vẫn cần kiểm tra chế độ PWM/DIR (RUN nháy 2), trạng thái ERR/iOVER, dây PB15→IN1, PD14→IN2, GND chung và nguồn motor; không kết luận driver hỏng khi chưa kiểm tra.
+
+
+## M7-S02 — Chẩn đoán mã hủy 5 (2026-10-20)
+
+- Sau một lần thử LEFT DIR=0, người dùng quan sát `steer_test_result=5` và `steer_test_encoder_delta=0` với tất cả các cờ `control_mode=IDLE`, `ps2_manual_active=0`, `voice_execution_active=0`, `wheel_ff_test_active=0`, `wheel_log_active=0`, `steer_test_abort=0`, và limit mask=0 **tại thời điểm chụp ảnh**. Các giá trị hiện tại không chứng minh nguyên nhân hủy đã biến mất trước đó.
+- Bổ sung hai biến Live Expressions trong `Core/Src/main.c`, lưu tại thời điểm hủy:
+  - `steer_test_abort_cause`: 0 = chưa từng bị hủy trong lượt hiện tại; 1 = có request thứ hai trong khi đang chạy; 2 = cờ `steer_test_abort` được đặt; 3 = mất điều kiện an toàn khi đang chạy.
+  - `steer_test_abort_reason_mask`: nếu cause=3, mỗi bit là điều kiện đang vi phạm: b0 control_mode!=IDLE, b1 stop latch, b2 PS2 manual, b3 PS2 cancel-hold, b4 voice executing, b5 voice ready, b6 wheel target/current PWM, b7 wheel PWM outputs, b8 wheel_pid_target_rpm, b9 wheel FF test, b10 wheel logger active, b11 CSV dump/request, b12 AS5600 polling enabled, b13 bất kỳ wheel RPM>2. Mask có thể chứa nhiều bit. Ví dụ 4 nghĩa b2, 256 nghĩa b8.
+- Hai biến giữ nguyên kết quả sau dừng và được xóa khi **một lệnh mới thực sự được chấp nhận**. Các thay đổi chỉ ghi thêm debug; **không** sửa PWM 100/1000, thời hạn 5 s, hướng motor hay điều kiện bảo vệ giới hạn.
+- Chưa build/đo trên phần cứng phiên bản bổ sung debug mới. Khi thử lại phải giữ cơ cấu cách xa chặn, có công tắc giới hạn tốt và dự phòng nguồn motor; ưu tiên chưa chạy motor khi chưa xác định an toàn trên bo.
