@@ -1,7 +1,7 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
 **Cập nhật:** 2026-10-17  
-**Firmware đang phát triển:** `feature/m7-s02-steering-pulse-10pct`; M7-S01 PASS theo xác nhận thực tế của người dùng; M7-S02 chờ nghiệm thu trên giá treo  
+**Firmware đang phát triển:** `feature/m7-s02-limit-run-10pct`; M7-S01 PASS theo xác nhận thực tế của người dùng; M7-S02 chờ nghiệm thu trên giá treo  
 **Quy tắc nghiệm thu:** Chỉ đánh dấu PASS trong điều kiện đã kiểm chứng. PASS trên giá treo **không** có nghĩa đã PASS trên mặt đất có tải.
 
 ## Quyết định triển khai (2026-10-17)
@@ -26,7 +26,7 @@
 | M6-S03a | Giữ RAM log qua RESET / cắm lại USB, CRC, giữ USER 3 s để xóa | **PASS chức năng trên giá treo** | Đã xuất CSV sau reset/rút-cắm USB; bài thử 1.128 mẫu và bài có điều khiển 1.714 mẫu không thấy thiếu dòng/cột |
 | M6-S03b | Tốc độ bánh **trên mặt đất có tải** | **CHƯA LÀM** | Không được gọi M6-S03 loaded PASS vì cả 4 bánh vẫn đang treo |
 | M7-S01 | Nhận/kiểm tra 4 công tắc hành trình lái | **PASS — trên bo, thử bằng tay** | Người dùng xác nhận ngày 2026-10-17: cả 4 công tắc chuyển trạng thái đúng và ổn định; chưa thử cắt PWM motor |
-| M7-S02 | Chặn motor lái ở giới hạn, cho phép thoát khỏi giới hạn, motor PWM thấp | **ĐÃ CODE PULSE 10%, CHỜ TEST TRÊN BO** | Giai đoạn 1: PWM 100/999, tối đa 200 ms, riêng mỗi motor, chặn nếu bất kỳ LIMIT tác động; chưa cho phép thoát giới hạn khi chưa xác định chiều DIR thực tế |
+| M7-S02 | Chặn motor lái ở giới hạn, cho phép thoát khỏi giới hạn, motor PWM thấp | **ĐÃ CODE RUN-UNTIL-LIMIT 10%, CHỜ TEST TRÊN BO** | Giai đoạn 1: PWM 100/999, cắt PWM ngay khi LIMIT mở hoặc tự dừng sau 5 s dự phòng; chưa cho phép thoát limit khi chưa xác định chiều DIR thực tế |
 | M7-S03 | Phản hồi encoder/AS5600 hai bên, hiệu chuẩn tâm và biên lái | Chưa nghiệm thu | Có mã debug và khởi tạo, chưa có bằng chứng đủ điều kiện đóng vòng |
 | M7-S04 | Điều khiển vị trí đánh lái trái/phải, dừng đúng góc, lỗi an toàn | Chưa làm | Test trên giá treo |
 | M7-S05 | Tích hợp **chạy bánh + đánh lái** trên giá treo | Chưa làm | Điều kiện kết thúc giai đoạn giá treo |
@@ -119,3 +119,21 @@ Source `Core/Src/main.c` giữ `GPIO_MODE_IT_RISING` + `GPIO_PULLUP`, đúng the
 - Trong mỗi xung: **bất cứ LIMIT nào mở (raw lên HIGH) thì EXTI lập tức đặt PWM hai kênh lái về 0**, khóa xung đó và đặt `steer_test_result=4`. Nếu limit mở sẵn, firmware **từ chối mọi xung**, kể cả xung có thể thoát giới hạn.
 - Nếu STOP/PS2/Voice/bánh chạy/đang logger thì xung bị từ chối hoặc hủy. Reset xóa trạng thái xung, **không chủ ý xóa log hoàn tất**.
 - **Phần chưa triển khai:** ánh xạ chiều DIR0/1 ↔ MIN/MAX, cho phép thoát khỏi limit một cách có kiểm soát; kiểm thử thời gian đáp ứng motor khi bị kẹt. Chỉ làm khi có bằng chứng vật lý từ xung đầu.
+
+
+## M7-S02 — Bản sửa 2026-10-20: chạy PWM 10% cho tới LIMIT hoặc timeout
+
+**Nhánh mới:** `feature/m7-s02-limit-run-10pct` (độc lập với nhánh xung 200 ms). Đã code, **chưa xác minh build trên máy người dùng hoặc thử motor trên phần cứng**.
+
+Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_command=1` (LEFT DIR=0); `steer_test_result=2` (đã hết xung 200 ms), `steer_test_encoder_delta=0`, `steer_test_running=0` và `steer_test_pwm_applied=0`. Không thể kết luận chắc motor đã quay từ log này.
+
+**Mặc định an toàn:** không tự chạy khi nạp/khởi động/reset; cần `steer_test_arm=1` rồi `steer_test_request=1`. Giữ duty 100/1000=10%, chỉ chạy motor LEFT/DIR0 cho lần đầu và xem hướng cơ khí. Có thể dùng request 2/3/4 ở các bước riêng sau khi đánh giá kết quả lần đầu; không phải PS2.
+
+- Dừng sớm nếu BẤT CỨ limit NC nào mở: ISR EXTI RISING thực thi `Steering_TestFinish(4)`, làm cả hai PWM lái về zero; `steer_test_trip_mask` nêu chân tác động (1 R_MAX, 2 R_MIN, 4 L_MIN, 8 L_MAX).
+- Thời gian tối đa **5.000 ms**: `steer_test_result=2` = **timeout (chưa chạm công tắc)**; khác `4` = **đã phát hiện limit**.
+- `steer_test_abort=1` yêu cầu hủy bằng main loop (`result=5`). STOP/PS2/Voice/xe chạy có thể hủy qua kiểm tra trạng thái; trước khi test phải để xe ở IDLE, không ghi/xuất logger, tất cả limit LOW.
+- Dữ liệu encoder `steer_test_encoder_delta` được cập nhật trong khi đang chạy và khi kết thúc, giúp biết encoder có ghi nhận count hay không; =0 KHÔNG khẳng định chắc chắn motor không quay.
+- **PWM về 0 không tương đương ngắt nguồn cấp driver.** Muốn ngắt nguồn vật lý phải xác nhận chân EN hoặc mạch ngắt nguồn/driver cụ thể; không tự kết nối trực tiếp GPIO STM32 với đường điện motor.
+- Không dùng Pause/breakpoint trong lúc chạy; CPU halt có thể khiến bộ đếm 5 giây bằng HAL_GetTick ngừng cập nhật trong khi PWM vẫn tồn tại. Cần có phương án ngắt nguồn motor vật lý, quan sát cơ khí, và đảm bảo công tắc được tác động **trước chặn cơ khí**.
+- Thử an toàn theo hai bước: **(1)** nếu thuận tiện ngắt riêng nguồn cấp động lực driver, giữ STM32 chạy; kích hoạt test và thao tác công tắc L_MIN/L_MAX bằng tay để xem `result=4` và `pwm_applied=0`. **(2)** Chỉ sau khi xác nhận đường dừng và khoảng cách cơ khí mới cho motor chạy thật; mỗi lần phải arm lại, dừng nếu âm thanh/độ nóng/chuyển động bất thường.
+- Đường ngắt qua firmware/EXTI không thay thế cầu dao bảo vệ quá dòng, phần ngắt cứng hoặc E-stop phần cứng cho xe vận hành thực tế.
