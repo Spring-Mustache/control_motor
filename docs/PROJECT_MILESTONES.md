@@ -210,3 +210,13 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - PWM 30% không đồng nghĩa dòng/mô-men đã kiểm soát, và tiếng rít khi motor không quay có thể đi kèm dòng lớn. Không thử đi thử lại liên tục. Cần chuẩn bị ngắt nguồn động lực riêng và không ngừng CPU ở breakpoint khi PWM đang chạy.
 - Xem sau lượt LEFT: có chuyển động thật không, tốc độ tăng ra sao, tiếng rít tăng/giảm, `steer_test_result`, `steer_test_elapsed_ms`, `steer_test_encoder_delta`, trạng thái đèn ERR/iOVER của CCS_SHB12.
 - **Trạng thái:** Firmware cập nhật trên GitHub; **chưa có kết quả build CubeIDE và thử nghiệm bo cho phiên bản 30%**; M7-S02 vẫn CHƯA PASS toàn bộ.
+
+
+## M7-S02 — Thử chạm hành trình motor trái 20% tối đa 5 giây (2026-10-20)
+
+- Người dùng báo cáo **LEFT DIR0 ở 30% chạy hơi nhanh**, mong muốn giữ **15% hoặc 20%** nhưng tăng thời gian giống bài RIGHT để quan sát **dừng ở công tắc hành trình**; chọn **20%** vì đã quan sát có chuyển động ở mức này.
+- Nhánh thử riêng: `feature/m7-s02-left20-limit-5s`. Đặt `STEER_TEST_LEFT_PWM_DUTY=200U` (20%, ARR 999), `STEER_TEST_LEFT_MAX_RUN_MS=5000U` (5 giây tối đa), `steer_test_request=1` là LEFT DIR0. `steer_test_request=3` vẫn là RIGHT DIR0 10% tối đa 5 giây. Các lệnh 2/4 vẫn bị khóa.
+- Nếu LEFT chạm bất kỳ công tắc NC nào trước 5 giây, EXTI dừng PWM và kết quả mong đợi `steer_test_result=4`, `steer_test_trip_mask=4` (L_MIN) hoặc `8` (L_MAX) nếu switch tương ứng; nếu `result=2` nghĩa là **hết 5 giây nhưng chưa có limit trip**. Tiến về phía LU là mô tả hướng quan sát, chưa có bằng chứng nó tương ứng L_MIN hay L_MAX.
+- Chỉ thử khi bốn bit `debug_limit_raw_mask` và `debug_limit_active_mask` đều 0; nếu R_MIN phía phải vẫn đang tác động, firmware sẽ không cho LEFT chạy. Bắt đầu khi không sát đầu hành trình và có phương án ngắt nguồn động lực độc lập.
+- Cơ cấu còn có tiếng rít ở 20% theo báo cáo trước; không coi thời gian dài hơn là phương án chữa tiếng rít. Nếu rít lớn, kẹt, động cơ nóng hoặc driver ERR/iOVER, **ngắt nguồn và không chờ đủ 5 giây**. Không pause/debug-halt MCU trong khi motor chạy vì phần mềm timeout dựa trên `HAL_GetTick`.
+- **Chưa build và chưa xác minh trên bo**; chỉ khi quan sát limit thực sự tác động, PWM=0, `result=4` và trip mask chính xác mới ghi PASS phần LEFT DIR0→limit. M7-S02 chưa PASS toàn bộ.
