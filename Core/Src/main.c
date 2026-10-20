@@ -136,9 +136,12 @@ typedef struct
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define STEERING_LIMIT_DEBOUNCE_MS        40U
-/* M7-S02 diagnosis: 100/(999+1) = 10%; 200 ms maximum per pulse. */
+/* M7-S02: 100/(999+1) = 10% PWM. Continue until NC limit opens,
+ * but cut PWM after 5s as backup if the limit never actuates.
+ * Stopping PWM is NOT physically disconnecting driver motor supply.
+ */
 #define STEER_TEST_PWM_DUTY              100U
-#define STEER_TEST_PULSE_MS              200U
+#define STEER_TEST_MAX_RUN_MS            5000U
 #define MOTOR_PWM_MAX                     999
 #define MOTOR_DPAD_PWM                    400
 
@@ -560,12 +563,11 @@ volatile uint8_t debug_limit_raw_mask = 0U;
 volatile uint8_t debug_limit_active_mask = 0U;
 volatile uint8_t debug_limit_same_side_both_active = 0U;
 
-/* M7-S02: one-shot, manually armed only; 1=L DIR0, 2=L DIR1,
- * 3=R DIR0, 4=R DIR1. DIR electrical level is NOT yet a calibrated
- * steering direction (MIN / MAX mapping must be measured).
- *
- * Result: 0 idle, 1 running, 2 timed out as planned (200 ms),
- * 3 refused/unsafe, 4 limit tripped, 5 aborted, 6 invalid request.
+/* M7-S02: manually armed motion, one motor, unknown physical direction.
+ * 1=L DIR0, 2=L DIR1, 3=R DIR0, 4=R DIR1.
+ * Result: 0 idle, 1 running, 2 timeout safety backup (5s, NO LIMIT),
+ * 3 refused/unsafe, 4 NC LIMIT tripped, 5 abort, 6 invalid request.
+ * After every result another movement must be explicitly re-armed.
  */
 volatile uint8_t steer_test_arm = 0U;
 volatile uint8_t steer_test_request = 0U;
@@ -1135,10 +1137,11 @@ static void SteeringLimits_DebugUpdate(void)
 
 
 /*
- * M7-S02: phase 1 hardware polarity identification only.
- * No self-running motion and no assumption about physical MIN/MAX direction.
- * REFUSE EVERY pulse if any of the four NC limit switches is open.
- * EXTI immediately removes PWM if any limit opens while a pulse is active.
+ * M7-S02: hardware polarity identification with a bounded sustained run.
+ * Motion never starts by itself at boot: each attempt needs manual arm+request.
+ * Unknown DIR -> physical MIN/MAX, so every NC limit blocks any run.
+ * Limit EXTI immediately sets PWM to zero; a 5s software cap is the backup.
+ * A separate physical driver power cutoff is needed for true supply removal.
  */
 static void Steering_TestOutputsOff(void)
 {
@@ -1175,9 +1178,11 @@ static uint16_t Steering_TestEncoderCount(uint8_t command)
 
 static void Steering_TestFinish(uint8_t result)
 {
+  /* PWM=0 first, including in the EXTI handler; not power-disconnect. */
   Steering_TestOutputsOff();
   if (steer_test_running != 0U)
   {
+    steer_test_elapsed_ms = (uint32_t)(HAL_GetTick() - steer_test_start_tick);
     steer_test_encoder_delta = (int16_t)(
         (uint16_t)(Steering_TestEncoderCount(steer_test_last_command) -
                    steer_test_encoder_start));
@@ -1252,7 +1257,7 @@ static void Steering_TestPulseUpdate(void)
     steer_test_request = 0U;
     if (steer_test_running != 0U)
     {
-      Steering_TestFinish(5U); /* never extend an existing pulse */
+      Steering_TestFinish(5U); /* new request aborts instead of extending run */
       steer_test_arm = 0U;
       return;
     }
@@ -1274,7 +1279,7 @@ static void Steering_TestPulseUpdate(void)
       return;
     }
 
-    /* One command consumes one arm. Must arm again before next pulse. */
+    /* One command consumes one arm. Must arm again before next run. */
     steer_test_arm = 0U;
     steer_test_last_command = cmd;
     steer_test_trip_mask = 0U;
@@ -1298,9 +1303,12 @@ static void Steering_TestPulseUpdate(void)
   if (steer_test_running == 0U) return;
 
   steer_test_elapsed_ms = (uint32_t)(now - steer_test_start_tick);
-  if (steer_test_elapsed_ms >= STEER_TEST_PULSE_MS)
+  steer_test_encoder_delta = (int16_t)(
+      (uint16_t)(Steering_TestEncoderCount(steer_test_last_command) -
+                 steer_test_encoder_start));
+  if (steer_test_elapsed_ms >= STEER_TEST_MAX_RUN_MS)
   {
-    Steering_TestFinish(2U);
+    Steering_TestFinish(2U); /* 5-second backup stop, NOT limit arrival */
     return;
   }
 
@@ -2547,9 +2555,9 @@ int main(void)
      */
     RamLogger_Update(PS2_Pad.LY, (uint8_t)control_mode);
 
-    /* M7-S02: one motor, at most 200 ms at 10% duty, explicit arm only.
-     * Placed after arbitration and wheel-control so STOP/PS2/Voice cannot
-     * accidentally command the steering test.
+    /* M7-S02: one motor at 10% until a limit opens (or 5s backup cutoff).
+     * Requires explicit one-shot arm + request. Runs after arbitration,
+     * so a competing STOP/PS2/Voice command aborts the test.
      */
     Steering_TestPulseUpdate();
 
