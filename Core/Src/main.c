@@ -137,11 +137,11 @@ typedef struct
 /* USER CODE BEGIN PD */
 #define STEERING_LIMIT_DEBOUNCE_MS        40U
 /* M7-S02: left-only 20% startup probe after reported audible stall.
- * 200/(999+1) = 20% PWM. Short 500ms attempt, NOT 5s when stalled.
+ * 200/(999+1) = 20% PWM. Short 1000ms attempt, NOT 5s when stalled.
  * Stop sooner on any NC limit; PWM=0 does not cut driver supply.
  */
 #define STEER_TEST_PWM_DUTY              200U
-#define STEER_TEST_MAX_RUN_MS            500U
+#define STEER_TEST_MAX_RUN_MS            1000U
 #define MOTOR_PWM_MAX                     999
 #define MOTOR_DPAD_PWM                    400
 
@@ -563,9 +563,9 @@ volatile uint8_t debug_limit_raw_mask = 0U;
 volatile uint8_t debug_limit_active_mask = 0U;
 volatile uint8_t debug_limit_same_side_both_active = 0U;
 
-/* M7-S02: 20% diagnostic for LEFT DIR0 only, <=500ms.
+/* M7-S02: 20% diagnostic for LEFT DIR0 only, <=1000ms.
  * 1=L DIR0 accepted; other commands rejected to avoid unintended motion.
- * Result: 0 idle, 1 running, 2 500ms complete (NOT proof of motion),
+ * Result: 0 idle, 1 running, 2 1000ms complete (NOT proof of motion),
  * 3 refused/unsafe, 4 NC limit tripped, 5 abort, 6 invalid request.
  * A fresh arm + request is required for each probe.
  */
@@ -1143,7 +1143,7 @@ static void SteeringLimits_DebugUpdate(void)
 
 
 /*
- * M7-S02: startup test of LEFT DIR0; 20% duty, 500ms hard software cap.
+ * M7-S02: startup test of LEFT DIR0; 20% duty, 1000ms hard software cap.
  * DIR0->L_MIN/L_MAX remains unknown: all four NC limits must be closed.
  * One manually armed request, no motor motion on reset/boot.
  * Limit EXTI zeros PWM, but this does not electrically remove driver power.
@@ -1339,7 +1339,7 @@ static void Steering_TestPulseUpdate(void)
                  steer_test_encoder_start));
   if (steer_test_elapsed_ms >= STEER_TEST_MAX_RUN_MS)
   {
-    Steering_TestFinish(2U); /* 500ms startup probe ended, NOT limit arrival */
+    Steering_TestFinish(2U); /* 1000ms startup probe ended, NOT limit arrival */
     return;
   }
 
@@ -2590,7 +2590,7 @@ int main(void)
      */
     RamLogger_Update(PS2_Pad.LY, (uint8_t)control_mode);
 
-    /* M7-S02: LEFT DIR0 only at 20% for <=500ms or until an NC limit.
+    /* M7-S02: LEFT DIR0 only at 20% for <=1000ms or until an NC limit.
      * Requires manual arm/request; all standard safety checks remain.
      */
     Steering_TestPulseUpdate();
