@@ -137,3 +137,12 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - Không dùng Pause/breakpoint trong lúc chạy; CPU halt có thể khiến bộ đếm 5 giây bằng HAL_GetTick ngừng cập nhật trong khi PWM vẫn tồn tại. Cần có phương án ngắt nguồn motor vật lý, quan sát cơ khí, và đảm bảo công tắc được tác động **trước chặn cơ khí**.
 - Thử an toàn theo hai bước: **(1)** nếu thuận tiện ngắt riêng nguồn cấp động lực driver, giữ STM32 chạy; kích hoạt test và thao tác công tắc L_MIN/L_MAX bằng tay để xem `result=4` và `pwm_applied=0`. **(2)** Chỉ sau khi xác nhận đường dừng và khoảng cách cơ khí mới cho motor chạy thật; mỗi lần phải arm lại, dừng nếu âm thanh/độ nóng/chuyển động bất thường.
 - Đường ngắt qua firmware/EXTI không thay thế cầu dao bảo vệ quá dòng, phần ngắt cứng hoặc E-stop phần cứng cho xe vận hành thực tế.
+
+
+## M7-S02 — Xác nhận thực tế motor phải (2026-10-20)
+
+- Người dùng quan sát motor đánh lái RIGHT chuyển động **về phía R_MIN** sau lệnh `steer_test_request=3` (RIGHT, DIR=0 ở PF10), PWM 10%.
+- Live Expressions sau dừng: `steer_test_last_command=3`, `steer_test_result=4` (limit stop), `debug_limit_raw_mask=2`, `debug_limit_active_mask=2` (R_MIN/PF8), `steer_test_encoder_delta=-1224`, `steer_test_pwm_applied=0`, `steer_test_running=0`. Kết hợp quan sát thực tế, xác nhận **RIGHT DIR=0 → R_MIN**, encoder phải có đếm và phần mềm đã dừng PWM theo tín hiệu giới hạn.
+- Chưa xác nhận **RIGHT DIR=1 → R_MAX**, chưa đo độc lập tốc độ cắt PWM/nguồn cấp của driver và chưa nghiệm thu cơ cấu trái. Không đánh dấu M7-S02 PASS toàn bộ.
+- RIGHT đang ở R_MIN (mask=2): firmware giai đoạn này **không cho chạy bất kỳ motor nào nếu có LIMIT active**, nên không yêu cầu thử đảo chiều bằng debug khi limit chưa nhả; phải có quy trình thoát giới hạn an toàn sau khi xác nhận hướng vật lý.
+- Motor LEFT DIR=0 trước đó có lệnh PWM nhưng encoder delta=0 và motor không thấy quay. Driver LEFT CCS_SHB12 vẫn cần kiểm tra chế độ PWM/DIR (RUN nháy 2), trạng thái ERR/iOVER, dây PB15→IN1, PD14→IN2, GND chung và nguồn motor; không kết luận driver hỏng khi chưa kiểm tra.
