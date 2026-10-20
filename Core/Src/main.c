@@ -136,12 +136,15 @@ typedef struct
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define STEERING_LIMIT_DEBOUNCE_MS        40U
-/* M7-S02: left-only 20% startup probe after reported audible stall.
- * 200/(999+1) = 20% PWM. Short 1000ms attempt, NOT 5s when stalled.
- * Stop sooner on any NC limit; PWM=0 does not cut driver supply.
+/* M7-S02: independent, bounded diagnostic duty/time per motor.
+ * LEFT: 30%, 500ms maximum (prior squeal/stall still unexplained).
+ * RIGHT: 10%, 5000ms maximum (previously observed R_MIN limit stop).
+ * In all cases: stop sooner on any NC limit; PWM=0 != power off.
  */
-#define STEER_TEST_PWM_DUTY              200U
-#define STEER_TEST_MAX_RUN_MS            1000U
+#define STEER_TEST_LEFT_PWM_DUTY         300U
+#define STEER_TEST_RIGHT_PWM_DUTY        100U
+#define STEER_TEST_LEFT_MAX_RUN_MS       500U
+#define STEER_TEST_RIGHT_MAX_RUN_MS      5000U
 #define MOTOR_PWM_MAX                     999
 #define MOTOR_DPAD_PWM                    400
 
@@ -563,9 +566,9 @@ volatile uint8_t debug_limit_raw_mask = 0U;
 volatile uint8_t debug_limit_active_mask = 0U;
 volatile uint8_t debug_limit_same_side_both_active = 0U;
 
-/* M7-S02: 20% diagnostic for LEFT DIR0 only, <=1000ms.
- * 1=L DIR0 accepted; other commands rejected to avoid unintended motion.
- * Result: 0 idle, 1 running, 2 1000ms complete (NOT proof of motion),
+/* M7-S02: 1=LEFT DIR0, PWM 30% <=500ms; 3=RIGHT DIR0,
+ * PWM 10% <=5000ms; other command codes are rejected.
+ * Result: 0 idle, 1 running, 2 time limit (NOT proof of motion),
  * 3 refused/unsafe, 4 NC limit tripped, 5 abort, 6 invalid request.
  * A fresh arm + request is required for each probe.
  */
@@ -1143,10 +1146,11 @@ static void SteeringLimits_DebugUpdate(void)
 
 
 /*
- * M7-S02: startup test of LEFT DIR0; 20% duty, 1000ms hard software cap.
- * DIR0->L_MIN/L_MAX remains unknown: all four NC limits must be closed.
- * One manually armed request, no motor motion on reset/boot.
- * Limit EXTI zeros PWM, but this does not electrically remove driver power.
+ * M7-S02: mutually exclusive diagnostic commands with separate duty/caps.
+ * LEFT DIR0: 30% duty <=500ms; RIGHT DIR0: 10% duty <=5000ms.
+ * Left direction to L_MIN/L_MAX is still unknown; all four NC limits
+ * must be closed at start. Manual arm required, no motion on reset.
+ * Limit EXTI zeros PWM but does not physically disconnect driver power.
  */
 static void Steering_TestOutputsOff(void)
 {
@@ -1283,8 +1287,10 @@ static void Steering_TestPulseUpdate(void)
       return;
     }
 
-    /* This version authorizes LEFT DIR0 only at elevated 20% duty. */
-    if (cmd != 1U)
+    /* Only known LEFT/RIGHT DIR0 are authorized at fixed per-motor duty.
+     * All other directions are blocked until their limits are mapped.
+     */
+    if ((cmd != 1U) && (cmd != 3U))
     {
       steer_test_arm = 0U;
       steer_test_result = 6U;
@@ -1337,9 +1343,11 @@ static void Steering_TestPulseUpdate(void)
   steer_test_encoder_delta = (int16_t)(
       (uint16_t)(Steering_TestEncoderCount(steer_test_last_command) -
                  steer_test_encoder_start));
-  if (steer_test_elapsed_ms >= STEER_TEST_MAX_RUN_MS)
+  if (steer_test_elapsed_ms >=
+      ((steer_test_last_command == 1U) ?
+       STEER_TEST_LEFT_MAX_RUN_MS : STEER_TEST_RIGHT_MAX_RUN_MS))
   {
-    Steering_TestFinish(2U); /* 1000ms startup probe ended, NOT limit arrival */
+    Steering_TestFinish(2U); /* time cap, NOT limit arrival */
     return;
   }
 
@@ -1372,11 +1380,16 @@ static void Steering_TestPulseUpdate(void)
          (steer_test_last_command == 4U)) ? GPIO_PIN_SET : GPIO_PIN_RESET;
 
     HAL_GPIO_WritePin(dir_port, dir_pin, dir_level);
-    if (steer_test_last_command <= 2U)
-      __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, STEER_TEST_PWM_DUTY);
-    else
-      __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, STEER_TEST_PWM_DUTY);
-    steer_test_pwm_applied = STEER_TEST_PWM_DUTY;
+    if (steer_test_last_command == 1U)
+    {
+      __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, STEER_TEST_LEFT_PWM_DUTY);
+      steer_test_pwm_applied = STEER_TEST_LEFT_PWM_DUTY;
+    }
+    else /* RIGHT DIR0 only */
+    {
+      __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, STEER_TEST_RIGHT_PWM_DUTY);
+      steer_test_pwm_applied = STEER_TEST_RIGHT_PWM_DUTY;
+    }
   }
   else
   {
@@ -2590,8 +2603,8 @@ int main(void)
      */
     RamLogger_Update(PS2_Pad.LY, (uint8_t)control_mode);
 
-    /* M7-S02: LEFT DIR0 only at 20% for <=1000ms or until an NC limit.
-     * Requires manual arm/request; all standard safety checks remain.
+    /* M7-S02: LEFT DIR0 30% <=500ms / RIGHT DIR0 10% <=5000ms.
+     * Both require manual arm/request and preserve NC limit protection.
      */
     Steering_TestPulseUpdate();
 
