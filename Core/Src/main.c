@@ -137,13 +137,13 @@ typedef struct
 /* USER CODE BEGIN PD */
 #define STEERING_LIMIT_DEBOUNCE_MS        40U
 /* M7-S02: independent, bounded diagnostic duty/time per motor.
- * LEFT: 30%, 500ms maximum (prior squeal/stall still unexplained).
+ * LEFT: 20%, 5000ms maximum (prior 30% observed too fast).
  * RIGHT: 10%, 5000ms maximum (previously observed R_MIN limit stop).
  * In all cases: stop sooner on any NC limit; PWM=0 != power off.
  */
-#define STEER_TEST_LEFT_PWM_DUTY         300U
+#define STEER_TEST_LEFT_PWM_DUTY         200U
 #define STEER_TEST_RIGHT_PWM_DUTY        100U
-#define STEER_TEST_LEFT_MAX_RUN_MS       500U
+#define STEER_TEST_LEFT_MAX_RUN_MS       5000U
 #define STEER_TEST_RIGHT_MAX_RUN_MS      5000U
 #define MOTOR_PWM_MAX                     999
 #define MOTOR_DPAD_PWM                    400
@@ -566,7 +566,7 @@ volatile uint8_t debug_limit_raw_mask = 0U;
 volatile uint8_t debug_limit_active_mask = 0U;
 volatile uint8_t debug_limit_same_side_both_active = 0U;
 
-/* M7-S02: 1=LEFT DIR0, PWM 30% <=500ms; 3=RIGHT DIR0,
+/* M7-S02: 1=LEFT DIR0, PWM 20% <=5000ms; 3=RIGHT DIR0,
  * PWM 10% <=5000ms; other command codes are rejected.
  * Result: 0 idle, 1 running, 2 time limit (NOT proof of motion),
  * 3 refused/unsafe, 4 NC limit tripped, 5 abort, 6 invalid request.
@@ -1147,7 +1147,7 @@ static void SteeringLimits_DebugUpdate(void)
 
 /*
  * M7-S02: mutually exclusive diagnostic commands with separate duty/caps.
- * LEFT DIR0: 30% duty <=500ms; RIGHT DIR0: 10% duty <=5000ms.
+ * LEFT DIR0: 20% duty <=5000ms; RIGHT DIR0: 10% duty <=5000ms.
  * Left direction to L_MIN/L_MAX is still unknown; all four NC limits
  * must be closed at start. Manual arm required, no motion on reset.
  * Limit EXTI zeros PWM but does not physically disconnect driver power.
@@ -2603,7 +2603,7 @@ int main(void)
      */
     RamLogger_Update(PS2_Pad.LY, (uint8_t)control_mode);
 
-    /* M7-S02: LEFT DIR0 30% <=500ms / RIGHT DIR0 10% <=5000ms.
+    /* M7-S02: LEFT DIR0 20% <=5000ms / RIGHT DIR0 10% <=5000ms.
      * Both require manual arm/request and preserve NC limit protection.
      */
     Steering_TestPulseUpdate();
