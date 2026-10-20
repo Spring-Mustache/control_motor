@@ -156,3 +156,11 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
   - `steer_test_abort_reason_mask`: nếu cause=3, mỗi bit là điều kiện đang vi phạm: b0 control_mode!=IDLE, b1 stop latch, b2 PS2 manual, b3 PS2 cancel-hold, b4 voice executing, b5 voice ready, b6 wheel target/current PWM, b7 wheel PWM outputs, b8 wheel_pid_target_rpm, b9 wheel FF test, b10 wheel logger active, b11 CSV dump/request, b12 AS5600 polling enabled, b13 bất kỳ wheel RPM>2. Mask có thể chứa nhiều bit. Ví dụ 4 nghĩa b2, 256 nghĩa b8.
 - Hai biến giữ nguyên kết quả sau dừng và được xóa khi **một lệnh mới thực sự được chấp nhận**. Các thay đổi chỉ ghi thêm debug; **không** sửa PWM 100/1000, thời hạn 5 s, hướng motor hay điều kiện bảo vệ giới hạn.
 - Chưa build/đo trên phần cứng phiên bản bổ sung debug mới. Khi thử lại phải giữ cơ cấu cách xa chặn, có công tắc giới hạn tốt và dự phòng nguồn motor; ưu tiên chưa chạy motor khi chưa xác định an toàn trên bo.
+
+
+## M7-S02 — Phát hiện đấu nối/hàn dây phần cứng (2026-10-20)
+
+- Người dùng báo cáo trong lần chẩn đoán đã từng dùng ngõ ra cầu H trái để cấp cho bánh LU và thấy bánh quay khi tháo encoder LU. Đây là **quan sát của người dùng**, chưa phải phép đo xác nhận nguyên nhân firmware, cũng không chứng minh vòng điều khiển LU hoạt động khi encoder bị tháo.
+- Người dùng phát hiện **mối hàn dây vào motor đánh lái trái tiếp xúc không tốt**; hiện được xem là **nguyên nhân nghi ngờ chính cho hiện tượng đánh lái trái không chuyển động**. Chưa xác nhận sau khi hàn lại bằng bài thử thực tế.
+- Quyết định: ưu tiên sửa và kiểm tra thông mạch mối hàn khi đã ngắt nguồn, phục hồi encoder LU, bảo đảm mỗi đầu ra cầu H nối đúng motor được chỉ định; chưa sửa firmware hoặc tăng PWM thử.
+- Sau khi sửa, thử đánh lái trái với PWM 10%, DIR=0, vị trí giữa hành trình, giới hạn NC hoạt động, có đường ngắt nguồn công suất thủ công; nghiệm thu theo chuyển động/encoder/limit. M7-S02 chưa PASS toàn bộ.
