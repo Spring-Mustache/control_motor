@@ -574,6 +574,12 @@ volatile uint8_t steer_test_request = 0U;
 volatile uint8_t steer_test_abort = 0U;
 volatile uint8_t steer_test_running = 0U;
 volatile uint8_t steer_test_result = 0U;
+/* Latched diagnosis: 0 none, 1 second request, 2 explicit abort,
+ * 3 safety condition changed. For cause=3 read reason_mask below.
+ * Both values persist after the run, until the next accepted command.
+ */
+volatile uint8_t steer_test_abort_cause = 0U;
+volatile uint32_t steer_test_abort_reason_mask = 0U;
 volatile uint8_t steer_test_last_command = 0U;
 volatile uint8_t steer_test_trip_mask = 0U;
 volatile uint16_t steer_test_pwm_applied = 0U;
@@ -1191,31 +1197,43 @@ static void Steering_TestFinish(uint8_t result)
   steer_test_result = result;
 }
 
-static uint8_t Steering_TestVehicleIsIdle(void)
+/*
+ * A bitmask is collected once in the same cycle that causes a refusal
+ * or abort. This avoids inspecting live flags AFTER they have returned
+ * to normal (which previously obscured reason=5).
+ *
+ * bit 0: control_mode != IDLE      bit 1: STOP latch
+ * bit 2: PS2 manual input          bit 3: PS2 cancel-hold
+ * bit 4: voice execution           bit 5: voice command ready
+ * bit 6: nonzero wheel cmd PWM     bit 7: nonzero actual wheel PWM
+ * bit 8: nonzero wheel target RPM  bit 9: FF calibration active
+ * bit10: wheel logger recording    bit11: wheel CSV dump/request
+ * bit12: AS5600 polling enabled    bit13: at least one wheel moving
+ */
+static uint32_t Steering_TestUnsafeMask(void)
 {
-  /* Strictly isolate this test from all drive modes, active logging,
-   * auto FF, blocking AS5600 or CSV output. Don't start with spinning wheels.
-   */
-  if ((control_mode != CONTROL_MODE_IDLE) ||
-      (control_stop_latched != 0U) ||
-      (ps2_manual_active != 0U) ||
-      (ps2_cancel_hold != 0U) ||
-      (voice_execution_active != 0U) ||
-      (voice_command_ready != 0U) ||
-      (wheel_target_pwm != 0) ||
-      (wheel_current_pwm != 0) ||
-      (wheel_pwm_lu != 0) || (wheel_pwm_ld != 0) ||
-      (wheel_pwm_ru != 0) || (wheel_pwm_rd != 0) ||
-      (wheel_pid_target_rpm > 0.5f) ||
-      (wheel_pid_target_rpm < -0.5f) ||
-      (wheel_ff_test_active != 0U) ||
-      (wheel_log_active != 0U) ||
-      (wheel_log_dump_request != 0U) ||
-      (wheel_log_dump_active != 0U) ||
-      (debug_as5600_poll_enable != 0U))
-  {
-    return 0U;
-  }
+  uint32_t mask = 0U;
+
+  if (control_mode != CONTROL_MODE_IDLE) mask |= (1UL << 0);
+  if (control_stop_latched != 0U) mask |= (1UL << 1);
+  if (ps2_manual_active != 0U) mask |= (1UL << 2);
+  if (ps2_cancel_hold != 0U) mask |= (1UL << 3);
+  if (voice_execution_active != 0U) mask |= (1UL << 4);
+  if (voice_command_ready != 0U) mask |= (1UL << 5);
+  if ((wheel_target_pwm != 0) || (wheel_current_pwm != 0))
+    mask |= (1UL << 6);
+  if ((wheel_pwm_lu != 0) || (wheel_pwm_ld != 0) ||
+      (wheel_pwm_ru != 0) || (wheel_pwm_rd != 0))
+    mask |= (1UL << 7);
+  if ((wheel_pid_target_rpm > 0.5f) ||
+      (wheel_pid_target_rpm < -0.5f))
+    mask |= (1UL << 8);
+  if (wheel_ff_test_active != 0U) mask |= (1UL << 9);
+  if (wheel_log_active != 0U) mask |= (1UL << 10);
+  if ((wheel_log_dump_request != 0U) ||
+      (wheel_log_dump_active != 0U))
+    mask |= (1UL << 11);
+  if (debug_as5600_poll_enable != 0U) mask |= (1UL << 12);
 
   if ((Motor_LeftUp.current_rpm > 2.0f) ||
       (Motor_LeftUp.current_rpm < -2.0f) ||
@@ -1226,9 +1244,10 @@ static uint8_t Steering_TestVehicleIsIdle(void)
       (Motor_RightDown.current_rpm > 2.0f) ||
       (Motor_RightDown.current_rpm < -2.0f))
   {
-    return 0U;
+    mask |= (1UL << 13);
   }
-  return 1U;
+
+  return mask;
 }
 
 static uint8_t Steering_TestLimitsClear(void)
@@ -1251,12 +1270,15 @@ static void Steering_TestPulseUpdate(void)
   uint8_t cmd = steer_test_request;
   uint32_t now = HAL_GetTick();
   uint32_t previous_primask;
+  uint32_t unsafe_mask;
 
   if (cmd != 0U)
   {
     steer_test_request = 0U;
     if (steer_test_running != 0U)
     {
+      steer_test_abort_cause = 1U; /* repeated command while still running */
+      steer_test_abort_reason_mask = 0U;
       Steering_TestFinish(5U); /* new request aborts instead of extending run */
       steer_test_arm = 0U;
       return;
@@ -1269,8 +1291,9 @@ static void Steering_TestPulseUpdate(void)
       return;
     }
 
+    unsafe_mask = Steering_TestUnsafeMask();
     if ((steer_test_arm == 0U) ||
-        (Steering_TestVehicleIsIdle() == 0U) ||
+        (unsafe_mask != 0U) ||
         (Steering_TestLimitsClear() == 0U))
     {
       steer_test_arm = 0U;
@@ -1281,6 +1304,8 @@ static void Steering_TestPulseUpdate(void)
 
     /* One command consumes one arm. Must arm again before next run. */
     steer_test_arm = 0U;
+    steer_test_abort_cause = 0U;
+    steer_test_abort_reason_mask = 0U;
     steer_test_last_command = cmd;
     steer_test_trip_mask = 0U;
     steer_test_encoder_start = Steering_TestEncoderCount(cmd);
@@ -1296,7 +1321,12 @@ static void Steering_TestPulseUpdate(void)
   {
     steer_test_abort = 0U;
     steer_test_arm = 0U;
-    if (steer_test_running != 0U) Steering_TestFinish(5U);
+    if (steer_test_running != 0U)
+    {
+      steer_test_abort_cause = 2U;
+      steer_test_abort_reason_mask = 0U;
+      Steering_TestFinish(5U);
+    }
     return;
   }
 
@@ -1312,8 +1342,12 @@ static void Steering_TestPulseUpdate(void)
     return;
   }
 
-  if (Steering_TestVehicleIsIdle() == 0U)
+  unsafe_mask = Steering_TestUnsafeMask();
+  if (unsafe_mask != 0U)
   {
+    /* Latch the exact unsafe state BEFORE the control flags can clear. */
+    steer_test_abort_cause = 3U;
+    steer_test_abort_reason_mask = unsafe_mask;
     Steering_TestFinish(5U);
     return;
   }
