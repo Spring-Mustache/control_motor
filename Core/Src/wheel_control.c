@@ -2197,10 +2197,16 @@ void WheelControl_SetSpinDirection(int8_t direction, int16_t magnitude_pwm)
     if ((wheel_pid_enable == 0U) || (wheel_ff_test_active != 0U) ||
         (wheel_target_pwm != 0) ||
         (WC_AbsFloat(wheel_pid_target_rpm) > WC_PID_ZERO_EPS_RPM) ||
-        (WC_AbsFloat(wheel_pid_feedback_lu_rpm) > 2.0f) ||
-        (WC_AbsFloat(wheel_pid_feedback_ld_rpm) > 2.0f) ||
-        (WC_AbsFloat(wheel_pid_feedback_ru_rpm) > 2.0f) ||
-        (WC_AbsFloat(wheel_pid_feedback_rd_rpm) > 2.0f) ||
+        ((wheel_encoder_available_lu == 0U) ||
+         (wheel_encoder_available_ld == 0U) ||
+         (wheel_encoder_available_ru == 0U) ||
+         (wheel_encoder_available_rd == 0U)) ||
+        (wc_motor_lu == NULL) || (wc_motor_ld == NULL) ||
+        (wc_motor_ru == NULL) || (wc_motor_rd == NULL) ||
+        (WC_AbsFloat(wc_motor_lu->current_rpm) > 2.0f) ||
+        (WC_AbsFloat(wc_motor_ld->current_rpm) > 2.0f) ||
+        (WC_AbsFloat(wc_motor_ru->current_rpm) > 2.0f) ||
+        (WC_AbsFloat(wc_motor_rd->current_rpm) > 2.0f) ||
         (wheel_pwm_lu != 0) || (wheel_pwm_ld != 0) ||
         (wheel_pwm_ru != 0) || (wheel_pwm_rd != 0))
     {
@@ -2327,10 +2333,12 @@ void WheelControl_Update(void)
   if ((wheel_spin_active != 0U) && (wheel_spin_direction == 0) &&
       (WC_AbsFloat(wheel_pid_target_rpm) <= WC_PID_ZERO_EPS_RPM) &&
       (wheel_reverse_wait_active == 0U) &&
-      (WC_AbsFloat(wheel_pid_feedback_lu_rpm) < 2.0f) &&
-      (WC_AbsFloat(wheel_pid_feedback_ld_rpm) < 2.0f) &&
-      (WC_AbsFloat(wheel_pid_feedback_ru_rpm) < 2.0f) &&
-      (WC_AbsFloat(wheel_pid_feedback_rd_rpm) < 2.0f))
+      (wc_motor_lu != NULL) && (wc_motor_ld != NULL) &&
+      (wc_motor_ru != NULL) && (wc_motor_rd != NULL) &&
+      (WC_AbsFloat(wc_motor_lu->current_rpm) < 2.0f) &&
+      (WC_AbsFloat(wc_motor_ld->current_rpm) < 2.0f) &&
+      (WC_AbsFloat(wc_motor_ru->current_rpm) < 2.0f) &&
+      (WC_AbsFloat(wc_motor_rd->current_rpm) < 2.0f))
   {
     if (wc_spin_zero_tick == 0U) wc_spin_zero_tick = now;
     else if ((uint32_t)(now - wc_spin_zero_tick) >= 250U)
