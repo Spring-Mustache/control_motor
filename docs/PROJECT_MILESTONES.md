@@ -268,3 +268,19 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - LEFT DIR0→L_MIN và LEFT DIR1→L_MAX đã có bằng chứng dừng LIMIT; encoder quadrature motor trái từng trả delta=0, còn cần kiểm chứng riêng.
 - Các biến capture AS5600 thuộc RAM, ở hai ảnh RIGHT có một đầu lưu RAW còn đầu kia hiển thị 0; **chưa có bằng chứng bốn số cùng lưu trong RAM một lần**. Đã ghi bốn giá trị vào milestone để bảo toàn số liệu giữa các lần flash/reset. `debug_as5600_right_comm_ok` và các cờ `_valid` không hiển thị trong cả hai ảnh, nên đánh giá chính là căn cứ RAW đã quan sát tại đúng công tắc, không suy ra đã xác minh tất cả cờ chất lượng cảm biến.
 - **Trạng thái:** kiểm chứng giới hạn hai chiều motor phải PASS; hai chiều motor trái đã quan sát dừng LIMIT; M7-S02 toàn bộ còn chờ các phần kiểm tra cần thiết khác (encoder trái, quy trình thoát limit tin cậy, calibration center) trước khi kết luận nghiệm thu tổng thể.
+
+
+## M7-S02 — AS5600 CENTER do người dùng căn chỉnh (2026-10-21)
+
+- Người dùng cung cấp trực tiếp hai giá trị **CENTER sau căn chỉnh cơ khí**: **`L_CENTER=1857`**, **`R_CENTER=3398`** (đơn vị RAW AS5600 12-bit, 0–4095). Đây là giá trị **được người dùng báo cáo**, không phải kết quả mình đo trực tiếp trên bo.
+- Bảng 6 điểm hiệu chuẩn đã biết:
+
+  | Mốc | LEFT RAW | RIGHT RAW |
+  |---|---:|---:|
+  | MIN | 2314 | 2929 |
+  | CENTER | **1857** | **3398** |
+  | MAX | 1429 | 3694 |
+
+- Chênh lệch RAW có dấu tính từ CENTER bằng hiệu ngắn nhất (modulo 4096): `LEFT CENTER→MIN +457`, `LEFT CENTER→MAX -428`, `RIGHT CENTER→MIN -469`, `RIGHT CENTER→MAX +296`. Không suy rằng các mốc CENTER phải là trung bình số học hai LIMIT: người dùng căn chỉnh vị trí cân bằng thực tế.
+- User trước đó dự kiến **sai số cân bằng ±3**, nhưng chưa xác định **±3 count RAW AS5600 hay ±3 độ cơ khí**; **chưa hard-code deadband**, chưa điều khiển motor theo các mốc này.
+- Những giá trị trên đã ghi tài liệu để không mất khi flash/reset. Calibration capture của firmware hiện tại nằm ở RAM và reset khi khởi động, **không tự nhận 6 số trong tài liệu**. Để điều khiển vị trí tự động cần xác nhận đơn vị, kiểm tra độ lặp/độ rơ hai chiều và thiết kế state machine giới hạn an toàn trước khi triển khai.
