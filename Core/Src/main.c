@@ -514,6 +514,8 @@ volatile ControlMode_t control_mode = CONTROL_MODE_IDLE;
 
 /* =1 khi PS2 hiện có thao tác thủ công được công nhận. */
 volatile uint8_t ps2_manual_active = 0U;
+/* After radio loss during spin, require a neutral PS2 packet before rearming. */
+volatile uint8_t ps2_spin_rf_latched = 0U;
 
 /*
  * =1 sau khi một thao tác PS2 đã được dùng để HỦY Voice.
@@ -2124,7 +2126,10 @@ static uint8_t PS2_IsManualControlActive(void)
       (PS2_Pad.Up != 0U) ||
       (PS2_Pad.Down != 0U) ||
       (PS2_Pad.Left != 0U) ||
-      (PS2_Pad.Right != 0U))
+      (PS2_Pad.Right != 0U) ||
+      (PS2_Pad.L1 != 0U) ||
+      (PS2_Pad.L2 != 0U) ||
+      (WheelControl_SpinIsActive() != 0U))
   {
     return 1U;
   }
@@ -2140,6 +2145,29 @@ static uint8_t PS2_IsManualControlActive(void)
 static void PS2_ApplyManualControl(void)
 {
   int16_t pwm_duty = PS2_Convert_LY_To_PWM(PS2_Pad.LY);
+
+  /* L1: LU/LD forward, RU/RD reverse; L2: opposite.
+   * The spin shaper latches until stop; no unrelated wheel mode can
+   * instantly replace the opposite-side target during coast-down.
+   */
+  if ((PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
+      (WheelControl_SpinIsActive() != 0U))
+  {
+    WheelControl_SetCommandProfile(WHEEL_COMMAND_PROFILE_FIXED);
+    if ((PS2_Pad.L1 != 0U) && (PS2_Pad.L2 == 0U))
+      WheelControl_SetSpinDirection(1, MOTOR_DPAD_PWM);
+    else if ((PS2_Pad.L2 != 0U) && (PS2_Pad.L1 == 0U))
+      WheelControl_SetSpinDirection(-1, MOTOR_DPAD_PWM);
+    else
+    {
+      /* Both buttons held or released: request a ramped stop. */
+      WheelControl_SetSpinDirection(0, 0);
+      WheelControl_SetTargetPWM(0);
+    }
+
+    Turn_Motors_Stop(); /* steering is not yet PS2-actuated */
+    return;
+  }
 
   /*
    * LY analog = MANUAL profile.
@@ -2194,6 +2222,25 @@ static void Control_Arbitrate(void)
       control_stop_latched = 0U;
     }
 
+    return;
+  }
+
+  /*
+   * M7 fail-safe: during in-place spin, radio loss is not a normal
+   * joystick release. Cut all wheel PWM and wait for reconnection
+   * followed by a neutral PS2 packet before enabling manual control.
+   * This does not modify the pre-existing Voice/STOP latch behavior.
+   */
+  if ((PS2_Pad.Connected != 1U) && (WheelControl_SpinIsActive() != 0U))
+    ps2_spin_rf_latched = 1U;
+
+  if (ps2_spin_rf_latched != 0U)
+  {
+    control_mode = CONTROL_MODE_STOP;
+    Wheel_EmergencyStop();
+    if ((PS2_Pad.Connected == 1U) && (PS2_Pad.Mode == 0x73U) &&
+        (ps2_manual_active == 0U))
+      ps2_spin_rf_latched = 0U;
     return;
   }
 
