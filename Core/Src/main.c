@@ -1578,6 +1578,8 @@ static uint8_t steer_pos_previous_buttons = 0U;
 static uint8_t steer_pos_stable_samples = 0U;
 static uint16_t steer_pos_left_last_raw = 0U;
 static uint16_t steer_pos_right_last_raw = 0U;
+static int16_t steer_pos_left_step = 0;
+static int16_t steer_pos_right_step = 0;
 static uint32_t steer_pos_start_ms = 0U;
 static uint32_t steer_pos_left_motion_ms = 0U;
 static uint32_t steer_pos_right_motion_ms = 0U;
@@ -1617,6 +1619,8 @@ static uint8_t Steering_PositionSensorRead(void)
        (296 + STEER_POS_MARGIN_COUNTS)))
     return 0U;
 
+  steer_pos_left_step = 0;
+  steer_pos_right_step = 0;
   if (steer_pos_active != 0U)
   {
     int16_t ld = AS5600_ShortestDeltaCounts(steer_pos_left_last_raw, l);
@@ -1624,6 +1628,10 @@ static uint8_t Steering_PositionSensorRead(void)
     if ((ld > STEER_POS_MAX_JUMP_COUNTS) || (ld < -STEER_POS_MAX_JUMP_COUNTS) ||
         (rd > STEER_POS_MAX_JUMP_COUNTS) || (rd < -STEER_POS_MAX_JUMP_COUNTS))
       return 0U;
+    steer_pos_left_step = ld;
+    steer_pos_right_step = rd;
+    if ((ld >= 2) || (ld <= -2)) steer_pos_left_motion_ms = HAL_GetTick();
+    if ((rd >= 2) || (rd <= -2)) steer_pos_right_motion_ms = HAL_GetTick();
   }
   steer_pos_left_raw = l;
   steer_pos_right_raw = r;
@@ -1777,6 +1785,11 @@ static void Steering_PositionUpdate(void)
 
   if (is_escape != 0U)
   {
+    if (Steering_PositionSensorRead() == 0U)
+    {
+      Steering_PositionFinish(4U);
+      return;
+    }
     if ((uint32_t)(now - steer_pos_start_ms) >= STEER_POS_ESCAPE_MAX_MS)
     {
       Steering_PositionFinish(5U);
@@ -1797,6 +1810,17 @@ static void Steering_PositionUpdate(void)
         STEER_TEST_LEFT_PWM_DUTY : 0U;
     right_pwm = ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U) ?
         STEER_TEST_RIGHT_PWM_DUTY : 0U;
+    /* Escape MIN: LEFT RAW must decrease; RIGHT RAW must increase. */
+    if (((left_pwm != 0U) && (steer_pos_left_step > 5)) ||
+        ((right_pwm != 0U) && (steer_pos_right_step < -5)) ||
+        ((left_pwm != 0U) &&
+         ((uint32_t)(now - steer_pos_left_motion_ms) > STEER_POS_STALL_MS)) ||
+        ((right_pwm != 0U) &&
+         ((uint32_t)(now - steer_pos_right_motion_ms) > STEER_POS_STALL_MS)))
+    {
+      Steering_PositionFinish(8U);
+      return;
+    }
     /* Both escape MIN toward CENTER use DIR1. */
   }
   else
@@ -1833,6 +1857,8 @@ static void Steering_PositionUpdate(void)
     {
       steer_pos_stable_samples++;
       Steering_TestOutputsOff();
+      steer_pos_left_pwm = 0U;
+      steer_pos_right_pwm = 0U;
       if (steer_pos_stable_samples >= STEER_POS_STABLE_SAMPLES)
         Steering_PositionFinish(2U);
       return;
@@ -1845,27 +1871,34 @@ static void Steering_PositionUpdate(void)
                  (rerr > STEER_POS_MIN_TOL)) ?
         Steering_PositionDuty(rerr, 50U, STEER_TEST_RIGHT_PWM_DUTY, 4U) : 0U;
 
-    if (left_pwm != 0U)
+    if ((left_pwm != 0U) &&
+        (((lerr > 0) && (steer_pos_left_step < -5)) ||
+         ((lerr < 0) && (steer_pos_left_step > 5))))
     {
-      int16_t delta = AS5600_ShortestDeltaCounts(steer_pos_left_last_raw,
-                                                  steer_pos_left_raw);
-      (void)delta;
-      if ((uint32_t)(now - steer_pos_left_motion_ms) > STEER_POS_STALL_MS)
-      {
-        Steering_PositionFinish(8U);
-        return;
-      }
+      Steering_PositionFinish(8U); /* angle moved away from goal */
+      return;
     }
-    else steer_pos_left_motion_ms = now;
-    if (right_pwm != 0U)
+    if ((right_pwm != 0U) &&
+        (((rerr > 0) && (steer_pos_right_step < -5)) ||
+         ((rerr < 0) && (steer_pos_right_step > 5))))
     {
-      if ((uint32_t)(now - steer_pos_right_motion_ms) > STEER_POS_STALL_MS)
-      {
-        Steering_PositionFinish(8U);
-        return;
-      }
+      Steering_PositionFinish(8U);
+      return;
     }
-    else steer_pos_right_motion_ms = now;
+    if ((left_pwm != 0U) &&
+        ((uint32_t)(now - steer_pos_left_motion_ms) > STEER_POS_STALL_MS))
+    {
+      Steering_PositionFinish(8U);
+      return;
+    }
+    if ((right_pwm != 0U) &&
+        ((uint32_t)(now - steer_pos_right_motion_ms) > STEER_POS_STALL_MS))
+    {
+      Steering_PositionFinish(8U);
+      return;
+    }
+    if (left_pwm == 0U) steer_pos_left_motion_ms = now;
+    if (right_pwm == 0U) steer_pos_right_motion_ms = now;
   }
 
   /* EXTI may immediately stop on any newly rising NC-open limit.
