@@ -2323,6 +2323,21 @@ void WheelControl_Update(void)
   uint8_t hunt_ru_entered;
   uint8_t hunt_rd_entered;
 
+  /* PS2 spin must never silently fall back to open-loop if PI or a
+   * required encoder is disabled while the vehicle is spinning.
+   */
+  if ((wheel_spin_active != 0U) &&
+      ((wheel_pid_enable == 0U) ||
+       (wheel_ff_test_active != 0U) ||
+       (wheel_encoder_available_lu == 0U) ||
+       (wheel_encoder_available_ld == 0U) ||
+       (wheel_encoder_available_ru == 0U) ||
+       (wheel_encoder_available_rd == 0U)))
+  {
+    WheelControl_EmergencyStop();
+    return;
+  }
+
   WC_ApplyTuningRequest();
   WC_FFTestUpdate(now);
   WC_TargetRPMUpdate(now);
