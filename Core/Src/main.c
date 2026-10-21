@@ -1583,6 +1583,8 @@ static int16_t steer_pos_right_step = 0;
 static uint32_t steer_pos_start_ms = 0U;
 static uint32_t steer_pos_left_motion_ms = 0U;
 static uint32_t steer_pos_right_motion_ms = 0U;
+static uint16_t steer_pos_left_best_error = 32767U;
+static uint16_t steer_pos_right_best_error = 32767U;
 
 static uint16_t Steering_PositionDuty(int16_t error, uint16_t minimum,
                                      uint16_t maximum, uint16_t gain_divisor)
@@ -1767,6 +1769,8 @@ static void Steering_PositionUpdate(void)
     steer_pos_start_ms = now;
     steer_pos_left_motion_ms = now;
     steer_pos_right_motion_ms = now;
+    steer_pos_left_best_error = 32767U;
+    steer_pos_right_best_error = 32767U;
     steer_pos_run_count++;
   }
   else
@@ -1850,6 +1854,21 @@ static void Steering_PositionUpdate(void)
     rerr = AS5600_ShortestDeltaCounts(steer_pos_right_raw, right_goal);
     steer_pos_left_error = lerr;
     steer_pos_right_error = rerr;
+    /* Abort persistent drift away from the requested angle, including
+     * slow wrong-way rotation below the single-frame detection threshold.
+     */
+    {
+      uint16_t la = (uint16_t)((lerr < 0) ? -lerr : lerr);
+      uint16_t ra = (uint16_t)((rerr < 0) ? -rerr : rerr);
+      if (la < steer_pos_left_best_error) steer_pos_left_best_error = la;
+      if (ra < steer_pos_right_best_error) steer_pos_right_best_error = ra;
+      if (((uint32_t)la > ((uint32_t)steer_pos_left_best_error + 20U)) ||
+          ((uint32_t)ra > ((uint32_t)steer_pos_right_best_error + 20U)))
+      {
+        Steering_PositionFinish(8U);
+        return;
+      }
+    }
     if ((lerr >= -STEER_POS_CENTER_TOL) &&
         (lerr <= STEER_POS_CENTER_TOL) &&
         (rerr >= -STEER_POS_CENTER_TOL) &&
