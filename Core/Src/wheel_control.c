@@ -269,6 +269,14 @@ static uint8_t wc_ff_test_level_index = 0U;
  * PUBLIC DEBUG / TUNING STATE
  * ============================================================ */
 volatile int16_t wheel_target_pwm = 0;
+
+/* M7 PS2 in-place spin: one proven M6 speed shaper, opposite wheel signs. */
+volatile uint8_t wheel_spin_active = 0U;
+volatile int8_t wheel_spin_direction = 0; /* +1 L1, -1 L2, 0 braking */
+volatile float wheel_spin_right_target_rpm = 0.0f;
+volatile uint32_t wheel_spin_start_count = 0U;
+volatile uint32_t wheel_spin_deferred_count = 0U;
+static uint32_t wc_spin_zero_tick = 0U;
 volatile int16_t wheel_current_pwm = 0;
 volatile uint8_t wheel_reverse_wait_active = 0U;
 volatile uint32_t wheel_reverse_count = 0U;
@@ -2146,6 +2154,14 @@ void WheelControl_SetCommandProfile(WheelCommandProfile_t profile)
 
 void WheelControl_SetTargetPWM(int16_t target_pwm)
 {
+  /* Other sources cannot overwrite an in-progress spin braking trajectory. */
+  if (wheel_spin_active != 0U)
+  {
+    wheel_target_pwm = 0;
+    wheel_spin_direction = 0;
+    return;
+  }
+
   if (target_pwm > wc_pwm_max)
   {
     target_pwm = wc_pwm_max;
@@ -2156,6 +2172,60 @@ void WheelControl_SetTargetPWM(int16_t target_pwm)
   }
 
   wheel_target_pwm = target_pwm;
+}
+
+/* Nonzero direction is accepted only from a stopped, closed-loop baseline.
+ * A held L1/L2 request waits for a safe idle; release holds the spin sign
+ * convention until shaper reaches zero and feedback settles.
+ */
+void WheelControl_SetSpinDirection(int8_t direction, int16_t magnitude_pwm)
+{
+  if (direction == 0)
+  {
+    if (wheel_spin_active != 0U)
+    {
+      wheel_spin_direction = 0;
+      wheel_target_pwm = 0;
+    }
+    return;
+  }
+
+  if (direction != 1 && direction != -1) return;
+
+  if (wheel_spin_active == 0U)
+  {
+    if ((wheel_pid_enable == 0U) || (wheel_ff_test_active != 0U) ||
+        (wheel_target_pwm != 0) ||
+        (WC_AbsFloat(wheel_pid_target_rpm) > WC_PID_ZERO_EPS_RPM) ||
+        (WC_AbsFloat(wheel_pid_feedback_lu_rpm) > 2.0f) ||
+        (WC_AbsFloat(wheel_pid_feedback_ld_rpm) > 2.0f) ||
+        (WC_AbsFloat(wheel_pid_feedback_ru_rpm) > 2.0f) ||
+        (WC_AbsFloat(wheel_pid_feedback_rd_rpm) > 2.0f) ||
+        (wheel_pwm_lu != 0) || (wheel_pwm_ld != 0) ||
+        (wheel_pwm_ru != 0) || (wheel_pwm_rd != 0))
+    {
+      /* Request a normal stop before allowing the new spin mode. */
+      wheel_target_pwm = 0;
+      wheel_spin_deferred_count++;
+      return;
+    }
+    WC_ResetAllPID();
+    wheel_spin_active = 1U;
+    wc_spin_zero_tick = 0U;
+    wheel_spin_start_count++;
+  }
+
+  if (magnitude_pwm < 0) magnitude_pwm = (int16_t)-magnitude_pwm;
+  if (magnitude_pwm > wc_pwm_max) magnitude_pwm = wc_pwm_max;
+
+  wheel_spin_direction = direction;
+  wheel_command_profile = WHEEL_COMMAND_PROFILE_FIXED;
+  wheel_target_pwm = (int16_t)(direction * magnitude_pwm);
+}
+
+uint8_t WheelControl_SpinIsActive(void)
+{
+  return wheel_spin_active;
 }
 
 void WheelControl_EmergencyStop(void)
@@ -2172,6 +2242,10 @@ void WheelControl_EmergencyStop(void)
     wc_ff_test_target_rpm = 0.0f;
   }
 
+  wheel_spin_active = 0U;
+  wheel_spin_direction = 0;
+  wheel_spin_right_target_rpm = 0.0f;
+  wc_spin_zero_tick = 0U;
   wheel_target_pwm = 0;
   wheel_current_pwm = 0;
 
@@ -2203,6 +2277,9 @@ void WheelControl_Update(void)
   uint32_t dt_ms;
   float dt_s;
   float target_rpm;
+  float right_target_rpm;
+  float right_output_min;
+  float right_output_max;
   float ff_lu;
   float ff_ld;
   float ff_ru;
@@ -2244,7 +2321,33 @@ void WheelControl_Update(void)
   WC_FFTestUpdate(now);
   WC_TargetRPMUpdate(now);
 
+  /* Hold spin vector through release: right always runs opposite left.
+   * Hand back normal drive only after zero target plus a short settle time.
+   */
+  if ((wheel_spin_active != 0U) && (wheel_spin_direction == 0) &&
+      (WC_AbsFloat(wheel_pid_target_rpm) <= WC_PID_ZERO_EPS_RPM) &&
+      (wheel_reverse_wait_active == 0U) &&
+      (WC_AbsFloat(wheel_pid_feedback_lu_rpm) < 2.0f) &&
+      (WC_AbsFloat(wheel_pid_feedback_ld_rpm) < 2.0f) &&
+      (WC_AbsFloat(wheel_pid_feedback_ru_rpm) < 2.0f) &&
+      (WC_AbsFloat(wheel_pid_feedback_rd_rpm) < 2.0f))
+  {
+    if (wc_spin_zero_tick == 0U) wc_spin_zero_tick = now;
+    else if ((uint32_t)(now - wc_spin_zero_tick) >= 250U)
+    {
+      wheel_spin_active = 0U;
+      wc_spin_zero_tick = 0U;
+      WC_ResetAllPID();
+    }
+  }
+  else
+  {
+    wc_spin_zero_tick = 0U;
+  }
+
   target_rpm = wheel_pid_target_rpm;
+  right_target_rpm = (wheel_spin_active != 0U) ? -target_rpm : target_rpm;
+  wheel_spin_right_target_rpm = right_target_rpm;
   integral_hold = WC_ShouldHoldIntegral();
 
   if ((integral_hold != 0U) &&
@@ -2314,18 +2417,18 @@ void WheelControl_Update(void)
   ff_ld = WC_FeedforwardPWM(target_rpm,
                              wheel_ff_k_ld,
                              wheel_ff_offset_ld * static_ff_offset_scale);
-  ff_ru = WC_FeedforwardPWM(target_rpm,
+  ff_ru = WC_FeedforwardPWM(right_target_rpm,
                              wheel_ff_k_ru,
                              wheel_ff_offset_ru * static_ff_offset_scale);
   /*
    * RD có ma sát/dead-zone bất đối xứng theo chiều. Giữ offset tiến hiện tại
    * để không phá response đã đẹp; chỉ dùng offset riêng khi target âm.
    */
-  rd_ff_offset = (target_rpm < -WC_PID_ZERO_EPS_RPM)
+  rd_ff_offset = (right_target_rpm < -WC_PID_ZERO_EPS_RPM)
                      ? wheel_ff_offset_rd_reverse
                      : wheel_ff_offset_rd;
 
-  ff_rd = WC_FeedforwardPWM(target_rpm,
+  ff_rd = WC_FeedforwardPWM(right_target_rpm,
                              wheel_ff_k_rd,
                              rd_ff_offset * static_ff_offset_scale);
 
@@ -2339,7 +2442,18 @@ void WheelControl_Update(void)
   {
     wheel_pid_active = 0U;
     wheel_pid_integral_hold_active = 0U;
-    WC_SetAllPWM(wheel_current_pwm);
+    if (wheel_spin_active != 0U)
+    {
+      wheel_pwm_lu = wheel_current_pwm;
+      wheel_pwm_ld = wheel_current_pwm;
+      wheel_pwm_ru = (int16_t)-wheel_current_pwm;
+      wheel_pwm_rd = (int16_t)-wheel_current_pwm;
+      WC_ApplyPWM();
+    }
+    else
+    {
+      WC_SetAllPWM(wheel_current_pwm);
+    }
     WC_RefreshDebug(ff_lu, ff_ld, ff_ru, ff_rd);
     return;
   }
@@ -2434,8 +2548,8 @@ void WheelControl_Update(void)
 
   ff_lu += accel_ff_pwm;
   ff_ld += accel_ff_pwm;
-  ff_ru += accel_ff_pwm;
-  ff_rd += accel_ff_pwm;
+  ff_ru += (wheel_spin_active != 0U) ? -accel_ff_pwm : accel_ff_pwm;
+  ff_rd += (wheel_spin_active != 0U) ? -accel_ff_pwm : accel_ff_pwm;
 
   /*
    * RU FIXED-plateau capture assist.
@@ -2463,7 +2577,8 @@ void WheelControl_Update(void)
   }
 
   /* Detect FIXED plateau start on PID-sample timing: integral hold 1 -> 0. */
-  if ((wheel_ru_capture_assist_enable != 0U) &&
+  if ((wheel_spin_active == 0U) &&
+      (wheel_ru_capture_assist_enable != 0U) &&
       (wheel_command_profile == WHEEL_COMMAND_PROFILE_FIXED) &&
       (integral_hold == 0U) &&
       (wc_ru_capture_prev_integral_hold != 0U) &&
@@ -2554,7 +2669,8 @@ void WheelControl_Update(void)
   WC_ClearSyncOutputs();
   wheel_sync_spread_rpm = 0.0f;
 
-  if ((wheel_sync_enable != 0U) &&
+  if ((wheel_spin_active == 0U) &&
+      (wheel_sync_enable != 0U) &&
       (WC_AbsFloat(target_accel_rpm_per_s) >=
        WC_SYNC_MIN_TARGET_ACCEL_RPM_PER_S))
   {
@@ -2723,6 +2839,11 @@ void WheelControl_Update(void)
     output_max = 0.0f;
   }
 
+  right_output_min = (right_target_rpm > WC_PID_ZERO_EPS_RPM) ?
+      0.0f : -(float)wc_pwm_max;
+  right_output_max = (right_target_rpm > WC_PID_ZERO_EPS_RPM) ?
+      (float)wc_pwm_max : 0.0f;
+
   /*
    * Clamp threshold và bảo đảm có hysteresis thật sự.
    * Nếu Live Expressions nhập exit <= enter, tự ép exit lớn hơn enter 0.05 rpm.
@@ -2809,7 +2930,7 @@ void WheelControl_Update(void)
       WC_UpdateAntiHuntState(wc_pid_hunt_ru_active,
                              wheel_encoder_available_ru,
                              wc_motor_ru,
-                             target_rpm,
+                             right_target_rpm,
                              wheel_pid_feedback_ru_rpm,
                              integral_hold,
                              &wc_pid_hunt_ru_enter_count,
@@ -2819,7 +2940,7 @@ void WheelControl_Update(void)
       WC_UpdateAntiHuntState(wc_pid_hunt_rd_active,
                              wheel_encoder_available_rd,
                              wc_motor_rd,
-                             target_rpm,
+                             right_target_rpm,
                              wheel_pid_feedback_rd_rpm,
                              integral_hold,
                              &wc_pid_hunt_rd_enter_count,
@@ -2896,12 +3017,12 @@ void WheelControl_Update(void)
   wheel_pwm_ru = WC_ClosedLoopPWM(&wheel_pid_ru,
                                    wheel_encoder_available_ru,
                                    wc_motor_ru,
-                                   target_rpm,
+                                   right_target_rpm,
                                    wheel_pid_feedback_ru_rpm,
                                    ff_ru,
                                    dt_s,
-                                   output_min,
-                                   output_max,
+                                   right_output_min,
+                                   right_output_max,
                                    integral_hold,
                                    wc_pid_hunt_ru_active,
                                    hunt_ru_entered,
@@ -2911,12 +3032,12 @@ void WheelControl_Update(void)
   wheel_pwm_rd = WC_ClosedLoopPWM(&wheel_pid_rd,
                                    wheel_encoder_available_rd,
                                    wc_motor_rd,
-                                   target_rpm,
+                                   right_target_rpm,
                                    wheel_pid_feedback_rd_rpm,
                                    ff_rd,
                                    dt_s,
-                                   output_min,
-                                   output_max,
+                                   right_output_min,
+                                   right_output_max,
                                    integral_hold,
                                    wc_pid_hunt_rd_active,
                                    hunt_rd_entered,
