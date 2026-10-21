@@ -1997,6 +1997,110 @@ static void Voice_ExecuteMotorControl(void)
 }
 
 
+
+/*
+ * M7 / PS2 mapping - observation-only stage.
+ * This does not energize any motor. R1/R2 require the separately validated
+ * AS5600 position controller; L1/L2 require independent wheel setpoints.
+ * Right-hand joystick RX is the selected steering axis; LY stays wheel drive.
+ *
+ * Steering direction semantic: D-pad LEFT / RX<128 => both towards MIN,
+ * D-pad RIGHT / RX>128 => both towards MAX.
+ * PWM units are timer compare counts (ARR=999).
+ */
+#define PS2_RX_DEADZONE_COUNTS 10
+volatile uint8_t debug_ps2_new_mapping_valid = 0U;
+volatile uint8_t debug_ps2_request_center = 0U;
+volatile uint8_t debug_ps2_request_min = 0U;
+volatile int8_t debug_ps2_spin_direction = 0; /* +1 L1, -1 L2 */
+volatile int8_t debug_ps2_steer_direction = 0; /* -1 MIN, +1 MAX */
+volatile uint16_t debug_ps2_steer_left_pwm = 0U;
+volatile uint16_t debug_ps2_steer_right_pwm = 0U;
+volatile uint8_t debug_ps2_rx_value = 128U;
+volatile uint8_t debug_ps2_input_conflict = 0U; /* bit0 R1+R2, bit1 L1+L2, bit2 left+right */
+volatile uint32_t debug_ps2_mapping_sample_count = 0U;
+
+static void PS2_ObserveNewMapping(void)
+{
+  int16_t rx_offset;
+  uint16_t magnitude;
+
+  debug_ps2_new_mapping_valid = 0U;
+  debug_ps2_request_center = 0U;
+  debug_ps2_request_min = 0U;
+  debug_ps2_spin_direction = 0;
+  debug_ps2_steer_direction = 0;
+  debug_ps2_steer_left_pwm = 0U;
+  debug_ps2_steer_right_pwm = 0U;
+  debug_ps2_input_conflict = 0U;
+  debug_ps2_rx_value = PS2_Pad.RX;
+
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
+  {
+    return;
+  }
+
+  debug_ps2_new_mapping_valid = 1U;
+  debug_ps2_mapping_sample_count++;
+
+  if ((PS2_Pad.R1 != 0U) && (PS2_Pad.R2 != 0U))
+    debug_ps2_input_conflict |= 1U;
+  else if (PS2_Pad.R1 != 0U)
+    debug_ps2_request_center = 1U;
+  else if (PS2_Pad.R2 != 0U)
+    debug_ps2_request_min = 1U;
+
+  if ((PS2_Pad.L1 != 0U) && (PS2_Pad.L2 != 0U))
+    debug_ps2_input_conflict |= 2U;
+  else if (PS2_Pad.L1 != 0U)
+    debug_ps2_spin_direction = 1;
+  else if (PS2_Pad.L2 != 0U)
+    debug_ps2_spin_direction = -1;
+
+  if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
+  {
+    debug_ps2_input_conflict |= 4U;
+    return;
+  }
+
+  /* D-pad has priority over RX when one direction is held. */
+  if (PS2_Pad.Left != 0U)
+  {
+    debug_ps2_steer_direction = -1;
+    debug_ps2_steer_left_pwm = STEER_TEST_LEFT_PWM_DUTY;
+    debug_ps2_steer_right_pwm = STEER_TEST_RIGHT_PWM_DUTY;
+    return;
+  }
+  if (PS2_Pad.Right != 0U)
+  {
+    debug_ps2_steer_direction = 1;
+    debug_ps2_steer_left_pwm = STEER_TEST_LEFT_PWM_DUTY;
+    debug_ps2_steer_right_pwm = STEER_TEST_RIGHT_PWM_DUTY;
+    return;
+  }
+
+  rx_offset = (int16_t)PS2_Pad.RX - 128;
+  if ((rx_offset >= -PS2_RX_DEADZONE_COUNTS) &&
+      (rx_offset <= PS2_RX_DEADZONE_COUNTS))
+    return;
+
+  debug_ps2_steer_direction = (rx_offset < 0) ? -1 : 1;
+  magnitude = (uint16_t)((rx_offset < 0) ? -rx_offset : rx_offset);
+  if (magnitude > 127U) magnitude = 127U;
+  magnitude -= PS2_RX_DEADZONE_COUNTS;
+
+  /* Full stick: LEFT 2*20%=40%, RIGHT 2*10%=20%.
+   * Previously 30% LEFT was too fast; these values are NOT hardware-approved.
+   * This stage reports requested PWM but does not write to TIM12/TIM14.
+   */
+  debug_ps2_steer_left_pwm = (uint16_t)
+      ((2U * STEER_TEST_LEFT_PWM_DUTY * magnitude) /
+       (127U - PS2_RX_DEADZONE_COUNTS));
+  debug_ps2_steer_right_pwm = (uint16_t)
+      ((2U * STEER_TEST_RIGHT_PWM_DUTY * magnitude) /
+       (127U - PS2_RX_DEADZONE_COUNTS));
+}
+
 /*
  * M3 hiện công nhận các thao tác PS2 đang được project sử dụng:
  * - LY tiến/lùi
@@ -2677,6 +2781,7 @@ int main(void)
      * PS2 chỉ "được kết nối" nhưng đang neutral sẽ không đè Voice.
      */
     PS2_Read_Data();
+    PS2_ObserveNewMapping(); /* read-only mapping, never actuates motors */
 
     Control_Arbitrate();
 
