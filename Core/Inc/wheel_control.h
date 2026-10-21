@@ -269,6 +269,16 @@ void WheelControl_Init(Motor_HandleTypeDef *left_up,
 
 void WheelControl_SetCommandProfile(WheelCommandProfile_t profile);
 void WheelControl_SetTargetPWM(int16_t target_pwm);
+/* M7 PS2 L1/L2: +1 left forward/right reverse; -1 opposite; 0 release.
+ * Uses existing M6 speed shaper and independent signed PID/FF per side.
+ */
+void WheelControl_SetSpinDirection(int8_t direction, int16_t magnitude_pwm);
+uint8_t WheelControl_SpinIsActive(void);
+extern volatile uint8_t wheel_spin_active;
+extern volatile int8_t wheel_spin_direction;
+extern volatile float wheel_spin_right_target_rpm;
+extern volatile uint32_t wheel_spin_start_count;
+extern volatile uint32_t wheel_spin_deferred_count;
 void WheelControl_EmergencyStop(void);
 void WheelControl_Update(void);
 
