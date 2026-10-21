@@ -2231,7 +2231,8 @@ static void Control_Arbitrate(void)
    * followed by a neutral PS2 packet before enabling manual control.
    * This does not modify the pre-existing Voice/STOP latch behavior.
    */
-  if ((PS2_Pad.Connected != 1U) && (WheelControl_SpinIsActive() != 0U))
+  if (((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U)) &&
+      (WheelControl_SpinIsActive() != 0U))
     ps2_spin_rf_latched = 1U;
 
   if (ps2_spin_rf_latched != 0U)
