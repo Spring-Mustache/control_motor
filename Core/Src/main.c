@@ -145,6 +145,8 @@ typedef struct
 #define STEER_TEST_RIGHT_PWM_DUTY        100U
 #define STEER_TEST_LEFT_MAX_RUN_MS       5000U
 #define STEER_TEST_RIGHT_MAX_RUN_MS      5000U
+#define STEER_TEST_LEFT_ESCAPE_MAX_MS    1000U
+#define STEER_LIMIT_L_MIN_MASK           0x04U
 #define MOTOR_PWM_MAX                     999
 #define MOTOR_DPAD_PWM                    400
 
@@ -566,11 +568,13 @@ volatile uint8_t debug_limit_raw_mask = 0U;
 volatile uint8_t debug_limit_active_mask = 0U;
 volatile uint8_t debug_limit_same_side_both_active = 0U;
 
-/* M7-S02: 1=LEFT DIR0, PWM 20% <=5000ms; 3=RIGHT DIR0,
- * PWM 10% <=5000ms; other command codes are rejected.
- * Result: 0 idle, 1 running, 2 time limit (NOT proof of motion),
- * 3 refused/unsafe, 4 NC limit tripped, 5 abort, 6 invalid request.
- * A fresh arm + request is required for each probe.
+/* M7-S02: 1=LEFT DIR0->L_MIN 20% <=5s; 2=LEFT DIR1 20%,
+ * first a 1s maximum L_MIN exit verification, then <=5s to L_MAX
+ * with a SEPARATE manual request; 3=RIGHT DIR0 10% <=5s.
+ * 4=RIGHT DIR1 remains locked.
+ * Results: 2=full run timed out, 3=refused, 4=limit tripped,
+ * 5=abort, 6=invalid, 7=verified L_MIN release, 8=escape timeout.
+ * Every attempt requires a new manual arm.
  */
 volatile uint8_t steer_test_arm = 0U;
 volatile uint8_t steer_test_request = 0U;
@@ -585,6 +589,9 @@ volatile uint8_t steer_test_abort_cause = 0U;
 volatile uint32_t steer_test_abort_reason_mask = 0U;
 volatile uint8_t steer_test_last_command = 0U;
 volatile uint8_t steer_test_trip_mask = 0U;
+/* Set only after short DIR1 pulse actually releases L_MIN. */
+volatile uint8_t steer_test_left_dir1_verified = 0U;
+volatile uint8_t steer_test_left_escape_active = 0U;
 volatile uint16_t steer_test_pwm_applied = 0U;
 volatile uint32_t steer_test_start_tick = 0U;
 volatile uint32_t steer_test_elapsed_ms = 0U;
@@ -1146,11 +1153,11 @@ static void SteeringLimits_DebugUpdate(void)
 
 
 /*
- * M7-S02: mutually exclusive diagnostic commands with separate duty/caps.
- * LEFT DIR0: 20% duty <=5000ms; RIGHT DIR0: 10% duty <=5000ms.
- * Left direction to L_MIN/L_MAX is still unknown; all four NC limits
- * must be closed at start. Manual arm required, no motion on reset.
- * Limit EXTI zeros PWM but does not physically disconnect driver power.
+ * M7-S02: mutually exclusive steering diagnostics, manual one-shot.
+ * LEFT DIR0->L_MIN already confirmed. LEFT DIR1 must first release
+ * L_MIN in a short pulse before a later full L_MAX run is permitted.
+ * Only this short escape may begin with L_MIN active; any other
+ * active/rising limit immediately cuts PWM. PWM=0 does not cut supply.
  */
 static void Steering_TestOutputsOff(void)
 {
@@ -1197,6 +1204,7 @@ static void Steering_TestFinish(uint8_t result)
                    steer_test_encoder_start));
   }
   steer_test_running = 0U;
+  steer_test_left_escape_active = 0U;
   steer_test_result = result;
 }
 
@@ -1268,12 +1276,39 @@ static uint8_t Steering_TestLimitsClear(void)
   return 1U;
 }
 
+/* Only permit a one-shot departure when L_MIN is the sole active NC
+ * input, confirmed by both debounced state and instantaneous GPIO.
+ */
+static uint8_t Steering_TestCanExitLeftMin(void)
+{
+  if ((debug_limit_r_max.initialized == 0U) ||
+      (debug_limit_r_min.initialized == 0U) ||
+      (debug_limit_l_min.initialized == 0U) ||
+      (debug_limit_l_max.initialized == 0U))
+    return 0U;
+  return ((debug_limit_active_mask == STEER_LIMIT_L_MIN_MASK) &&
+          (debug_limit_raw_mask == STEER_LIMIT_L_MIN_MASK) &&
+          (Steering_TestRawLimitMask() == STEER_LIMIT_L_MIN_MASK)) ? 1U : 0U;
+}
+
+/* While exiting, allow only the ORIGINAL L_MIN to remain HIGH.
+ * Any other active limit or wire-open fault cancels the command.
+ */
+static uint8_t Steering_TestLeftEscapeLimitsSafe(void)
+{
+  uint8_t raw = Steering_TestRawLimitMask();
+  return ((raw == STEER_LIMIT_L_MIN_MASK) &&
+          ((debug_limit_raw_mask & (uint8_t)~STEER_LIMIT_L_MIN_MASK) == 0U) &&
+          ((debug_limit_active_mask & (uint8_t)~STEER_LIMIT_L_MIN_MASK) == 0U)) ? 1U : 0U;
+}
+
 static void Steering_TestPulseUpdate(void)
 {
   uint8_t cmd = steer_test_request;
   uint32_t now = HAL_GetTick();
   uint32_t previous_primask;
   uint32_t unsafe_mask;
+  uint8_t left_escape_request = 0U;
 
   if (cmd != 0U)
   {
@@ -1287,10 +1322,10 @@ static void Steering_TestPulseUpdate(void)
       return;
     }
 
-    /* Only known LEFT/RIGHT DIR0 are authorized at fixed per-motor duty.
-     * All other directions are blocked until their limits are mapped.
+    /* LEFT DIR1 is restricted to a checked L_MIN departure or later
+     * confirmed travel toward L_MAX. RIGHT DIR1 remains locked.
      */
-    if ((cmd != 1U) && (cmd != 3U))
+    if ((cmd != 1U) && (cmd != 2U) && (cmd != 3U))
     {
       steer_test_arm = 0U;
       steer_test_result = 6U;
@@ -1299,9 +1334,12 @@ static void Steering_TestPulseUpdate(void)
     }
 
     unsafe_mask = Steering_TestUnsafeMask();
+    if (cmd == 2U) left_escape_request = Steering_TestCanExitLeftMin();
     if ((steer_test_arm == 0U) ||
         (unsafe_mask != 0U) ||
-        (Steering_TestLimitsClear() == 0U))
+        (((cmd == 2U) && (left_escape_request != 0U)) ? 0U :
+         ((Steering_TestLimitsClear() == 0U) ||
+          ((cmd == 2U) && (steer_test_left_dir1_verified == 0U)))))
     {
       steer_test_arm = 0U;
       steer_test_result = 3U;
@@ -1311,6 +1349,9 @@ static void Steering_TestPulseUpdate(void)
 
     /* One command consumes one arm. Must arm again before next run. */
     steer_test_arm = 0U;
+    if ((cmd == 1U) || (left_escape_request != 0U))
+      steer_test_left_dir1_verified = 0U;
+    steer_test_left_escape_active = left_escape_request;
     steer_test_abort_cause = 0U;
     steer_test_abort_reason_mask = 0U;
     steer_test_last_command = cmd;
@@ -1343,11 +1384,34 @@ static void Steering_TestPulseUpdate(void)
   steer_test_encoder_delta = (int16_t)(
       (uint16_t)(Steering_TestEncoderCount(steer_test_last_command) -
                  steer_test_encoder_start));
-  if (steer_test_elapsed_ms >=
-      ((steer_test_last_command == 1U) ?
-       STEER_TEST_LEFT_MAX_RUN_MS : STEER_TEST_RIGHT_MAX_RUN_MS))
+
+  if (steer_test_left_escape_active != 0U)
   {
-    Steering_TestFinish(2U); /* time cap, NOT limit arrival */
+    uint8_t raw = Steering_TestRawLimitMask();
+    if ((raw == 0U) &&
+        ((debug_limit_active_mask &
+          (uint8_t)~STEER_LIMIT_L_MIN_MASK) == 0U))
+    {
+      steer_test_left_dir1_verified = 1U;
+      Steering_TestFinish(7U); /* L_MIN released; no auto travel */
+      return;
+    }
+    if (Steering_TestLeftEscapeLimitsSafe() == 0U)
+    {
+      steer_test_trip_mask |= raw;
+      steer_test_limit_stop_count++;
+      Steering_TestFinish(4U);
+      return;
+    }
+  }
+
+  if (steer_test_elapsed_ms >=
+      ((steer_test_left_escape_active != 0U) ?
+        STEER_TEST_LEFT_ESCAPE_MAX_MS :
+       ((steer_test_last_command <= 2U) ?
+        STEER_TEST_LEFT_MAX_RUN_MS : STEER_TEST_RIGHT_MAX_RUN_MS)))
+  {
+    Steering_TestFinish((steer_test_left_escape_active != 0U) ? 8U : 2U);
     return;
   }
 
@@ -1369,7 +1433,9 @@ static void Steering_TestPulseUpdate(void)
   previous_primask = __get_PRIMASK();
   __disable_irq();
   if ((steer_test_running != 0U) &&
-      (Steering_TestLimitsClear() != 0U))
+      (((steer_test_left_escape_active != 0U) ?
+        Steering_TestLeftEscapeLimitsSafe() :
+        Steering_TestLimitsClear()) != 0U))
   {
     GPIO_TypeDef *dir_port = (steer_test_last_command <= 2U) ?
         MOTOR_DIR_TURN_left_GPIO_Port : MOTOR_DIR_TURN_right_GPIO_Port;
@@ -1380,7 +1446,7 @@ static void Steering_TestPulseUpdate(void)
          (steer_test_last_command == 4U)) ? GPIO_PIN_SET : GPIO_PIN_RESET;
 
     HAL_GPIO_WritePin(dir_port, dir_pin, dir_level);
-    if (steer_test_last_command == 1U)
+    if (steer_test_last_command <= 2U)
     {
       __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, STEER_TEST_LEFT_PWM_DUTY);
       steer_test_pwm_applied = STEER_TEST_LEFT_PWM_DUTY;
@@ -1393,9 +1459,20 @@ static void Steering_TestPulseUpdate(void)
   }
   else
   {
-    steer_test_trip_mask |= Steering_TestRawLimitMask();
-    steer_test_limit_stop_count++;
-    Steering_TestFinish(4U);
+    uint8_t raw = Steering_TestRawLimitMask();
+    if ((steer_test_left_escape_active != 0U) && (raw == 0U) &&
+        ((debug_limit_active_mask &
+          (uint8_t)~STEER_LIMIT_L_MIN_MASK) == 0U))
+    {
+      steer_test_left_dir1_verified = 1U;
+      Steering_TestFinish(7U);
+    }
+    else
+    {
+      steer_test_trip_mask |= raw;
+      steer_test_limit_stop_count++;
+      Steering_TestFinish(4U);
+    }
   }
   if (previous_primask == 0U) __enable_irq();
 }
@@ -2603,8 +2680,9 @@ int main(void)
      */
     RamLogger_Update(PS2_Pad.LY, (uint8_t)control_mode);
 
-    /* M7-S02: LEFT DIR0 20% <=5000ms / RIGHT DIR0 10% <=5000ms.
-     * Both require manual arm/request and preserve NC limit protection.
+    /* M7-S02: LEFT DIR0 20% <=5s; LEFT DIR1 20% <=1s for L_MIN
+     * release confirmation, then a NEW request to L_MAX <=5s.
+     * RIGHT DIR0 remains at 10% <=5s. Limit IRQs remain armed.
      */
     Steering_TestPulseUpdate();
 
