@@ -1554,6 +1554,7 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
 #define STEER_POS_ESCAPE_MAX_MS   1000U
 #define STEER_POS_STALL_MS         500U
 #define STEER_POS_STABLE_SAMPLES     3U
+#define STEER_POS_RX_NEUTRAL_DELTA   10U
 
 /* Result: 0=idle, 1=running, 2=arrived, 3=limit, 4=sensor,
  * 5=timeout, 6=blocked, 7=MIN escape/repress, 8=stall, 9=cancel.
@@ -1712,8 +1713,8 @@ static void Steering_PositionUpdate(void)
                (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
                (PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT) &&
                (PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT) &&
-               (PS2_Pad.RX >= (128U-PS2_RX_DEADZONE_COUNTS)) &&
-               (PS2_Pad.RX <= (128U+PS2_RX_DEADZONE_COUNTS)) &&
+               (PS2_Pad.RX >= (128U-STEER_POS_RX_NEUTRAL_DELTA)) &&
+               (PS2_Pad.RX <= (128U+STEER_POS_RX_NEUTRAL_DELTA)) &&
                (steer_pos_enable == 1U) &&
                (debug_as5600_poll_enable == 0U) &&
                (steer_test_running == 0U) &&
