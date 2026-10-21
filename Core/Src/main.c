@@ -1724,7 +1724,10 @@ static void Steering_PositionUpdate(void)
 
   if (steer_pos_active == 0U)
   {
-    Steering_TestOutputsOff();
+    /* Preserve legacy manually-armed M7-S02 steering pulses: this idle
+     * position service must NOT zero TIM12/TIM14 during a diagnostic run.
+     */
+    if (steer_test_running == 0U) Steering_TestOutputsOff();
     if ((buttons == 0U) || (steer_pos_previous_buttons != 0U))
     {
       steer_pos_previous_buttons = buttons;
