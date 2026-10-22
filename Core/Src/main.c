@@ -1542,6 +1542,12 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
  * OFF by default: neither PS2 steering nor automatic steering PWM
  * service will run until bench hardware is checked independently.
  */
+/* Incident quarantine is COMPILE-TIME LOCKED until an engineering
+ * review of hardware limit integrity/driver enable wiring. Changing a
+ * Live Expressions variable must NOT re-enable motion during the
+ * investigation. Leave this at 1 for this diagnostic firmware.
+ */
+#define STEER_SAFETY_INCIDENT_LOCKOUT 1U
 volatile uint8_t steer_safety_motion_permit = 0U;
 volatile uint8_t steer_safety_trip_latched = 0U;
 static volatile uint8_t steer_safety_pwm_initialized = 0U;
@@ -6366,7 +6372,8 @@ int main(void)
         if (steer_safety_trip_reason == 0U)
           steer_safety_trip_reason = 2U; /* asserted NC GPIO */
       }
-      if ((steer_safety_motion_permit == 1U) &&
+      if ((STEER_SAFETY_INCIDENT_LOCKOUT == 0U) &&
+          (steer_safety_motion_permit == 1U) &&
           (steer_safety_trip_latched == 0U))
       {
         uint16_t lraw = 0U, rraw = 0U;
@@ -6397,7 +6404,8 @@ int main(void)
           steer_safety_trip_latched = 1U;
         }
       }
-      if ((steer_safety_motion_permit != 1U) ||
+      if ((STEER_SAFETY_INCIDENT_LOCKOUT != 0U) ||
+          (steer_safety_motion_permit != 1U) ||
           (steer_safety_trip_latched != 0U))
       {
         if (steer_test_running != 0U) Steering_TestFinish(9U);
