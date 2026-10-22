@@ -1679,6 +1679,8 @@ typedef struct
   uint16_t last_raw;
   uint16_t best_abs_error;
   uint32_t progress_ms;
+  uint32_t escape_start_ms;
+  uint8_t escape_origin;  /* own MIN or MAX NC mask at start */
   uint8_t stable_count;
 } SteeringPositionAxis_t;
 
@@ -1911,20 +1913,36 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   /* Expected MIN wins over a sensor fault at the endpoint for R2;
    * always cut the PWM for that axis, never for its partner.
    */
-  if ((limit_mask & own_max) != 0U)
+  /* A motor may leave its OWN initially asserted NC endstop in the
+   * safe direction for <=1s. A different active limit is always a fault.
+   * The opposite side's limit state must never stop this axis.
+   */
+  if ((limit_mask & (own_min | own_max)) == (own_min | own_max))
   {
     Steering_PositionAxisFault(left, 9U);
     return;
   }
-  if ((steer_pos_command == 2U) && ((limit_mask & own_min) != 0U))
+  if (state == STEER_AXIS_ESCAPING)
   {
-    Steering_PositionAxisDone(left, 3U);
-    return;
+    if (((limit_mask & (own_min | own_max)) != 0U) &&
+        ((limit_mask & axis->escape_origin) == 0U))
+    {
+      Steering_PositionAxisFault(left, 9U);
+      return;
+    }
   }
-  if (((limit_mask & own_min) != 0U) && (state != STEER_AXIS_ESCAPING))
+  else
   {
-    Steering_PositionAxisFault(left, 9U);
-    return;
+    if ((steer_pos_command == 2U) && ((limit_mask & own_min) != 0U))
+    {
+      Steering_PositionAxisDone(left, 3U);
+      return;
+    }
+    if ((limit_mask & (own_min | own_max)) != 0U)
+    {
+      Steering_PositionAxisFault(left, 9U);
+      return;
+    }
   }
 
   if (Steering_PositionReadOne(left, &raw) == 0U ||
@@ -1944,21 +1962,25 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
 
   if (state == STEER_AXIS_ESCAPING)
   {
-    /* R1 at MIN: depart in DIR1 for at most 1 s, stop on own release.
-     * LEFT RAW falls; RIGHT RAW rises while departing MIN.
+    uint8_t from_max = (axis->escape_origin == own_max) ? 1U : 0U;
+    /* LEFT RAW: leaving MIN decreases, leaving MAX increases.
+     * RIGHT RAW: leaving MIN increases, leaving MAX decreases.
+     * Never proceed to CENTER/MIN automatically after releasing NC.
      */
-    if ((limit_mask & own_min) == 0U)
+    if ((limit_mask & axis->escape_origin) == 0U)
     {
       Steering_PositionAxisDone(left, 7U);
       return;
     }
-    if ((uint32_t)(now - steer_pos_start_ms) >= STEER_POS_ESCAPE_MS)
+    if ((uint32_t)(now - axis->escape_start_ms) >= STEER_POS_ESCAPE_MS)
     {
       Steering_PositionAxisFault(left, 5U);
       return;
     }
-    if (((left != 0U) && (step > 5)) ||
-        ((left == 0U) && (step < -5)))
+    if (((left != 0U) && (from_max == 0U) && (step > 5)) ||
+        ((left == 0U) && (from_max == 0U) && (step < -5)) ||
+        ((left != 0U) && (from_max != 0U) && (step < -5)) ||
+        ((left == 0U) && (from_max != 0U) && (step > 5)))
     {
       Steering_PositionAxisFault(left, 8U);
       return;
@@ -1969,7 +1991,7 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
       Steering_PositionAxisFault(left, 8U);
       return;
     }
-    *direction = GPIO_PIN_SET;
+    *direction = (from_max != 0U) ? GPIO_PIN_RESET : GPIO_PIN_SET;
     *duty = left ? Steering_PositionClampDuty(steer_pos_left_pwm_max)
                  : Steering_PositionClampDuty(steer_pos_right_pwm_max);
     return;
@@ -2100,16 +2122,10 @@ static void Steering_PositionUpdate(void)
     }
 
     raw_mask = Steering_TestRawLimitMask();
-    /* Both MAX contacts remain prohibited: no verified automatic escape.
-     * A MIN contact is acceptable for R2 arrival or R1 short escape.
+    /* Each asserted NC endstop may be departed only for <=1s in the
+     * known safe opposite direction. A dual active limit on one axis is
+     * a local fault; the other axis can still handle its own command.
      */
-    if ((raw_mask & (STEER_LIMIT_L_MAX_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
-    {
-      steer_pos_result = 3U;
-      steer_pos_reject_count++;
-      return;
-    }
-
     steer_pos_active = 1U;
     steer_pos_command = buttons;
     steer_pos_result = 1U;
@@ -2122,31 +2138,57 @@ static void Steering_PositionUpdate(void)
     steer_pos_right_result = 0U;
     steer_left_axis.progress_ms = now;
     steer_right_axis.progress_ms = now;
+    steer_left_axis.escape_start_ms = now;
+    steer_right_axis.escape_start_ms = now;
+    steer_left_axis.escape_origin = 0U;
+    steer_right_axis.escape_origin = 0U;
     steer_left_axis.best_abs_error = 32767U;
     steer_right_axis.best_abs_error = 32767U;
     steer_left_axis.stable_count = 0U;
     steer_right_axis.stable_count = 0U;
     steer_pos_run_count++;
 
-    if (buttons == 1U)
+    if ((raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
+                    (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK))
+      Steering_PositionAxisFault(1U, 9U);
+    else if ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U)
     {
-      if ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U)
+      if (buttons == 2U) Steering_PositionAxisDone(1U, 3U);
+      else
+      {
+        steer_left_axis.escape_origin = STEER_LIMIT_L_MIN_MASK;
         steer_pos_left_state = STEER_AXIS_ESCAPING;
-      if ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U)
-        steer_pos_right_state = STEER_AXIS_ESCAPING;
+      }
     }
-    else
+    else if ((raw_mask & STEER_LIMIT_L_MAX_MASK) != 0U)
     {
-      if ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U)
-        Steering_PositionAxisDone(1U, 3U);
-      if ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U)
-        Steering_PositionAxisDone(0U, 3U);
+      steer_left_axis.escape_origin = STEER_LIMIT_L_MAX_MASK;
+      steer_pos_left_state = STEER_AXIS_ESCAPING;
     }
+
+    if ((raw_mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) ==
+                    (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK))
+      Steering_PositionAxisFault(0U, 9U);
+    else if ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U)
+    {
+      if (buttons == 2U) Steering_PositionAxisDone(0U, 3U);
+      else
+      {
+        steer_right_axis.escape_origin = STEER_LIMIT_R_MIN_MASK;
+        steer_pos_right_state = STEER_AXIS_ESCAPING;
+      }
+    }
+    else if ((raw_mask & STEER_LIMIT_R_MAX_MASK) != 0U)
+    {
+      steer_right_axis.escape_origin = STEER_LIMIT_R_MAX_MASK;
+      steer_pos_right_state = STEER_AXIS_ESCAPING;
+    }
+
     steer_pos_escape_mask = (uint8_t)(
         ((steer_pos_left_state == STEER_AXIS_ESCAPING) ?
-           STEER_LIMIT_L_MIN_MASK : 0U) |
+           steer_left_axis.escape_origin : 0U) |
         ((steer_pos_right_state == STEER_AXIS_ESCAPING) ?
-           STEER_LIMIT_R_MIN_MASK : 0U));
+           steer_right_axis.escape_origin : 0U));
 
     /* At start collect independent baselines, reject each invalid side.
      * Do not let a fault on one channel force the other to stop.
@@ -2229,9 +2271,9 @@ static void Steering_PositionUpdate(void)
   Steering_PositionAxisUpdate(0U, raw_mask, now, &right_cmd, &right_dir);
   steer_pos_escape_mask = (uint8_t)(
       ((steer_pos_left_state == STEER_AXIS_ESCAPING) ?
-         STEER_LIMIT_L_MIN_MASK : 0U) |
+         steer_left_axis.escape_origin : 0U) |
       ((steer_pos_right_state == STEER_AXIS_ESCAPING) ?
-         STEER_LIMIT_R_MIN_MASK : 0U));
+         steer_right_axis.escape_origin : 0U));
 
   /* ATOMIC recheck: no limit IRQ may arrive between checking GPIO and
    * writing compare; when interrupts unmask, pending limit callback
@@ -2266,7 +2308,7 @@ static void Steering_PositionUpdate(void)
       (steer_pos_left_state == STEER_AXIS_ESCAPING))
   {
     if ((steer_pos_left_state != STEER_AXIS_ESCAPING) ||
-        ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U))
+        ((raw_mask & steer_left_axis.escape_origin) != 0U))
     {
       if (left_cmd != 0U)
         HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port,
@@ -2284,7 +2326,7 @@ static void Steering_PositionUpdate(void)
       (steer_pos_right_state == STEER_AXIS_ESCAPING))
   {
     if ((steer_pos_right_state != STEER_AXIS_ESCAPING) ||
-        ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U))
+        ((raw_mask & steer_right_axis.escape_origin) != 0U))
     {
       if (right_cmd != 0U)
         HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port,
