@@ -3260,6 +3260,22 @@ volatile uint8_t steer_cal_limit_fault_reason = 0U;
 volatile uint8_t steer_cal_limit_fault_side = 0U; /* 1 left, 2 right */
 volatile uint8_t steer_cal_last_irq_snapshot = 0U;
 volatile uint8_t steer_cal_last_gpio_snapshot = 0U;
+/* First actual limit fault snapshot (stable until a NEW accepted Select).
+ * Old last_* snapshots were overwritten every pass and did not report
+ * the first (pre-I2C) edge/GPIO sample when AxisUpdate returned 6.
+ * side=1 LEFT / 2 RIGHT; bits RMAX=1 RMIN=2 LMIN=4 LMAX=8.
+ */
+volatile uint8_t steer_cal_limit_fault_stage = 0U;
+volatile uint8_t steer_cal_limit_fault_irq = 0U;
+volatile uint8_t steer_cal_limit_fault_gpio = 0U;
+volatile uint16_t steer_cal_limit_fault_raw = 0U;
+volatile uint32_t steer_cal_limit_fault_elapsed_ms = 0U;
+volatile uint32_t steer_cal_limit_fault_scan_id = 0U;
+/* A context copy is updated BEFORE both per-axis and final CCR checks.
+ * Never use a later main-loop debug variable as the failure snapshot.
+ */
+static uint8_t steer_cal_eval_irq_mask = 0U;
+static uint8_t steer_cal_eval_gpio_mask = 0U;
 /* Motion result 7 is now attributed to one axis and one mechanism:
  * reason 1=wrong-way under last applied DIR, 2=no directional progress.
  * A sticky snapshot survives later unarmed SELECT presses.
@@ -3395,8 +3411,23 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
 
 static uint8_t Steering_CalLimitFault(uint8_t left, uint8_t reason)
 {
-  steer_cal_limit_fault_side = left ? 1U : 2U;
-  steer_cal_limit_fault_reason = reason;
+  /* Keep FIRST actual failure; another axis can be evaluated in the
+   * same cycle, but must not destroy the primary diagnosis.
+   */
+  if (steer_cal_limit_fault_reason == 0U)
+  {
+    steer_cal_limit_fault_side = left ? 1U : 2U;
+    steer_cal_limit_fault_reason = reason;
+    steer_cal_limit_fault_stage = left ? steer_cal_left_axis.stage :
+                                         steer_cal_right_axis.stage;
+    steer_cal_limit_fault_irq = steer_cal_eval_irq_mask;
+    steer_cal_limit_fault_gpio = steer_cal_eval_gpio_mask;
+    steer_cal_limit_fault_raw = left ? debug_as5600_left_raw :
+                                      debug_as5600_right_raw;
+    steer_cal_limit_fault_elapsed_ms =
+        (uint32_t)(HAL_GetTick() - steer_cal_begin_ms);
+    steer_cal_limit_fault_scan_id = steer_cal_start_count;
+  }
   return 6U;
 }
 
@@ -3935,6 +3966,14 @@ static void Steering_CalUpdate(void)
     steer_cal_irq_pending_mask = 0U;
     steer_cal_limit_fault_reason = 0U;
     steer_cal_limit_fault_side = 0U;
+    steer_cal_limit_fault_stage = 0U;
+    steer_cal_limit_fault_irq = 0U;
+    steer_cal_limit_fault_gpio = 0U;
+    steer_cal_limit_fault_raw = 0U;
+    steer_cal_limit_fault_elapsed_ms = 0U;
+    steer_cal_limit_fault_scan_id = 0U;
+    steer_cal_eval_gpio_mask = 0U;
+    steer_cal_eval_irq_mask = 0U;
     steer_cal_motion_fault_side = 0U;
     steer_cal_motion_fault_reason = 0U;
     steer_cal_motion_fault_stage = 0U;
@@ -4000,6 +4039,10 @@ static void Steering_CalUpdate(void)
   if (primask == 0U) __enable_irq();
 
   raw_limits = Steering_TestRawLimitMask();
+  steer_cal_eval_irq_mask = pending;
+  steer_cal_eval_gpio_mask = raw_limits;
+  steer_cal_last_irq_snapshot = pending;
+  steer_cal_last_gpio_snapshot = raw_limits;
   lerr = Steering_CalAxisUpdate(1U, raw_limits, pending, now, &lpwm, &ldir);
   rerr = Steering_CalAxisUpdate(0U, raw_limits, pending, now, &rpwm, &rdir);
   steer_cal_left_stage = steer_cal_left_axis.stage;
@@ -4021,6 +4064,8 @@ static void Steering_CalUpdate(void)
   pending = steer_cal_irq_pending_mask;
   steer_cal_irq_pending_mask = 0U;
   raw_limits = Steering_TestRawLimitMask();
+  steer_cal_eval_irq_mask = pending;
+  steer_cal_eval_gpio_mask = raw_limits;
   steer_cal_last_irq_snapshot = pending;
   steer_cal_last_gpio_snapshot = raw_limits;
   lerr = Steering_CalCommitAxisSafe(1U, raw_limits, pending, &lpwm);
