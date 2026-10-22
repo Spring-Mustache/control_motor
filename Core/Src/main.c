@@ -3570,11 +3570,15 @@ static void Steering_CalUpdate(void)
     if (((raw_limits & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
          (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ||
         ((raw_limits & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) ==
-         (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) ||
-        (Steering_PositionReadOne(1U, &lraw) == 0U) ||
+         (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)))
+    {
+      steer_cal_result = 6U; /* contradictory NC contacts */
+      return;
+    }
+    if ((Steering_PositionReadOne(1U, &lraw) == 0U) ||
         (Steering_PositionReadOne(0U, &rraw) == 0U))
     {
-      steer_cal_result = 4U;
+      steer_cal_result = 4U; /* AS5600 quality/communication */
       return;
     }
 
