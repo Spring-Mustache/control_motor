@@ -2682,25 +2682,42 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
     return;
   }
 
-  goal = (direction < 0) ?
-      ((left != 0U) ? STEER_POS_LEFT_MIN_RAW : STEER_POS_RIGHT_MIN_RAW) :
-      ((left != 0U) ? STEER_POS_LEFT_MAX_RAW : STEER_POS_RIGHT_MAX_RAW);
-  error = AS5600_ShortestDeltaCounts(raw, goal);
-  distance = (uint16_t)((error < 0) ? -error : error);
-  if (distance <= STEER_POS_TOL_RAW)
-  {
-    Steering_ManualAxisDone(left, 2U);
-    return;
-  }
-  /* If we already passed the calibrated end position, do not
-   * keep driving toward the physical hard stop just to get NC open.
+  /* D-pad/RX are MANUAL: stop 20 encoder counts *before* the
+   * mechanical MIN/MAX, not near the physical endstop as previously.
+   * No need to press NC. If already past soft boundary, the safe
+   * choice is to stop moving INTO it, not fault/latch both motors.
    */
-  if (((correct_sign != 0U) && (error < -STEER_POS_TOL_RAW)) ||
-      ((correct_sign == 0U) && (error > STEER_POS_TOL_RAW)))
+  goal = (direction < 0) ?
+      ((left != 0U) ? STEER_MANUAL_LEFT_SOFT_MIN :
+                      STEER_MANUAL_RIGHT_SOFT_MIN) :
+      ((left != 0U) ? STEER_MANUAL_LEFT_SOFT_MAX :
+                      STEER_MANUAL_RIGHT_SOFT_MAX);
+  error = AS5600_ShortestDeltaCounts(raw, goal);
+  if (left != 0U)
   {
-    Steering_ManualAxisFault(left, 8U);
+    steer_manual_left_soft_target = goal;
+    steer_manual_left_soft_remaining = error;
+  }
+  else
+  {
+    steer_manual_right_soft_target = goal;
+    steer_manual_right_soft_remaining = error;
+  }
+  /* Left MIN grows / MAX falls; Right MIN falls / MAX grows.
+   * Compare in the real physical direction so even an overshot
+   * endpoint is a normal blocked boundary, never a wrong-way fault.
+   */
+  if (((left != 0U) && (direction < 0) && (raw >= goal)) ||
+      ((left != 0U) && (direction > 0) && (raw <= goal)) ||
+      ((left == 0U) && (direction < 0) && (raw <= goal)) ||
+      ((left == 0U) && (direction > 0) && (raw >= goal)))
+  {
+    if (left != 0U) steer_manual_left_soft_stop_count++;
+    else steer_manual_right_soft_stop_count++;
+    Steering_ManualAxisDone(left, STEER_MANUAL_RESULT_SOFT);
     return;
   }
+  distance = (uint16_t)((error < 0) ? -error : error);
   if (distance + 2U <= axis->best_distance)
   {
     axis->best_distance = distance;
