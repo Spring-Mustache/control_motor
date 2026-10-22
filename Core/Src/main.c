@@ -1621,7 +1621,7 @@ volatile int8_t steer_manual_right_requested_direction = 0;
  * short, AS5600-verified departure from R_MAX; NEVER a full stroke from
  * an active NC limit. This remains an observable runtime safety gate.
  */
-volatile uint8_t steer_manual_allow_right_max_escape = 1U;
+volatile uint8_t steer_manual_allow_right_max_escape = 0U; /* S11: fail-closed */
 /* Combined LY wheel drive + RX steering is a later bench validation gate. */
 volatile uint8_t steer_manual_allow_wheel_motion = 0U;
 volatile uint32_t steer_manual_start_count = 0U;
@@ -3575,8 +3575,12 @@ static void Steering_ManualUpdate(void)
     else if ((mask & ((command < 0) ? STEER_LIMIT_L_MAX_MASK :
                         STEER_LIMIT_L_MIN_MASK)) != 0U)
     {
-      steer_manual_left_state = STEER_MANUAL_ESCAPE;
-      steer_manual_left_axis.escape_start_ms = now;
+      /* S11 emergency policy: while manual control owns PWM,
+       * NEVER start a powered escape from an already pressed limit.
+       * Both channels latch off pending physical inspection.
+       */
+      Steering_ManualEmergencyTrip(3U, mask);
+      Steering_ManualAxisFault(1U, 9U);
     }
     if ((mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) ==
           (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK))
@@ -3587,17 +3591,12 @@ static void Steering_ManualUpdate(void)
     else if ((mask & ((right_direction < 0) ? STEER_LIMIT_R_MAX_MASK :
                         STEER_LIMIT_R_MIN_MASK)) != 0U)
     {
-      /* R_MAX departure had not passed a separate DIR0 limit-escape
-       * bench test. Keep it opt-in; never assume pressing D-pad is enough.
+      /* RIGHT escaped opposite NC on previous firmware while a held
+       * PS2 command remained active. Safety incident => no MANUAL
+       * auto-escape from ANY asserted NC until hardware is checked.
        */
-      if ((right_direction < 0) &&
-          (steer_manual_allow_right_max_escape == 0U))
-        Steering_ManualAxisFault(0U, 10U);
-      else
-      {
-        steer_manual_right_state = STEER_MANUAL_ESCAPE;
-        steer_manual_right_axis.escape_start_ms = now;
-      }
+      Steering_ManualEmergencyTrip(3U, mask);
+      Steering_ManualAxisFault(0U, 9U);
     }
 
     /* Baseline current AS5600 per axis before energizing its channel. */
