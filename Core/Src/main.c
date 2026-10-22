@@ -3373,8 +3373,20 @@ static void Steering_ManualUpdate(void)
     steer_manual_active = 1U;
     steer_manual_irq_pending_mask = 0U;
     steer_manual_irq_trip_mask = 0U;
-    steer_manual_left_state = STEER_MANUAL_MOVING;
-    steer_manual_right_state = STEER_MANUAL_MOVING;
+    /* Newly released/quickly reversed inputs may retain coasting
+     * motion. Begin with PWM OFF until EACH encoder is quiet.
+     * An already asserted opposite NC still uses bounded ESCAPE.
+     */
+    steer_manual_left_state = STEER_MANUAL_SETTLING;
+    steer_manual_right_state = STEER_MANUAL_SETTLING;
+    steer_manual_left_axis.settle_begin_ms = now;
+    steer_manual_right_axis.settle_begin_ms = now;
+    steer_manual_left_axis.settle_quiet_since_ms = now;
+    steer_manual_right_axis.settle_quiet_since_ms = now;
+    steer_manual_left_settle_elapsed_ms = 0U;
+    steer_manual_right_settle_elapsed_ms = 0U;
+    steer_manual_left_settle_count++;
+    steer_manual_right_settle_count++;
     steer_manual_left_result = 0U;
     steer_manual_right_result = 0U;
     steer_manual_left_axis.progress_ms = now;
@@ -3421,22 +3433,32 @@ static void Steering_ManualUpdate(void)
 
     /* Baseline current AS5600 per axis before energizing its channel. */
     if ((steer_manual_left_state == STEER_MANUAL_MOVING) ||
-        (steer_manual_left_state == STEER_MANUAL_ESCAPE))
+        (steer_manual_left_state == STEER_MANUAL_ESCAPE) ||
+        (steer_manual_left_state == STEER_MANUAL_SETTLING))
     {
       if ((Steering_PositionReadOne(1U, &raw) == 0U) ||
           (Steering_PositionRawInRange(1U, raw) == 0U))
         Steering_ManualAxisFault(1U, 4U);
       else
+      {
         steer_manual_left_axis.previous_raw = raw;
+        steer_manual_left_axis.settle_quiet_raw = raw;
+        steer_manual_left_settle_raw = raw;
+      }
     }
     if ((steer_manual_right_state == STEER_MANUAL_MOVING) ||
-        (steer_manual_right_state == STEER_MANUAL_ESCAPE))
+        (steer_manual_right_state == STEER_MANUAL_ESCAPE) ||
+        (steer_manual_right_state == STEER_MANUAL_SETTLING))
     {
       if ((Steering_PositionReadOne(0U, &raw) == 0U) ||
           (Steering_PositionRawInRange(0U, raw) == 0U))
         Steering_ManualAxisFault(0U, 4U);
       else
+      {
         steer_manual_right_axis.previous_raw = raw;
+        steer_manual_right_axis.settle_quiet_raw = raw;
+        steer_manual_right_settle_raw = raw;
+      }
     }
   }
 
@@ -3570,9 +3592,12 @@ static void Steering_ManualUpdate(void)
   /* Do not re-arm automatically if held against a stop or stalled.
    * Preserve per-axis result for Live Expressions until next command.
    */
-  if ((steer_manual_left_state >= STEER_MANUAL_DONE) &&
-      (steer_manual_right_state >= STEER_MANUAL_DONE))
+  if (((steer_manual_left_state == STEER_MANUAL_DONE) ||
+       (steer_manual_left_state == STEER_MANUAL_FAULT)) &&
+      ((steer_manual_right_state == STEER_MANUAL_DONE) ||
+       (steer_manual_right_state == STEER_MANUAL_FAULT)))
   {
+    /* SETTLING is not DONE, even though its symbolic state is 5. */
     steer_manual_neutral_required = 1U;
     Steering_ManualStop();
   }
