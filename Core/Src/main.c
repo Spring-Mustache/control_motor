@@ -3260,7 +3260,11 @@ volatile uint32_t steer_cal_right_noise_unlock_count = 0U;
  * verification hold. Unlike reason1 it does not prove wrong-way drive.
  */
 #define STEER_CAL_JUMP_MAX_RAW     90
-#define STEER_CAL_STABLE_REQUIRED  3U
+#define STEER_CAL_STABLE_REQUIRED  3U /* legacy, not center capture */
+/* Stop on approaching CENTER band and wait for AS5600 to become
+ * physically quiet instead of driving back and forth around ±5 RAW.
+ */
+#define STEER_CAL_CENTER_QUIET_MS 120U
 
 /* 0=idle, 1=active, 2=success, 3=reject/interlock, 4=sensor,
  * 5=stage/overall timeout, 6=limit/edge mismatch,
@@ -3302,6 +3306,18 @@ volatile uint16_t steer_cal_left_escape_duty = 200U;
 volatile uint16_t steer_cal_right_escape_duty = 100U; /* within prior RIGHT cap */
 volatile uint16_t steer_cal_left_center_duty = 175U;
 volatile uint16_t steer_cal_right_center_duty = 85U;
+/* Individual calibrated CENTER acceptance bands, never redefine CENTER.
+ * 15 counts ~1.3 degrees, 20 counts ~1.8 degrees (4096 counts/turn).
+ * Values are clamped 8..30 RAW; runtime tuning for each motor separately.
+ */
+volatile uint16_t steer_cal_left_center_tol_raw = 15U;
+volatile uint16_t steer_cal_right_center_tol_raw = 20U;
+volatile int16_t steer_cal_left_center_error = 0;
+volatile int16_t steer_cal_right_center_error = 0;
+volatile uint8_t steer_cal_left_center_capturing = 0U;
+volatile uint8_t steer_cal_right_center_capturing = 0U;
+volatile uint16_t steer_cal_left_center_accepted_raw = 0U;
+volatile uint16_t steer_cal_right_center_accepted_raw = 0U;
 volatile uint16_t steer_cal_left_approach_floor = 175U;
 volatile uint16_t steer_cal_right_approach_floor = 85U;
 /* Sticky diagnostics: source and affected axis for result 6.
@@ -3385,6 +3401,8 @@ typedef struct
   uint32_t reverse_quiet_since_ms;
   uint32_t center_reverse_start_ms;
   uint32_t center_quiet_since_ms;
+  uint8_t center_capturing;
+  uint32_t center_capture_quiet_since_ms;
   uint32_t noise_hold_start_ms;
   uint32_t noise_quiet_since_ms;
   uint16_t noise_quiet_start_raw;
@@ -3462,6 +3480,8 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
   axis->reverse_ready = 0U;
   axis->reverse_quiet_since_ms = now;
   axis->center_reverse_wait = 0U;
+  axis->center_capturing = 0U;
+  axis->center_capture_quiet_since_ms = now;
   axis->noise_hold = 0U;
   axis->noise_hold_count = 0U;
   axis->noise_quiet_since_ms = now;
@@ -3479,6 +3499,7 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
     steer_cal_left_reverse_ready = 0U;
     steer_cal_left_reverse_wait_ms = 0U;
     steer_cal_left_center_reverse_wait = 0U;
+    steer_cal_left_center_capturing = 0U;
     steer_cal_left_noise_hold = 0U;
     if (next == STEER_CAL_TO_CENTER)
       steer_cal_left_center_reverse_count = 0U;
@@ -3488,6 +3509,7 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
     steer_cal_right_reverse_ready = 0U;
     steer_cal_right_reverse_wait_ms = 0U;
     steer_cal_right_center_reverse_wait = 0U;
+    steer_cal_right_center_capturing = 0U;
     steer_cal_right_noise_hold = 0U;
     if (next == STEER_CAL_TO_CENTER)
       steer_cal_right_center_reverse_count = 0U;
@@ -3776,15 +3798,55 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
                              STEER_POS_RIGHT_CENTER_RAW;
     if (limit != 0U) return Steering_CalLimitFault(left, 3U);
     error = AS5600_ShortestDeltaCounts(raw, center);
-    if ((error >= -STEER_POS_TOL_RAW) &&
-        (error <= STEER_POS_TOL_RAW))
+    if (left != 0U) steer_cal_left_center_error = error;
+    else steer_cal_right_center_error = error;
     {
-      axis->stable++;
-      if (axis->stable >= STEER_CAL_STABLE_REQUIRED)
-        axis->stage = STEER_CAL_DONE;
-      return 0U;
+      uint16_t tol = Steering_CenterTolClamp(
+          left ? steer_cal_left_center_tol_raw :
+                 steer_cal_right_center_tol_raw);
+      uint16_t absolute = (uint16_t)((error < 0) ? -error : error);
+      /* Entirely unpowered capture: don't correct 5-20-count
+       * backlash with repeated opposite motor polarity. Motor may
+       * coast slightly after entering the band. Accept only if
+       * final RAW is still inside tolerance and has been quiet.
+       */
+      if (absolute <= tol)
+      {
+        if (axis->center_capturing == 0U)
+        {
+          axis->center_capturing = 1U;
+          axis->center_capture_quiet_since_ms = now;
+        }
+        if ((movement > 1) || (movement < -1))
+          axis->center_capture_quiet_since_ms = now;
+        axis->last_progress_ms = now;
+        if (left != 0U) steer_cal_left_center_capturing = 1U;
+        else steer_cal_right_center_capturing = 1U;
+        if ((uint32_t)(now - axis->center_capture_quiet_since_ms) >=
+            STEER_CAL_CENTER_QUIET_MS)
+        {
+          axis->stage = STEER_CAL_DONE;
+          if (left != 0U)
+          {
+            steer_cal_left_center_accepted_raw = raw;
+            steer_cal_left_center_capturing = 0U;
+          }
+          else
+          {
+            steer_cal_right_center_accepted_raw = raw;
+            steer_cal_right_center_capturing = 0U;
+          }
+        }
+        return 0U;
+      }
+      if (axis->center_capturing != 0U)
+      {
+        axis->center_capturing = 0U;
+        axis->last_progress_ms = now;
+        if (left != 0U) steer_cal_left_center_capturing = 0U;
+        else steer_cal_right_center_capturing = 0U;
+      }
     }
-    axis->stable = 0U;
     /* LEFT raw grows in DIR0; RIGHT raw shrinks in DIR0.
      * Reaching or passing CENTER can change the requested DIR while
      * the rotor/gearbox still coasts the old way. For both motors,
@@ -4244,6 +4306,12 @@ static void Steering_CalUpdate(void)
     steer_cal_right_center_reverse_wait = 0U;
     steer_cal_left_center_reverse_count = 0U;
     steer_cal_right_center_reverse_count = 0U;
+    steer_cal_left_center_error = 0;
+    steer_cal_right_center_error = 0;
+    steer_cal_left_center_accepted_raw = 0U;
+    steer_cal_right_center_accepted_raw = 0U;
+    steer_cal_left_center_capturing = 0U;
+    steer_cal_right_center_capturing = 0U;
     steer_cal_left_center_reverse_elapsed_ms = 0U;
     steer_cal_right_center_reverse_elapsed_ms = 0U;
     steer_cal_left_noise_hold = 0U;
