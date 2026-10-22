@@ -3197,6 +3197,16 @@ volatile uint16_t steer_cal_right_stall_timeout_ms = 850U;
 /* Independent settling windows: gear ratios and coasting differ. */
 volatile uint16_t steer_cal_left_reverse_settle_ms = 150U;
 volatile uint16_t steer_cal_right_reverse_settle_ms = 220U;
+/* In addition to minimum settle time, both sides must show a quiet
+ * AS5600 interval before any opposite-direction PWM is permitted.
+ * Do not use a shared wait/torque assumption across the two motors.
+ */
+volatile uint16_t steer_cal_left_reverse_quiet_ms = 60U;
+volatile uint16_t steer_cal_right_reverse_quiet_ms = 100U;
+volatile uint8_t steer_cal_left_reverse_ready = 0U;
+volatile uint8_t steer_cal_right_reverse_ready = 0U;
+volatile uint32_t steer_cal_left_reverse_wait_ms = 0U;
+volatile uint32_t steer_cal_right_reverse_wait_ms = 0U;
 #define STEER_CAL_JUMP_MAX_RAW     90
 #define STEER_CAL_STABLE_REQUIRED  3U
 
@@ -3295,7 +3305,9 @@ typedef struct
   uint32_t last_progress_ms;
   uint8_t last_drive_dir0;
   uint8_t last_drive_valid;
+  uint8_t reverse_ready;
   uint32_t last_drive_ms;
+  uint32_t reverse_quiet_since_ms;
 } SteeringCalAxis_t;
 
 static SteeringCalAxis_t steer_cal_left_axis = {0};
@@ -3367,6 +3379,18 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
   axis->stable = 0U;
   axis->last_drive_valid = 0U;
   axis->last_drive_ms = now;
+  axis->reverse_ready = 0U;
+  axis->reverse_quiet_since_ms = now;
+  if (axis == &steer_cal_left_axis)
+  {
+    steer_cal_left_reverse_ready = 0U;
+    steer_cal_left_reverse_wait_ms = 0U;
+  }
+  else
+  {
+    steer_cal_right_reverse_ready = 0U;
+    steer_cal_right_reverse_wait_ms = 0U;
+  }
 }
 
 static uint8_t Steering_CalLimitFault(uint8_t left, uint8_t reason)
@@ -3581,21 +3605,37 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       return 0U; /* at least one full control frame with zero CCR */
     }
     if (limit != own) return Steering_CalLimitFault(left, 3U);
-    /* Allow the old inbound motion to settle before reversing under
-     * load. The switch remains asserted and the output is forced zero.
-     * When the settling interval ends, reset the stall clock so the
-     * motor gets its full independent escape stall allowance.
+    /* A time-only wait can reverse while the motor is still COASTING
+     * toward the switch. Wait for both independently tuned minimum dwell
+     * and an AS5600 quiet window, with CCR zero the entire time.
+     * Do not silently relax direction or NC safety checks after driving.
      */
+    if (axis->reverse_ready == 0U)
     {
       uint16_t settle_ms = left ? steer_cal_left_reverse_settle_ms :
                                   steer_cal_right_reverse_settle_ms;
+      uint16_t quiet_ms = left ? steer_cal_left_reverse_quiet_ms :
+                                 steer_cal_right_reverse_quiet_ms;
       if (settle_ms < 80U) settle_ms = 80U;
       if (settle_ms > 350U) settle_ms = 350U;
-      if ((uint32_t)(now - axis->stage_begin) < settle_ms)
-      {
-        axis->last_progress_ms = now;
+      if (quiet_ms < 40U) quiet_ms = 40U;
+      if (quiet_ms > 180U) quiet_ms = 180U;
+      if ((movement > 1) || (movement < -1))
+        axis->reverse_quiet_since_ms = now;
+      if (left != 0U)
+        steer_cal_left_reverse_wait_ms =
+            (uint32_t)(now - axis->stage_begin);
+      else
+        steer_cal_right_reverse_wait_ms =
+            (uint32_t)(now - axis->stage_begin);
+      axis->last_progress_ms = now;
+      if (((uint32_t)(now - axis->stage_begin) < settle_ms) ||
+          ((uint32_t)(now - axis->reverse_quiet_since_ms) < quiet_ms))
         return 0U;
-      }
+      axis->reverse_ready = 1U;
+      axis->last_progress_ms = now;
+      if (left != 0U) steer_cal_left_reverse_ready = 1U;
+      else steer_cal_right_reverse_ready = 1U;
     }
     /* NC bounced during safe departure. Do not energize in this frame. */
     if (edge == own) return 0U;
@@ -3914,6 +3954,10 @@ static void Steering_CalUpdate(void)
     steer_cal_right_last_delta = 0;
     steer_cal_left_progress_age_ms = 0U;
     steer_cal_right_progress_age_ms = 0U;
+    steer_cal_left_reverse_ready = 0U;
+    steer_cal_right_reverse_ready = 0U;
+    steer_cal_left_reverse_wait_ms = 0U;
+    steer_cal_right_reverse_wait_ms = 0U;
     steer_cal_last_irq_snapshot = 0U;
     steer_cal_last_gpio_snapshot = 0U;
     steer_cal_reject_reason = 0U;
