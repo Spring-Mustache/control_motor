@@ -3745,8 +3745,64 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       return 0U;
     }
     axis->stable = 0U;
-    /* LEFT raw grows in DIR0; RIGHT raw shrinks in DIR0. */
+    /* LEFT raw grows in DIR0; RIGHT raw shrinks in DIR0.
+     * Reaching or passing CENTER can change the requested DIR while
+     * the rotor/gearbox still coasts the old way. For both motors,
+     * hold PWM at zero until the measured RAW is QUIET. This prevents
+     * a perfectly valid last -7 count of RIGHT travel from being read
+     * as failure of its newly commanded DIR1 correction.
+     */
     direction_zero = left ? (error > 0) : (error < 0);
+    if ((axis->center_reverse_wait == 0U) &&
+        (axis->last_nonzero_valid != 0U) &&
+        (direction_zero != axis->last_nonzero_dir0))
+    {
+      axis->center_reverse_wait = 1U;
+      axis->center_reverse_start_ms = now;
+      axis->center_quiet_since_ms = now;
+      axis->center_reverse_count++;
+      if (axis->center_reverse_count > 4U)
+        return Steering_CalMotionFault(left, 2U, stage, raw,
+                                       movement, now);
+      if (left != 0U)
+      {
+        steer_cal_left_center_reverse_wait = 1U;
+        steer_cal_left_center_reverse_count = axis->center_reverse_count;
+      }
+      else
+      {
+        steer_cal_right_center_reverse_wait = 1U;
+        steer_cal_right_center_reverse_count = axis->center_reverse_count;
+      }
+    }
+    if (axis->center_reverse_wait != 0U)
+    {
+      uint16_t settle_ms = left ? steer_cal_left_reverse_settle_ms :
+                                  steer_cal_right_reverse_settle_ms;
+      uint16_t quiet_ms = left ? steer_cal_left_reverse_quiet_ms :
+                                 steer_cal_right_reverse_quiet_ms;
+      if (settle_ms < 80U) settle_ms = 80U;
+      if (settle_ms > 350U) settle_ms = 350U;
+      if (quiet_ms < 40U) quiet_ms = 40U;
+      if (quiet_ms > 180U) quiet_ms = 180U;
+      if (movement > 1 || movement < -1)
+        axis->center_quiet_since_ms = now;
+      if (left != 0U)
+        steer_cal_left_center_reverse_elapsed_ms =
+            (uint32_t)(now - axis->center_reverse_start_ms);
+      else
+        steer_cal_right_center_reverse_elapsed_ms =
+            (uint32_t)(now - axis->center_reverse_start_ms);
+      axis->last_progress_ms = now;
+      if (((uint32_t)(now - axis->center_reverse_start_ms) < settle_ms) ||
+          ((uint32_t)(now - axis->center_quiet_since_ms) < quiet_ms))
+        return 0U; /* CCR stays zero during entire wait */
+      axis->center_reverse_wait = 0U;
+      axis->last_nonzero_valid = 0U;
+      if (left != 0U) steer_cal_left_center_reverse_wait = 0U;
+      else steer_cal_right_center_reverse_wait = 0U;
+      return 0U; /* another full zero-PWM frame before DIR change */
+    }
   }
   else return Steering_CalLimitFault(left, 3U);
 
@@ -3754,14 +3810,57 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
    * direction. Jitter or small reverse movement must not reset the
    * watchdog and mask a stuck or miswired axis.
    */
+  if (axis->noise_hold != 0U)
+  {
+    /* A solitary 6-8-count wrong-sign spike was observed around
+     * RIGHT R_MAX. Cut PWM IMMEDIATELY (the prior cycle did so)
+     * rather than driving into the NC, and require real movement
+     * back AWAY before permitting any further power. A second
+     * strong wrong-sign sample or missing recovery fails closed.
+     */
+    uint8_t good = ((axis->noise_expected_increase != 0U) ?
+                     (movement >= 2) : (movement <= -2)) ? 1U : 0U;
+    uint8_t bad = ((axis->noise_expected_increase != 0U) ?
+                    (movement < -5) : (movement > 5)) ? 1U : 0U;
+    if ((bad != 0U) ||
+        ((uint32_t)(now - axis->noise_hold_start_ms) >=
+         STEER_CAL_NOISE_HOLD_MAX_MS))
+      return Steering_CalMotionFault(left, 1U, stage, raw,
+                                      movement, now);
+    if (good == 0U) return 0U;
+    axis->noise_hold = 0U;
+    axis->last_drive_valid = 0U;
+    axis->last_progress_ms = now;
+    if (left != 0U) steer_cal_left_noise_hold = 0U;
+    else steer_cal_right_noise_hold = 0U;
+    return 0U; /* preserve zero-PWM separation before retry */
+  }
   if (axis->last_drive_valid != 0U)
   {
     uint8_t should_increase = left ? axis->last_drive_dir0 :
                                      (uint8_t)(!axis->last_drive_dir0);
     if (((should_increase != 0U) && (movement < -5)) ||
         ((should_increase == 0U) && (movement > 5)))
-      return Steering_CalMotionFault(left, 1U, stage, raw,
-                                      movement, now);
+    {
+      /* One suspect sample => PWM zero NOW, never keep pushing.
+       * Recovery requires subsequent AS5600 progress in the
+       * previously applied safe direction, not a timer alone.
+       */
+      axis->noise_hold = 1U;
+      axis->noise_expected_increase = should_increase;
+      axis->noise_hold_start_ms = now;
+      if (left != 0U)
+      {
+        steer_cal_left_noise_hold = 1U;
+        steer_cal_left_noise_hold_count++;
+      }
+      else
+      {
+        steer_cal_right_noise_hold = 1U;
+        steer_cal_right_noise_hold_count++;
+      }
+      return 0U;
+    }
     if (((should_increase != 0U) && (movement >= 2)) ||
         ((should_increase == 0U) && (movement <= -2)))
       axis->last_progress_ms = now;
@@ -4146,11 +4245,23 @@ static void Steering_CalUpdate(void)
     steer_cal_left_axis.last_drive_valid = (lpwm != 0U) ? 1U : 0U;
     steer_cal_left_axis.last_drive_dir0 =
         (ldir == GPIO_PIN_RESET) ? 1U : 0U;
-    if (lpwm != 0U) steer_cal_left_axis.last_drive_ms = now;
+    if (lpwm != 0U)
+    {
+      steer_cal_left_axis.last_drive_ms = now;
+      steer_cal_left_axis.last_nonzero_valid = 1U;
+      steer_cal_left_axis.last_nonzero_dir0 =
+          (ldir == GPIO_PIN_RESET) ? 1U : 0U;
+    }
     steer_cal_right_axis.last_drive_valid = (rpwm != 0U) ? 1U : 0U;
     steer_cal_right_axis.last_drive_dir0 =
         (rdir == GPIO_PIN_RESET) ? 1U : 0U;
-    if (rpwm != 0U) steer_cal_right_axis.last_drive_ms = now;
+    if (rpwm != 0U)
+    {
+      steer_cal_right_axis.last_drive_ms = now;
+      steer_cal_right_axis.last_nonzero_valid = 1U;
+      steer_cal_right_axis.last_nonzero_dir0 =
+          (rdir == GPIO_PIN_RESET) ? 1U : 0U;
+    }
   }
   if (primask == 0U) __enable_irq();
   if (steer_cal_active == 0U) return;
