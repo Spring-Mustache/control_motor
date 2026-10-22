@@ -3207,6 +3207,24 @@ volatile uint8_t steer_cal_left_reverse_ready = 0U;
 volatile uint8_t steer_cal_right_reverse_ready = 0U;
 volatile uint32_t steer_cal_left_reverse_wait_ms = 0U;
 volatile uint32_t steer_cal_right_reverse_wait_ms = 0U;
+/* S07F: Return-to-CENTER polarity changes need a fresh motor-off,
+ * AS5600-quiet transition. LEFT/RIGHT cannot share coast settings.
+ */
+volatile uint8_t steer_cal_left_center_reverse_wait = 0U;
+volatile uint8_t steer_cal_right_center_reverse_wait = 0U;
+volatile uint8_t steer_cal_left_center_reverse_count = 0U;
+volatile uint8_t steer_cal_right_center_reverse_count = 0U;
+volatile uint32_t steer_cal_left_center_reverse_elapsed_ms = 0U;
+volatile uint32_t steer_cal_right_center_reverse_elapsed_ms = 0U;
+/* A SINGLE reversed AS5600 sample near pressed NC stops CCR at once.
+ * Only verified away motion may recover this one-sample ambiguity.
+ * Otherwise fail closed; never disable true wrong-way protection.
+ */
+#define STEER_CAL_NOISE_HOLD_MAX_MS 220U
+volatile uint8_t steer_cal_left_noise_hold = 0U;
+volatile uint8_t steer_cal_right_noise_hold = 0U;
+volatile uint32_t steer_cal_left_noise_hold_count = 0U;
+volatile uint32_t steer_cal_right_noise_hold_count = 0U;
 #define STEER_CAL_JUMP_MAX_RAW     90
 #define STEER_CAL_STABLE_REQUIRED  3U
 
@@ -3322,8 +3340,17 @@ typedef struct
   uint8_t last_drive_dir0;
   uint8_t last_drive_valid;
   uint8_t reverse_ready;
+  uint8_t last_nonzero_dir0;
+  uint8_t last_nonzero_valid;
+  uint8_t center_reverse_wait;
+  uint8_t center_reverse_count;
+  uint8_t noise_hold;
+  uint8_t noise_expected_increase;
   uint32_t last_drive_ms;
   uint32_t reverse_quiet_since_ms;
+  uint32_t center_reverse_start_ms;
+  uint32_t center_quiet_since_ms;
+  uint32_t noise_hold_start_ms;
 } SteeringCalAxis_t;
 
 static SteeringCalAxis_t steer_cal_left_axis = {0};
@@ -3397,15 +3424,33 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
   axis->last_drive_ms = now;
   axis->reverse_ready = 0U;
   axis->reverse_quiet_since_ms = now;
+  axis->center_reverse_wait = 0U;
+  axis->noise_hold = 0U;
+  /* Preserve the last physically applied direction for the transition
+   * from EXIT_MAX to CENTER; otherwise a center overshoot could
+   * reverse PWM immediately and trip the wrong-way guard.
+   */
+  if (next == STEER_CAL_SEEK_MIN)
+    axis->last_nonzero_valid = 0U;
+  if (next == STEER_CAL_TO_CENTER)
+    axis->center_reverse_count = 0U;
   if (axis == &steer_cal_left_axis)
   {
     steer_cal_left_reverse_ready = 0U;
     steer_cal_left_reverse_wait_ms = 0U;
+    steer_cal_left_center_reverse_wait = 0U;
+    steer_cal_left_noise_hold = 0U;
+    if (next == STEER_CAL_TO_CENTER)
+      steer_cal_left_center_reverse_count = 0U;
   }
   else
   {
     steer_cal_right_reverse_ready = 0U;
     steer_cal_right_reverse_wait_ms = 0U;
+    steer_cal_right_center_reverse_wait = 0U;
+    steer_cal_right_noise_hold = 0U;
+    if (next == STEER_CAL_TO_CENTER)
+      steer_cal_right_center_reverse_count = 0U;
   }
 }
 
@@ -3997,6 +4042,16 @@ static void Steering_CalUpdate(void)
     steer_cal_right_reverse_ready = 0U;
     steer_cal_left_reverse_wait_ms = 0U;
     steer_cal_right_reverse_wait_ms = 0U;
+    steer_cal_left_center_reverse_wait = 0U;
+    steer_cal_right_center_reverse_wait = 0U;
+    steer_cal_left_center_reverse_count = 0U;
+    steer_cal_right_center_reverse_count = 0U;
+    steer_cal_left_center_reverse_elapsed_ms = 0U;
+    steer_cal_right_center_reverse_elapsed_ms = 0U;
+    steer_cal_left_noise_hold = 0U;
+    steer_cal_right_noise_hold = 0U;
+    steer_cal_left_noise_hold_count = 0U;
+    steer_cal_right_noise_hold_count = 0U;
     steer_cal_last_irq_snapshot = 0U;
     steer_cal_last_gpio_snapshot = 0U;
     steer_cal_reject_reason = 0U;
