@@ -1558,7 +1558,11 @@ volatile uint16_t steer_manual_left_rx_min_pwm = 175U;
 volatile uint16_t steer_manual_right_rx_min_pwm = 50U;
 volatile uint16_t steer_manual_left_rx_max_pwm = 300U;
 volatile uint16_t steer_manual_right_rx_max_pwm = 100U;
-volatile uint8_t steer_manual_allow_right_max_escape = 0U;
+/* RIGHT DIR0 toward MIN was established before M7-S05. Permit only a
+ * short, AS5600-verified departure from R_MAX; NEVER a full stroke from
+ * an active NC limit. This remains an observable runtime safety gate.
+ */
+volatile uint8_t steer_manual_allow_right_max_escape = 1U;
 /* Combined LY wheel drive + RX steering is a later bench validation gate. */
 volatile uint8_t steer_manual_allow_wheel_motion = 0U;
 volatile uint32_t steer_manual_start_count = 0U;
@@ -4241,8 +4245,12 @@ int main(void)
      * a NEW manual request after verified switch release.
      */
     Steering_TestPulseUpdate();
-    Steering_PositionUpdate(); /* R1/R2 independent closed-loop */
+    /* Release the previous manual PWM owner BEFORE checking a fresh
+     * R1/R2 edge. Otherwise the position command gets rejected simply
+     * because steer_manual_active was still set for this same cycle.
+     */
     Steering_ManualUpdate();   /* D-pad LEFT/RIGHT and joystick RX */
+    Steering_PositionUpdate(); /* R1/R2 independent closed-loop */
     Steering_PositionTelemetryIdleUpdate(); /* AS5600 live without poll flag */
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
