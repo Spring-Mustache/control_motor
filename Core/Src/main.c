@@ -1555,6 +1555,8 @@ volatile uint16_t steer_manual_right_rx_min_pwm = 50U;
 volatile uint16_t steer_manual_left_rx_max_pwm = 300U;
 volatile uint16_t steer_manual_right_rx_max_pwm = 100U;
 volatile uint8_t steer_manual_allow_right_max_escape = 0U;
+/* Combined LY wheel drive + RX steering is a later bench validation gate. */
+volatile uint8_t steer_manual_allow_wheel_motion = 0U;
 volatile uint32_t steer_manual_start_count = 0U;
 volatile uint32_t steer_manual_stop_count = 0U;
 volatile uint32_t steer_manual_reject_count = 0U;
@@ -2166,6 +2168,11 @@ static void Steering_PositionUpdate(void)
     if ((allowed == 0U) ||
         ((buttons != 0U) && (buttons != steer_pos_command)))
     {
+      /* Switching from auto R1/R2 to manual steering requires a fresh
+       * neutral->direction stroke; never instantly reverse a moving axis.
+       */
+      if (Steering_ManualRequestDirection() != 0)
+        steer_manual_neutral_required = 1U;
       Steering_PositionFinish(9U);
       return;
     }
@@ -2363,9 +2370,17 @@ static void Steering_ManualRightOff(void)
 
 static void Steering_ManualStop(void)
 {
+  /* If manual does not own the PWM, do NOT overwrite R1/R2 or
+   * the manually-armed M7-S02 diagnostic pulse outputs.
+   */
+  if (steer_manual_active == 0U)
+  {
+    steer_manual_direction = 0;
+    return;
+  }
   Steering_ManualLeftOff();
   Steering_ManualRightOff();
-  if (steer_manual_active != 0U) steer_manual_stop_count++;
+  steer_manual_stop_count++;
   steer_manual_active = 0U;
   steer_manual_direction = 0;
 }
@@ -2571,6 +2586,8 @@ static void Steering_ManualUpdate(void)
       (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
       (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
       (WheelControl_SpinIsActive() != 0U) ||
+      ((steer_manual_allow_wheel_motion == 0U) &&
+       (Steering_PositionWheelsStopped() == 0U)) ||
       (debug_as5600_poll_enable != 0U) ||
       (steer_test_running != 0U) ||
       (steer_test_arm != 0U) || (steer_test_request != 0U) ||
