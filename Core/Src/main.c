@@ -3190,6 +3190,11 @@ volatile uint16_t steer_cal_right_stall_timeout_ms = 850U;
 #define STEER_CAL_EXIT_TIMEOUT_MS 1000U
 #define STEER_CAL_OVERALL_TIMEOUT_MS 45000U
 #define STEER_CAL_STALL_TIMEOUT_MS 850U
+/* Hold steering CCR=0 after touching NC before reversing a motor.
+ * This guards against interpreting residual INBOUND inertia as a
+ * wrong-direction response to the OUTBOUND command.
+ */
+#define STEER_CAL_REVERSE_SETTLE_MS 150U
 #define STEER_CAL_JUMP_MAX_RAW     90
 #define STEER_CAL_STABLE_REQUIRED  3U
 
@@ -3230,7 +3235,7 @@ volatile uint16_t steer_cal_right_pwm = 0U;
 volatile uint16_t steer_cal_left_seek_duty = 200U;
 volatile uint16_t steer_cal_right_seek_duty = 85U;
 volatile uint16_t steer_cal_left_escape_duty = 200U;
-volatile uint16_t steer_cal_right_escape_duty = 85U;
+volatile uint16_t steer_cal_right_escape_duty = 100U; /* within prior RIGHT cap */
 volatile uint16_t steer_cal_left_center_duty = 175U;
 volatile uint16_t steer_cal_right_center_duty = 85U;
 volatile uint16_t steer_cal_left_approach_floor = 175U;
@@ -3243,6 +3248,24 @@ volatile uint8_t steer_cal_limit_fault_reason = 0U;
 volatile uint8_t steer_cal_limit_fault_side = 0U; /* 1 left, 2 right */
 volatile uint8_t steer_cal_last_irq_snapshot = 0U;
 volatile uint8_t steer_cal_last_gpio_snapshot = 0U;
+/* Motion result 7 is now attributed to one axis and one mechanism:
+ * reason 1=wrong-way under last applied DIR, 2=no directional progress.
+ * A sticky snapshot survives later unarmed SELECT presses.
+ */
+volatile uint8_t steer_cal_motion_fault_side = 0U;   /* 1 left, 2 right */
+volatile uint8_t steer_cal_motion_fault_reason = 0U;
+volatile uint8_t steer_cal_motion_fault_stage = 0U;
+volatile uint16_t steer_cal_motion_fault_raw = 0U;
+volatile int16_t steer_cal_motion_fault_delta = 0;
+volatile uint16_t steer_cal_motion_fault_pwm = 0U;
+volatile uint32_t steer_cal_motion_fault_age_ms = 0U;
+volatile uint8_t steer_cal_motion_fault_limit_mask = 0U;
+volatile uint16_t steer_cal_left_last_raw = 0U;
+volatile uint16_t steer_cal_right_last_raw = 0U;
+volatile int16_t steer_cal_left_last_delta = 0;
+volatile int16_t steer_cal_right_last_delta = 0;
+volatile uint32_t steer_cal_left_progress_age_ms = 0U;
+volatile uint32_t steer_cal_right_progress_age_ms = 0U;
 volatile uint32_t steer_cal_completed_count = 0U;
 volatile uint32_t steer_cal_failed_count = 0U;
 volatile uint8_t steer_cal_irq_trip_mask = 0U;
@@ -3262,6 +3285,7 @@ typedef struct
   uint32_t last_progress_ms;
   uint8_t last_drive_dir0;
   uint8_t last_drive_valid;
+  uint32_t last_drive_ms;
 } SteeringCalAxis_t;
 
 static SteeringCalAxis_t steer_cal_left_axis = {0};
@@ -3332,6 +3356,7 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
   axis->last_raw = raw;
   axis->stable = 0U;
   axis->last_drive_valid = 0U;
+  axis->last_drive_ms = now;
 }
 
 static uint8_t Steering_CalLimitFault(uint8_t left, uint8_t reason)
@@ -3358,6 +3383,27 @@ static uint8_t Steering_CalEdgeSafe(uint8_t stage, uint8_t edge,
   if ((stage == STEER_CAL_EXIT_MAX || stage == STEER_CAL_PRE_EXIT_MAX) &&
       edge == max_bit && (limit == max_bit || limit == 0U)) return 1U;
   return 0U;
+}
+
+/* A sticky, per-motor snapshot of the FIRST actual motion fault.
+ * Never infer which axis failed from stage values alone.
+ */
+static uint8_t Steering_CalMotionFault(uint8_t left, uint8_t reason,
+                                       uint8_t stage, uint16_t raw,
+                                       int16_t delta, uint32_t now)
+{
+  steer_cal_motion_fault_side = left ? 1U : 2U;
+  steer_cal_motion_fault_reason = reason;
+  steer_cal_motion_fault_stage = stage;
+  steer_cal_motion_fault_raw = raw;
+  steer_cal_motion_fault_delta = delta;
+  steer_cal_motion_fault_pwm =
+      left ? steer_cal_left_pwm : steer_cal_right_pwm;
+  steer_cal_motion_fault_age_ms =
+      (uint32_t)(now - (left ? steer_cal_left_axis.last_progress_ms :
+                                  steer_cal_right_axis.last_progress_ms));
+  steer_cal_motion_fault_limit_mask = Steering_TestRawLimitMask();
+  return 7U;
 }
 
 /* 0 = healthy. Nonzero result code aborts the entire calibration.
@@ -3788,6 +3834,20 @@ static void Steering_CalUpdate(void)
     steer_cal_irq_pending_mask = 0U;
     steer_cal_limit_fault_reason = 0U;
     steer_cal_limit_fault_side = 0U;
+    steer_cal_motion_fault_side = 0U;
+    steer_cal_motion_fault_reason = 0U;
+    steer_cal_motion_fault_stage = 0U;
+    steer_cal_motion_fault_raw = 0U;
+    steer_cal_motion_fault_delta = 0;
+    steer_cal_motion_fault_pwm = 0U;
+    steer_cal_motion_fault_age_ms = 0U;
+    steer_cal_motion_fault_limit_mask = 0U;
+    steer_cal_left_last_raw = lraw;
+    steer_cal_right_last_raw = rraw;
+    steer_cal_left_last_delta = 0;
+    steer_cal_right_last_delta = 0;
+    steer_cal_left_progress_age_ms = 0U;
+    steer_cal_right_progress_age_ms = 0U;
     steer_cal_last_irq_snapshot = 0U;
     steer_cal_last_gpio_snapshot = 0U;
     steer_cal_reject_reason = 0U;
