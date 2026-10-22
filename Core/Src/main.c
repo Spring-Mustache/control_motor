@@ -1545,7 +1545,15 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
 volatile uint8_t steer_safety_motion_permit = 0U;
 volatile uint8_t steer_safety_trip_latched = 0U;
 volatile uint8_t steer_safety_trip_mask = 0U;   /* NC bits 1,2,4,8 */
-volatile uint8_t steer_safety_trip_reason = 0U; /* 1 EXTI, 2 level */
+volatile uint8_t steer_safety_trip_reason = 0U; /* 1 EXTI, 2 level, 3 sensor, 4 RAW overshoot */
+volatile uint16_t steer_safety_trip_left_raw = 0U;
+volatile uint16_t steer_safety_trip_right_raw = 0U;
+/* Reject large AS5600 displacement BEYOND calibrated hard NC position,
+ * even when the switch GPIO is stuck LOW. Software cannot protect
+ * against sensor, driver, MCU or power-stage failures; hardware interlock
+ * still required before physical tests.
+ */
+#define STEER_SAFETY_HARD_RAW_OVERSHOOT 8U
 volatile uint32_t steer_safety_blocked_cycles = 0U;
 /* A new explicit motion permit can only take effect after a fully
  * neutral PS2 frame. Releasing an old held command must not restart
@@ -6345,6 +6353,37 @@ int main(void)
         steer_safety_trip_latched = 1U;
         if (steer_safety_trip_reason == 0U)
           steer_safety_trip_reason = 2U; /* asserted NC GPIO */
+      }
+      if ((steer_safety_motion_permit == 1U) &&
+          (steer_safety_trip_latched == 0U))
+      {
+        uint16_t lraw = 0U, rraw = 0U;
+        uint8_t lok = Steering_PositionReadOne(1U, &lraw);
+        uint8_t rok = Steering_PositionReadOne(0U, &rraw);
+        /* Fresh AS5600 health and a physical position envelope are
+         * prerequisites to energizing either steering channel.
+         * If an NC input never asserts due to shorted wiring, the
+         * encoder can still force a software latch upon overshoot.
+         */
+        if ((lok == 0U) || (rok == 0U))
+        {
+          steer_safety_trip_reason = 3U;
+          steer_safety_trip_latched = 1U;
+        }
+        else if ((lraw > (STEER_POS_LEFT_MIN_RAW +
+                           STEER_SAFETY_HARD_RAW_OVERSHOOT)) ||
+                 (lraw + STEER_SAFETY_HARD_RAW_OVERSHOOT <
+                           STEER_POS_LEFT_MAX_RAW) ||
+                 (rraw > (STEER_POS_RIGHT_MAX_RAW +
+                           STEER_SAFETY_HARD_RAW_OVERSHOOT)) ||
+                 (rraw + STEER_SAFETY_HARD_RAW_OVERSHOOT <
+                           STEER_POS_RIGHT_MIN_RAW))
+        {
+          steer_safety_trip_reason = 4U;
+          steer_safety_trip_left_raw = lraw;
+          steer_safety_trip_right_raw = rraw;
+          steer_safety_trip_latched = 1U;
+        }
       }
       if ((steer_safety_motion_permit != 1U) ||
           (steer_safety_trip_latched != 0U))
