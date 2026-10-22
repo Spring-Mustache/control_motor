@@ -2576,8 +2576,19 @@ static void Steering_ManualUpdate(void)
     return;
   }
 
+  /* If disarmed, a held input must be released before rearming: changing
+   * Live Expressions steer_manual_enable from 0 to 1 cannot start a motor
+   * until a NEW neutral->direction stroke has been observed.
+   */
+  if (steer_manual_enable != 1U)
+  {
+    steer_manual_neutral_required = 1U;
+    Steering_ManualStop();
+    return;
+  }
+
   /* An unexpected mode/priority conflict cannot authorize actuator PWM. */
-  if ((steer_manual_enable != 1U) ||
+  if (
       (control_mode != CONTROL_MODE_PS2) ||
       (control_stop_latched != 0U) ||
       (ps2_cancel_hold != 0U) ||
