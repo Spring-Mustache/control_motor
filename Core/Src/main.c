@@ -3180,11 +3180,14 @@ static void Steering_ManualUpdate(void)
 #define STEER_CAL_TO_CENTER      5U
 #define STEER_CAL_DONE           6U
 #define STEER_CAL_PRE_EXIT_MAX   7U
-#define STEER_CAL_SCAN_TIMEOUT_MS 7500U
+/* Each axis can reach its own NC at a different time and torque. */
+volatile uint16_t steer_cal_left_seek_timeout_ms = 12000U;
+volatile uint16_t steer_cal_right_seek_timeout_ms = 9000U;
+volatile uint16_t steer_cal_left_center_timeout_ms = 7000U;
+volatile uint16_t steer_cal_right_center_timeout_ms = 6500U;
 #define STEER_CAL_EXIT_TIMEOUT_MS 1000U
-#define STEER_CAL_CENTER_TIMEOUT_MS 6000U
-#define STEER_CAL_OVERALL_TIMEOUT_MS 30000U
-#define STEER_CAL_STALL_TIMEOUT_MS 750U
+#define STEER_CAL_OVERALL_TIMEOUT_MS 45000U
+#define STEER_CAL_STALL_TIMEOUT_MS 850U
 #define STEER_CAL_JUMP_MAX_RAW     90
 #define STEER_CAL_STABLE_REQUIRED  3U
 
@@ -3205,8 +3208,26 @@ volatile uint16_t steer_cal_right_min_found = 0U;
 volatile uint16_t steer_cal_right_max_found = 0U;
 volatile uint16_t steer_cal_left_pwm = 0U;
 volatile uint16_t steer_cal_right_pwm = 0U;
-volatile uint16_t steer_cal_left_seek_duty = 175U;
+/* Separate motor RPM/torque -> no shared seek/exit/center PWM or
+ * unintended near-switch reduction below individual breakaway floor.
+ * Live Expressions can tune each; hardware-tested bounds below remain.
+ */
+volatile uint16_t steer_cal_left_seek_duty = 200U;
 volatile uint16_t steer_cal_right_seek_duty = 85U;
+volatile uint16_t steer_cal_left_escape_duty = 200U;
+volatile uint16_t steer_cal_right_escape_duty = 85U;
+volatile uint16_t steer_cal_left_center_duty = 175U;
+volatile uint16_t steer_cal_right_center_duty = 85U;
+volatile uint16_t steer_cal_left_approach_floor = 175U;
+volatile uint16_t steer_cal_right_approach_floor = 85U;
+/* Sticky diagnostics: source and affected axis for result 6.
+ * 1 dual limits, 2 contradictory/bouncing IRQ, 3 wrong active limit,
+ * 4 late contact while driving, 5 invalid release without movement.
+ */
+volatile uint8_t steer_cal_limit_fault_reason = 0U;
+volatile uint8_t steer_cal_limit_fault_side = 0U; /* 1 left, 2 right */
+volatile uint8_t steer_cal_last_irq_snapshot = 0U;
+volatile uint8_t steer_cal_last_gpio_snapshot = 0U;
 volatile uint32_t steer_cal_completed_count = 0U;
 volatile uint32_t steer_cal_failed_count = 0U;
 volatile uint8_t steer_cal_irq_trip_mask = 0U;
@@ -3224,6 +3245,8 @@ typedef struct
   uint16_t max_raw;
   uint32_t stage_begin;
   uint32_t last_progress_ms;
+  uint8_t last_drive_dir0;
+  uint8_t last_drive_valid;
 } SteeringCalAxis_t;
 
 static SteeringCalAxis_t steer_cal_left_axis = {0};
@@ -3291,6 +3314,7 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
   axis->start_raw = raw;
   axis->last_raw = raw;
   axis->stable = 0U;
+  axis->last_drive_valid = 0U;
 }
 
 /* 0 = healthy. Nonzero result code aborts the entire calibration.
