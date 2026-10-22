@@ -1924,8 +1924,15 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   }
   if (state == STEER_AXIS_ESCAPING)
   {
-    if (((limit_mask & (own_min | own_max)) != 0U) &&
-        ((limit_mask & axis->escape_origin) == 0U))
+    if ((limit_mask & (own_min | own_max)) == 0U)
+    {
+      /* The originating NC has closed: cut this PWM immediately.
+       * Release is a STOP, not authorization for full onward travel.
+       */
+      Steering_PositionAxisDone(left, 7U);
+      return;
+    }
+    if ((limit_mask & axis->escape_origin) == 0U)
     {
       Steering_PositionAxisFault(left, 9U);
       return;
@@ -1967,11 +1974,6 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
      * RIGHT RAW: leaving MIN increases, leaving MAX decreases.
      * Never proceed to CENTER/MIN automatically after releasing NC.
      */
-    if ((limit_mask & axis->escape_origin) == 0U)
-    {
-      Steering_PositionAxisDone(left, 7U);
-      return;
-    }
     if ((uint32_t)(now - axis->escape_start_ms) >= STEER_POS_ESCAPE_MS)
     {
       Steering_PositionAxisFault(left, 5U);
@@ -2282,6 +2284,27 @@ static void Steering_PositionUpdate(void)
   irq_state = __get_PRIMASK();
   __disable_irq();
   raw_mask = Steering_TestRawLimitMask();
+
+  /* Escape paths must also recheck the originating switch after I2C
+   * reads: no side may be reenergized if its NC was released, if both
+   * NC lines opened, or if the unexpected opposite limit activated.
+   */
+  if (steer_pos_left_state == STEER_AXIS_ESCAPING)
+  {
+    uint8_t own_limits = (uint8_t)
+        (raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK));
+    if (own_limits == 0U) Steering_PositionAxisDone(1U, 7U);
+    else if (own_limits != steer_left_axis.escape_origin)
+      Steering_PositionAxisFault(1U, 9U);
+  }
+  if (steer_pos_right_state == STEER_AXIS_ESCAPING)
+  {
+    uint8_t own_limits = (uint8_t)
+        (raw_mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK));
+    if (own_limits == 0U) Steering_PositionAxisDone(0U, 7U);
+    else if (own_limits != steer_right_axis.escape_origin)
+      Steering_PositionAxisFault(0U, 9U);
+  }
 
   if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
       ((raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U))
