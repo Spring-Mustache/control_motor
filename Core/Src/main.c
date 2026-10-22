@@ -1662,7 +1662,8 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
 }
 #define STEER_POS_RANGE_MARGIN      64 /* limited overshoot recovery envelope */
 #define STEER_POS_MAX_JUMP_RAW      90
-#define STEER_POS_TIMEOUT_MS      5000U
+#define STEER_POS_TIMEOUT_MS      5000U /* R2 MIN unchanged */
+#define STEER_POS_R1_TIMEOUT_MS   9000U /* coarse + short-pulse trim */
 #define STEER_POS_ESCAPE_MS       1000U
 #define STEER_POS_STALL_MS         650U
 #define STEER_POS_IDLE_POLL_MS      50U
@@ -2663,7 +2664,9 @@ static void Steering_PositionUpdate(void)
       Steering_PositionAxisFault(0U, 9U);
   }
 
-  if ((uint32_t)(now - steer_pos_start_ms) >= STEER_POS_TIMEOUT_MS)
+  if ((uint32_t)(now - steer_pos_start_ms) >=
+      ((steer_pos_command == 1U) ?
+       STEER_POS_R1_TIMEOUT_MS : STEER_POS_TIMEOUT_MS))
   {
     if ((steer_pos_left_state == STEER_AXIS_MOVING) ||
         (steer_pos_left_state == STEER_AXIS_ESCAPING))
