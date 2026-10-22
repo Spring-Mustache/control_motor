@@ -1539,6 +1539,25 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
  * LEFT has distinct measured breakaway torque from RIGHT.
  */
 volatile uint8_t steer_manual_enable = 0U;
+/* S11 SAFETY: no right-stick steering until separately armed in a
+ * disconnected-power bench verification. Four-wheel LY motion NEVER
+ * authorizes steering, even if RX data momentarily jitters.
+ */
+volatile uint8_t steer_manual_rx_enable = 0U;
+volatile uint16_t steer_manual_rx_deadzone_raw = 48U;
+#define STEER_MANUAL_RX_DEBOUNCE_MS 150U
+/* A MANUAL NC/encoder hard-limit breach is a sticky emergency stop.
+ * No software re-arm in the running session. After physical inspection,
+ * power-cycle with driver supply OFF; steering remains disarmed by default.
+ */
+volatile uint8_t steer_manual_safety_trip = 0U;
+volatile uint8_t steer_manual_safety_trip_reason = 0U;
+/* 1 NC EXTI; 2 encoder beyond physical MIN/MAX; 3 sampled NC active */
+volatile uint8_t steer_manual_safety_trip_mask = 0U;
+volatile uint16_t steer_manual_safety_trip_left_raw = 0U;
+volatile uint16_t steer_manual_safety_trip_right_raw = 0U;
+volatile uint32_t steer_manual_safety_trip_count = 0U;
+volatile uint32_t steer_manual_rx_rejected_wheel_count = 0U;
 /* Declared early for arbitration/PWM ownership. Initialized in the
  * select-calibration section below and defaults DISARMED on reset.
  */
@@ -1612,20 +1631,78 @@ static volatile uint8_t steer_manual_irq_pending_mask = 0U;
 
 /* User steering input meaning for LEFT axis: -1 = LEFT MIN,
  * +1 = LEFT MAX. RIGHT intentionally has the opposite axis target.
+ *
+ * Physical isolation requirement: a forward/backward LY wheel request
+ * MUST NOT allow a noisy RX steering request. D-pad is also disallowed
+ * while driving, until explicit integration tests establish safety.
  */
 static int8_t Steering_ManualRequestDirection(void)
 {
+  static int8_t rx_candidate = 0;
+  static uint32_t rx_candidate_since_ms = 0U;
   int16_t rx;
-  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
+  uint16_t threshold;
+  int8_t requested;
+  uint32_t now = HAL_GetTick();
+
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U) ||
+      (steer_manual_safety_trip != 0U))
+  {
+    rx_candidate = 0;
     return 0;
+  }
+
+  if ((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
+      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT))
+  {
+    if ((PS2_Pad.RX < 118U) || (PS2_Pad.RX > 138U))
+      steer_manual_rx_rejected_wheel_count++;
+    rx_candidate = 0;
+    return 0; /* LY wheel drive explicitly excludes ALL steering */
+  }
+
   if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
-    return 0; /* contradiction; require neutral to rearm */
-  if (PS2_Pad.Left != 0U) return -1;
-  if (PS2_Pad.Right != 0U) return 1;
+  {
+    rx_candidate = 0;
+    return 0;
+  }
+  if (PS2_Pad.Left != 0U)
+  {
+    rx_candidate = 0;
+    return -1;
+  }
+  if (PS2_Pad.Right != 0U)
+  {
+    rx_candidate = 0;
+    return 1;
+  }
+  /* RX steering is opt-in after power-off validation; rejection
+   * remains observable without energizing motors.
+   */
+  if (steer_manual_rx_enable != 1U)
+  {
+    rx_candidate = 0;
+    return 0;
+  }
+  threshold = steer_manual_rx_deadzone_raw;
+  if (threshold < 35U) threshold = 35U;
+  if (threshold > 90U) threshold = 90U;
   rx = (int16_t)PS2_Pad.RX - 128;
-  if (rx < -10) return -1;
-  if (rx > 10) return 1;
-  return 0;
+  requested = (rx < -(int16_t)threshold) ? -1 :
+              ((rx > (int16_t)threshold) ? 1 : 0);
+  if (requested == 0)
+  {
+    rx_candidate = 0;
+    return 0;
+  }
+  if (rx_candidate != requested)
+  {
+    rx_candidate = requested;
+    rx_candidate_since_ms = now;
+    return 0;
+  }
+  return ((uint32_t)(now - rx_candidate_since_ms) >=
+          STEER_MANUAL_RX_DEBOUNCE_MS) ? requested : 0;
 }
 
 static uint8_t Steering_ManualInputsNeutral(void)
@@ -1634,6 +1711,8 @@ static uint8_t Steering_ManualInputsNeutral(void)
   return ((PS2_Pad.Connected == 1U) &&
           (PS2_Pad.Mode == 0x73U) &&
           (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
+          (PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT) &&
+          (PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT) &&
           (rx >= -10) && (rx <= 10)) ? 1U : 0U;
 }
 
@@ -2860,7 +2939,11 @@ static void Steering_PositionUpdate(void)
  * separately and increase per-axis margin if hardware still contacts NC.
  */
 volatile uint16_t steer_manual_left_soft_margin_raw = 100U;
-volatile uint16_t steer_manual_right_soft_margin_raw = 40U;
+/* Larger standalone RIGHT margin pending measured coast-distance:
+ * R_MAX contact at 3680; command PWM must cut well before it.
+ * This is an initial margin, NOT proof of a safe braking distance.
+ */
+volatile uint16_t steer_manual_right_soft_margin_raw = 120U;
 #define STEER_MANUAL_LEFT_SOFT_MARGIN_RAW \
     ((steer_manual_left_soft_margin_raw < 60U) ? 60U : \
      ((steer_manual_left_soft_margin_raw > 180U) ? 180U : \
