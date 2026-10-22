@@ -3161,6 +3161,531 @@ static void Steering_ManualUpdate(void)
   }
 }
 
+
+/* M7-S07 Select calibration — guarded, one-shot, two independent axes.
+ * Safety rule: each endstop's rising NC-open EXTI cuts only its own CCR.
+ * No motor may drive TOWARD an already asserted NC switch. Calibration
+ * may depart an initially asserted switch ONLY away and <= 1000 ms.
+ * Only commit new MIN/MAX when both axes reach the unchanged CENTER.
+ *
+ * NOTE: runtime RAM calibration only; reset returns to measured defaults.
+ * No unapproved flash sector writes or unbounded automatic retries.
+ */
+#define STEER_CAL_SEEK_MIN       1U
+#define STEER_CAL_EXIT_MIN       2U
+#define STEER_CAL_SEEK_MAX       3U
+#define STEER_CAL_EXIT_MAX       4U
+#define STEER_CAL_TO_CENTER      5U
+#define STEER_CAL_DONE           6U
+#define STEER_CAL_PRE_EXIT_MAX   7U
+#define STEER_CAL_SCAN_TIMEOUT_MS 7500U
+#define STEER_CAL_EXIT_TIMEOUT_MS 1000U
+#define STEER_CAL_CENTER_TIMEOUT_MS 6000U
+#define STEER_CAL_OVERALL_TIMEOUT_MS 30000U
+#define STEER_CAL_STALL_TIMEOUT_MS 750U
+#define STEER_CAL_JUMP_MAX_RAW     90
+#define STEER_CAL_STABLE_REQUIRED  3U
+
+/* 0=idle, 1=active, 2=success, 3=reject/interlock, 4=sensor,
+ * 5=stage/overall timeout, 6=limit/edge mismatch,
+ * 7=no progress/wrong direction, 8=invalid measured span,
+ * 9=operator STOP/PS2 loss/conflicting controls.
+ */
+volatile uint8_t steer_cal_arm = 0U;
+volatile uint8_t steer_cal_result = 0U;
+volatile uint8_t steer_cal_left_stage = 0U;
+volatile uint8_t steer_cal_right_stage = 0U;
+volatile uint8_t steer_cal_left_fault = 0U;
+volatile uint8_t steer_cal_right_fault = 0U;
+volatile uint16_t steer_cal_left_min_found = 0U;
+volatile uint16_t steer_cal_left_max_found = 0U;
+volatile uint16_t steer_cal_right_min_found = 0U;
+volatile uint16_t steer_cal_right_max_found = 0U;
+volatile uint16_t steer_cal_left_pwm = 0U;
+volatile uint16_t steer_cal_right_pwm = 0U;
+volatile uint16_t steer_cal_left_seek_duty = 175U;
+volatile uint16_t steer_cal_right_seek_duty = 85U;
+volatile uint32_t steer_cal_completed_count = 0U;
+volatile uint32_t steer_cal_failed_count = 0U;
+volatile uint8_t steer_cal_irq_trip_mask = 0U;
+static volatile uint8_t steer_cal_irq_pending_mask = 0U;
+static uint8_t steer_cal_select_previous = 0U;
+static uint32_t steer_cal_begin_ms = 0U;
+
+typedef struct
+{
+  uint8_t stage;
+  uint8_t stable;
+  uint16_t last_raw;
+  uint16_t start_raw;
+  uint16_t min_raw;
+  uint16_t max_raw;
+  uint32_t stage_begin;
+  uint32_t last_progress_ms;
+} SteeringCalAxis_t;
+
+static SteeringCalAxis_t steer_cal_left_axis = {0};
+static SteeringCalAxis_t steer_cal_right_axis = {0};
+
+static void Steering_CalLeftOff(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+  steer_cal_left_pwm = 0U;
+}
+
+static void Steering_CalRightOff(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+  steer_cal_right_pwm = 0U;
+}
+
+static void Steering_CalStop(uint8_t result)
+{
+  Steering_CalLeftOff();
+  Steering_CalRightOff();
+  if ((steer_cal_active != 0U) && (result != 2U))
+    steer_cal_failed_count++;
+  steer_cal_active = 0U;
+  steer_cal_result = result;
+}
+
+/* Called in EXTI context. Never perform HAL I2C inside an IRQ. */
+static void Steering_CalOnLimitInterrupt(uint8_t bit)
+{
+  if (steer_cal_active == 0U) return;
+  steer_cal_irq_trip_mask |= bit;
+  steer_cal_irq_pending_mask |= bit;
+  if ((bit & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
+    Steering_CalLeftOff();
+  if ((bit & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
+    Steering_CalRightOff();
+}
+
+static uint8_t Steering_CalAxisValidSpan(uint8_t left,
+                                        const SteeringCalAxis_t *axis)
+{
+  /* Must bracket the fixed CENTER with a physically meaningful span. */
+  if (left != 0U)
+  {
+    return ((axis->max_raw >= 1000U) &&
+            (axis->max_raw + 60U < STEER_POS_LEFT_CENTER_RAW) &&
+            (axis->min_raw > STEER_POS_LEFT_CENTER_RAW + 60U) &&
+            (axis->min_raw > axis->max_raw + 250U) &&
+            (axis->min_raw < axis->max_raw + 1250U)) ? 1U : 0U;
+  }
+  return ((axis->min_raw >= 2200U) &&
+          (axis->min_raw + 60U < STEER_POS_RIGHT_CENTER_RAW) &&
+          (axis->max_raw > STEER_POS_RIGHT_CENTER_RAW + 60U) &&
+          (axis->max_raw > axis->min_raw + 250U) &&
+          (axis->max_raw < axis->min_raw + 1250U)) ? 1U : 0U;
+}
+
+static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
+                                  uint16_t raw, uint32_t now)
+{
+  axis->stage = next;
+  axis->stage_begin = now;
+  axis->last_progress_ms = now;
+  axis->start_raw = raw;
+  axis->last_raw = raw;
+  axis->stable = 0U;
+}
+
+/* 0 = healthy. Nonzero result code aborts the entire calibration.
+ * Each side has separate MIN/MAX, movement and time monitoring.
+ */
+static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
+                                      uint8_t irq_mask, uint32_t now,
+                                      uint16_t *pwm, GPIO_PinState *dir)
+{
+  SteeringCalAxis_t *axis = left ? &steer_cal_left_axis :
+                                    &steer_cal_right_axis;
+  uint8_t min_bit = left ? STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_R_MIN_MASK;
+  uint8_t max_bit = left ? STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_R_MAX_MASK;
+  uint8_t limit = (uint8_t)(raw_mask & (min_bit | max_bit));
+  uint8_t edge = (uint8_t)(irq_mask & (min_bit | max_bit));
+  uint8_t stage = axis->stage;
+  uint16_t raw = 0U, target = 0U, magnitude;
+  int16_t movement, error;
+  uint8_t direction_zero = 1U;
+  uint32_t deadline;
+  uint16_t requested = left ? steer_cal_left_seek_duty :
+                              steer_cal_right_seek_duty;
+
+  *pwm = 0U;
+  *dir = GPIO_PIN_RESET;
+  if (stage == STEER_CAL_DONE) return 0U;
+
+  if ((Steering_PositionReadOne(left, &raw) == 0U) || (raw > 4095U))
+    return 4U;
+  if ((limit == (min_bit | max_bit)) ||
+      ((edge != 0U) && (limit == 0U)))
+    return 6U; /* dual NC fault or bounced edge: fail closed */
+
+  movement = AS5600_ShortestDeltaCounts(axis->last_raw, raw);
+  if ((movement > STEER_CAL_JUMP_MAX_RAW) ||
+      (movement < -STEER_CAL_JUMP_MAX_RAW))
+    return 4U;
+  axis->last_raw = raw;
+
+  if ((movement >= 2) || (movement <= -2))
+    axis->last_progress_ms = now;
+
+  if ((stage == STEER_CAL_EXIT_MIN) ||
+      (stage == STEER_CAL_EXIT_MAX) ||
+      (stage == STEER_CAL_PRE_EXIT_MAX))
+    deadline = STEER_CAL_EXIT_TIMEOUT_MS;
+  else if (stage == STEER_CAL_TO_CENTER)
+    deadline = STEER_CAL_CENTER_TIMEOUT_MS;
+  else
+    deadline = STEER_CAL_SCAN_TIMEOUT_MS;
+
+  if ((uint32_t)(now - axis->stage_begin) >= deadline)
+    return 5U;
+
+  if (stage == STEER_CAL_SEEK_MIN)
+  {
+    if (limit == min_bit)
+    {
+      axis->min_raw = raw;
+      if (left != 0U) steer_cal_left_min_found = raw;
+      else steer_cal_right_min_found = raw;
+      Steering_CalAxisStage(axis, STEER_CAL_EXIT_MIN, raw, now);
+      return 0U; /* zero-PWM cycle when changing direction */
+    }
+    if (limit == max_bit)
+    {
+      /* At startup we may already be on MAX: escape it safely before
+       * proceeding MIN. Unrequested MAX during a running scan fails.
+       */
+      if ((uint32_t)(now - steer_cal_begin_ms) > 300U)
+        return 6U;
+      Steering_CalAxisStage(axis, STEER_CAL_PRE_EXIT_MAX, raw, now);
+      return 0U;
+    }
+    direction_zero = 1U; /* DIR0 = both sides toward MIN */
+  }
+  else if ((stage == STEER_CAL_EXIT_MIN) ||
+           (stage == STEER_CAL_EXIT_MAX) ||
+           (stage == STEER_CAL_PRE_EXIT_MAX))
+  {
+    uint8_t from_min = (stage == STEER_CAL_EXIT_MIN) ? 1U : 0U;
+    uint8_t own = from_min ? min_bit : max_bit;
+    uint8_t unwanted = from_min ? max_bit : min_bit;
+    int16_t traveled = AS5600_ShortestDeltaCounts(axis->start_raw, raw);
+    uint8_t inc = (uint8_t)(((left != 0U) && (from_min == 0U)) ||
+                            ((left == 0U) && (from_min != 0U)));
+    if (limit == unwanted) return 6U;
+    if (limit == 0U)
+    {
+      /* NC release must correspond to real measured away movement.
+       * A flickering or broken NC is not a valid endpoint release.
+       */
+      if (((inc != 0U) && (traveled < 3)) ||
+          ((inc == 0U) && (traveled > -3)))
+        return 6U;
+      if (stage == STEER_CAL_EXIT_MIN)
+        Steering_CalAxisStage(axis, STEER_CAL_SEEK_MAX, raw, now);
+      else if (stage == STEER_CAL_PRE_EXIT_MAX)
+        Steering_CalAxisStage(axis, STEER_CAL_SEEK_MIN, raw, now);
+      else
+      {
+        if (Steering_CalAxisValidSpan(left, axis) == 0U) return 8U;
+        Steering_CalAxisStage(axis, STEER_CAL_TO_CENTER, raw, now);
+      }
+      return 0U; /* at least one full control frame with zero CCR */
+    }
+    if (limit != own) return 6U;
+    direction_zero = (from_min != 0U) ? 0U : 1U;
+  }
+  else if (stage == STEER_CAL_SEEK_MAX)
+  {
+    if (limit == max_bit)
+    {
+      axis->max_raw = raw;
+      if (left != 0U) steer_cal_left_max_found = raw;
+      else steer_cal_right_max_found = raw;
+      Steering_CalAxisStage(axis, STEER_CAL_EXIT_MAX, raw, now);
+      return 0U;
+    }
+    if (limit == min_bit) return 6U;
+    direction_zero = 0U; /* DIR1 = both sides toward MAX */
+  }
+  else if (stage == STEER_CAL_TO_CENTER)
+  {
+    uint16_t center = left ? STEER_POS_LEFT_CENTER_RAW :
+                             STEER_POS_RIGHT_CENTER_RAW;
+    if (limit != 0U) return 6U;
+    error = AS5600_ShortestDeltaCounts(raw, center);
+    if ((error >= -STEER_POS_TOL_RAW) &&
+        (error <= STEER_POS_TOL_RAW))
+    {
+      axis->stable++;
+      if (axis->stable >= STEER_CAL_STABLE_REQUIRED)
+        axis->stage = STEER_CAL_DONE;
+      return 0U;
+    }
+    axis->stable = 0U;
+    /* LEFT raw grows in DIR0; RIGHT raw shrinks in DIR0. */
+    direction_zero = left ? (error > 0) : (error < 0);
+  }
+  else return 6U;
+
+  /* Directional AS5600 movement check, excluding initial 0 step.
+   * DIR0 means left RAW increases / right RAW decreases.
+   */
+  if ((movement > 5) || (movement < -5))
+  {
+    uint8_t should_increase = left ? direction_zero :
+                                     (uint8_t)(!direction_zero);
+    if (((should_increase != 0U) && (movement < 0)) ||
+        ((should_increase == 0U) && (movement > 0)))
+      return 7U;
+  }
+  if ((uint32_t)(now - axis->last_progress_ms) >=
+      STEER_CAL_STALL_TIMEOUT_MS)
+    return 7U;
+
+  /* Never let calibration exceed the independently tested PWM ceilings. */
+  if (left != 0U)
+  {
+    if (requested > 300U) requested = 300U;
+    if (requested < 100U) requested = 100U;
+  }
+  else
+  {
+    if (requested > 100U) requested = 100U;
+    if (requested < 40U) requested = 40U;
+  }
+  /* Seek slowly near the previous physical estimate, but do not require
+   * the old hardstop RAW to match: this routine calibrates a changed stop.
+   */
+  target = (stage == STEER_CAL_SEEK_MIN) ?
+      (left ? steer_cal_left_min_runtime : steer_cal_right_min_runtime) :
+      (stage == STEER_CAL_SEEK_MAX) ?
+      (left ? steer_cal_left_max_runtime : steer_cal_right_max_runtime) :
+      (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW);
+  error = AS5600_ShortestDeltaCounts(raw, target);
+  magnitude = (uint16_t)((error < 0) ? -error : error);
+  if ((magnitude < 80U) &&
+      ((stage == STEER_CAL_SEEK_MIN) ||
+       (stage == STEER_CAL_SEEK_MAX)))
+  {
+    uint16_t low = left ? 150U : 60U;
+    if (requested > low)
+      requested = (uint16_t)(low +
+          ((uint32_t)(requested - low) * magnitude) / 80U);
+  }
+  *dir = direction_zero ? GPIO_PIN_RESET : GPIO_PIN_SET;
+  *pwm = requested;
+  return 0U;
+}
+
+static uint8_t Steering_CalInputsNeutral(void)
+{
+  int16_t rx = (int16_t)PS2_Pad.RX - 128;
+  return (PS2_Pad.Connected == 1U &&
+          PS2_Pad.Mode == 0x73U &&
+          PS2_Pad.R1 == 0U && PS2_Pad.R2 == 0U &&
+          PS2_Pad.L1 == 0U && PS2_Pad.L2 == 0U &&
+          PS2_Pad.Up == 0U && PS2_Pad.Down == 0U &&
+          PS2_Pad.Left == 0U && PS2_Pad.Right == 0U &&
+          PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT &&
+          PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT &&
+          rx >= -10 && rx <= 10) ? 1U : 0U;
+}
+
+/* Called after Manual and R1/R2 services; owns PWM only when active.
+ * SELECT edge starts, release does not cancel, any other PS2 command
+ * or STOP aborts. This is NOT a background task.
+ */
+static void Steering_CalUpdate(void)
+{
+  uint8_t select_now = (PS2_Pad.Connected == 1U &&
+                        PS2_Pad.Mode == 0x73U &&
+                        PS2_Pad.Select != 0U) ? 1U : 0U;
+  uint8_t new_press = (select_now != 0U &&
+                       steer_cal_select_previous == 0U) ? 1U : 0U;
+  uint8_t raw_limits, pending, lerr, rerr;
+  uint16_t lraw, rraw, lpwm = 0U, rpwm = 0U;
+  GPIO_PinState ldir = GPIO_PIN_RESET, rdir = GPIO_PIN_RESET;
+  uint32_t primask;
+  uint32_t now = HAL_GetTick();
+
+  steer_cal_select_previous = select_now;
+  if (steer_cal_active == 0U)
+  {
+    if (new_press == 0U) return;
+    if (steer_cal_arm != 1U)
+    {
+      steer_cal_result = 3U;
+      return;
+    }
+    /* Select consumes the arm whether it succeeds or fails. */
+    steer_cal_arm = 0U;
+    if ((Steering_CalInputsNeutral() == 0U) ||
+        (control_mode != CONTROL_MODE_PS2) ||
+        (control_stop_latched != 0U) ||
+        (ps2_cancel_hold != 0U) || (ps2_spin_rf_latched != 0U) ||
+        (voice_execution_active != 0U) ||
+        (voice_command_ready != 0U) ||
+        (steer_manual_active != 0U) ||
+        (steer_pos_active != 0U) ||
+        (steer_test_running != 0U) ||
+        (steer_test_arm != 0U) ||
+        (steer_test_request != 0U) ||
+        (debug_as5600_poll_enable != 0U) ||
+        (Steering_PositionWheelsStopped() == 0U) ||
+        (debug_limit_l_min.initialized == 0U) ||
+        (debug_limit_l_max.initialized == 0U) ||
+        (debug_limit_r_min.initialized == 0U) ||
+        (debug_limit_r_max.initialized == 0U))
+    {
+      steer_cal_result = 3U;
+      return;
+    }
+    raw_limits = Steering_TestRawLimitMask();
+    if (((raw_limits & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
+         (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ||
+        ((raw_limits & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) ==
+         (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) ||
+        (Steering_PositionReadOne(1U, &lraw) == 0U) ||
+        (Steering_PositionReadOne(0U, &rraw) == 0U))
+    {
+      steer_cal_result = 4U;
+      return;
+    }
+
+    steer_cal_left_axis.stage = STEER_CAL_SEEK_MIN;
+    steer_cal_right_axis.stage = STEER_CAL_SEEK_MIN;
+    steer_cal_begin_ms = now;
+    Steering_CalAxisStage(&steer_cal_left_axis, STEER_CAL_SEEK_MIN,
+                          lraw, now);
+    Steering_CalAxisStage(&steer_cal_right_axis, STEER_CAL_SEEK_MIN,
+                          rraw, now);
+    steer_cal_left_min_found = 0U;
+    steer_cal_left_max_found = 0U;
+    steer_cal_right_min_found = 0U;
+    steer_cal_right_max_found = 0U;
+    steer_cal_left_stage = STEER_CAL_SEEK_MIN;
+    steer_cal_right_stage = STEER_CAL_SEEK_MIN;
+    steer_cal_left_fault = 0U;
+    steer_cal_right_fault = 0U;
+    steer_cal_irq_trip_mask = 0U;
+    steer_cal_irq_pending_mask = 0U;
+    steer_cal_result = 1U;
+    steer_cal_active = 1U;
+  }
+
+  /* A radio fault never authorizes calibration to continue from a
+   * stale frame. Any operator steering input aborts and zeros CCRs.
+   */
+  if ((control_mode != CONTROL_MODE_PS2) ||
+      (control_stop_latched != 0U) ||
+      (ps2_cancel_hold != 0U) ||
+      (ps2_spin_rf_latched != 0U) ||
+      (Steering_CalInputsNeutral() == 0U) ||
+      (steer_cal_arm != 0U) ||
+      (steer_manual_active != 0U) ||
+      (steer_pos_active != 0U) ||
+      (steer_test_running != 0U) ||
+      (Steering_PositionWheelsStopped() == 0U))
+  {
+    Steering_CalStop(9U);
+    return;
+  }
+  if ((uint32_t)(now - steer_cal_begin_ms) >
+      STEER_CAL_OVERALL_TIMEOUT_MS)
+  {
+    Steering_CalStop(5U);
+    return;
+  }
+
+  /* Snapshot NC edge flags. Even if a contact bounced low afterward,
+   * its EXTI edge cannot be ignored and followed by fresh PWM.
+   */
+  primask = __get_PRIMASK();
+  __disable_irq();
+  pending = steer_cal_irq_pending_mask;
+  steer_cal_irq_pending_mask = 0U;
+  if (primask == 0U) __enable_irq();
+
+  raw_limits = Steering_TestRawLimitMask();
+  lerr = Steering_CalAxisUpdate(1U, raw_limits, pending, now, &lpwm, &ldir);
+  rerr = Steering_CalAxisUpdate(0U, raw_limits, pending, now, &rpwm, &rdir);
+  steer_cal_left_stage = steer_cal_left_axis.stage;
+  steer_cal_right_stage = steer_cal_right_axis.stage;
+  steer_cal_left_fault = lerr;
+  steer_cal_right_fault = rerr;
+  if ((lerr != 0U) || (rerr != 0U))
+  {
+    Steering_CalStop((lerr != 0U) ? lerr : rerr);
+    return;
+  }
+
+  /* Recheck each physical endstop and late IRQ atomically before CCR
+   * writes. No retry after an EXTI edge that failed calibration logic.
+   */
+  primask = __get_PRIMASK();
+  __disable_irq();
+  pending = steer_cal_irq_pending_mask;
+  raw_limits = Steering_TestRawLimitMask();
+  if ((pending != 0U) ||
+      ((steer_cal_left_axis.stage == STEER_CAL_SEEK_MIN ||
+        steer_cal_left_axis.stage == STEER_CAL_SEEK_MAX ||
+        steer_cal_left_axis.stage == STEER_CAL_TO_CENTER) &&
+       (raw_limits & (STEER_LIMIT_L_MIN_MASK |
+                      STEER_LIMIT_L_MAX_MASK)) != 0U) ||
+      ((steer_cal_right_axis.stage == STEER_CAL_SEEK_MIN ||
+        steer_cal_right_axis.stage == STEER_CAL_SEEK_MAX ||
+        steer_cal_right_axis.stage == STEER_CAL_TO_CENTER) &&
+       (raw_limits & (STEER_LIMIT_R_MIN_MASK |
+                      STEER_LIMIT_R_MAX_MASK)) != 0U))
+  {
+    Steering_CalStop(6U);
+  }
+  else
+  {
+    uint8_t lstage = steer_cal_left_axis.stage;
+    uint8_t rstage = steer_cal_right_axis.stage;
+    if (lstage == STEER_CAL_DONE) lpwm = 0U;
+    if (rstage == STEER_CAL_DONE) rpwm = 0U;
+
+    if (lpwm != 0U)
+      HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port,
+                        MOTOR_DIR_TURN_left_Pin, ldir);
+    if (rpwm != 0U)
+      HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port,
+                        MOTOR_DIR_TURN_right_Pin, rdir);
+    __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, lpwm);
+    __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, rpwm);
+    steer_cal_left_pwm = lpwm;
+    steer_cal_right_pwm = rpwm;
+  }
+  if (primask == 0U) __enable_irq();
+  if (steer_cal_active == 0U) return;
+
+  if ((steer_cal_left_axis.stage == STEER_CAL_DONE) &&
+      (steer_cal_right_axis.stage == STEER_CAL_DONE))
+  {
+    /* Atomic (relative to this loop) runtime acceptance; never commit a
+     * partially scanned pair. No CENTER calibration is performed.
+     */
+    if ((Steering_CalAxisValidSpan(1U, &steer_cal_left_axis) == 0U) ||
+        (Steering_CalAxisValidSpan(0U, &steer_cal_right_axis) == 0U))
+    {
+      Steering_CalStop(8U);
+      return;
+    }
+    steer_cal_left_min_runtime = steer_cal_left_axis.min_raw;
+    steer_cal_left_max_runtime = steer_cal_left_axis.max_raw;
+    steer_cal_right_min_runtime = steer_cal_right_axis.min_raw;
+    steer_cal_right_max_runtime = steer_cal_right_axis.max_raw;
+    steer_cal_completed_count++;
+    Steering_CalStop(2U);
+  }
+}
+
 static int16_t PS2_Convert_LY_To_PWM(uint8_t ly)
 {
   if (ly < PS2_LY_FORWARD_LIMIT)
