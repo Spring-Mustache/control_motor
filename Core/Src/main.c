@@ -1542,6 +1542,10 @@ volatile uint8_t steer_manual_enable = 0U;
 volatile uint8_t steer_manual_active = 0U;
 volatile int8_t steer_manual_direction = 0; /* -1 toward MIN; +1 toward MAX */
 volatile uint8_t steer_manual_neutral_required = 0U;
+/* 0 none, 1 disarmed, 2 priority/diag, 4 wheels not stopped,
+ * 5 neutral required, 6 limits not initialized, 7 contradictory D-pad.
+ */
+volatile uint8_t steer_manual_block_reason = 0U;
 volatile uint8_t steer_manual_left_state = 0U;
 volatile uint8_t steer_manual_right_state = 0U;
 volatile uint8_t steer_manual_left_result = 0U;
@@ -2567,6 +2571,8 @@ static void Steering_ManualUpdate(void)
 
   if (command == 0)
   {
+    steer_manual_block_reason =
+        ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U)) ? 7U : 0U;
     Steering_ManualStop();
     /* Contradictory D-pad left+right is NOT considered neutral. */
     if (Steering_ManualInputsNeutral() != 0U)
@@ -2582,6 +2588,7 @@ static void Steering_ManualUpdate(void)
    */
   if (steer_manual_enable != 1U)
   {
+    steer_manual_block_reason = 1U;
     steer_manual_neutral_required = 1U;
     Steering_ManualStop();
     return;
@@ -2607,12 +2614,16 @@ static void Steering_ManualUpdate(void)
     /* A blocked held command must not auto-start after a transient
      * condition (e.g., wheel deceleration or Voice cancel) clears.
      */
+    steer_manual_block_reason =
+        ((steer_manual_allow_wheel_motion == 0U) &&
+         (Steering_PositionWheelsStopped() == 0U)) ? 4U : 2U;
     steer_manual_neutral_required = 1U;
     Steering_ManualStop();
     return;
   }
   if (steer_manual_neutral_required != 0U)
   {
+    steer_manual_block_reason = 5U;
     Steering_ManualStop();
     return;
   }
@@ -2622,6 +2633,7 @@ static void Steering_ManualUpdate(void)
   if ((steer_manual_active != 0U) &&
       (command != steer_manual_direction))
   {
+    steer_manual_block_reason = 5U;
     steer_manual_neutral_required = 1U;
     Steering_ManualStop();
     return;
@@ -2657,6 +2669,7 @@ static void Steering_ManualUpdate(void)
         (debug_limit_l_min.initialized == 0U) ||
         (debug_limit_l_max.initialized == 0U))
     {
+      steer_manual_block_reason = 6U;
       steer_manual_reject_count++;
       steer_manual_neutral_required = 1U;
       return;
@@ -2676,6 +2689,7 @@ static void Steering_ManualUpdate(void)
     steer_manual_left_axis.best_distance = 32767U;
     steer_manual_right_axis.best_distance = 32767U;
     steer_manual_start_count++;
+    steer_manual_block_reason = 0U;
 
     mask = Steering_TestRawLimitMask();
     if ((mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
