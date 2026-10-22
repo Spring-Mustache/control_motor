@@ -1835,18 +1835,28 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
 
   *duty = 0U;
   if ((state != STEER_AXIS_MOVING) && (state != STEER_AXIS_ESCAPING))
+  {
+    /* A finished/faulted axis stays PWM=0 but its AS5600 RAW telemetry
+     * must continue updating while the partner is still moving.
+     */
+    (void)Steering_PositionReadOne(left, &raw);
     return;
+  }
 
   /* Expected MIN wins over a sensor fault at the endpoint for R2;
    * always cut the PWM for that axis, never for its partner.
    */
+  if ((limit_mask & own_max) != 0U)
+  {
+    Steering_PositionAxisFault(left, 9U);
+    return;
+  }
   if ((steer_pos_command == 2U) && ((limit_mask & own_min) != 0U))
   {
     Steering_PositionAxisDone(left, 3U);
     return;
   }
-  if (((limit_mask & own_max) != 0U) ||
-      (((limit_mask & own_min) != 0U) && (state != STEER_AXIS_ESCAPING)))
+  if (((limit_mask & own_min) != 0U) && (state != STEER_AXIS_ESCAPING))
   {
     Steering_PositionAxisFault(left, 9U);
     return;
