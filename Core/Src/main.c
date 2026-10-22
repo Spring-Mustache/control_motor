@@ -3345,6 +3345,7 @@ typedef struct
   uint8_t center_reverse_wait;
   uint8_t center_reverse_count;
   uint8_t noise_hold;
+  uint8_t noise_hold_count;
   uint8_t noise_expected_increase;
   uint32_t last_drive_ms;
   uint32_t reverse_quiet_since_ms;
@@ -3426,6 +3427,7 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
   axis->reverse_quiet_since_ms = now;
   axis->center_reverse_wait = 0U;
   axis->noise_hold = 0U;
+  axis->noise_hold_count = 0U;
   /* Preserve the last physically applied direction for the transition
    * from EXIT_MAX to CENTER; otherwise a center overshoot could
    * reverse PWM immediately and trip the wrong-way guard.
@@ -3846,6 +3848,14 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
        * Recovery requires subsequent AS5600 progress in the
        * previously applied safe direction, not a timer alone.
        */
+      /* One recovery attempt per stage only. Repeated apparent
+       * reverse motion at an asserted NC is a real safety concern:
+       * fail without another motor restart.
+       */
+      if (axis->noise_hold_count != 0U)
+        return Steering_CalMotionFault(left, 1U, stage, raw,
+                                        movement, now);
+      axis->noise_hold_count = 1U;
       axis->noise_hold = 1U;
       axis->noise_expected_increase = should_increase;
       axis->noise_hold_start_ms = now;
