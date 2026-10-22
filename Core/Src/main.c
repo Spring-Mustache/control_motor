@@ -3318,9 +3318,20 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
 
   if ((Steering_PositionReadOne(left, &raw) == 0U) || (raw > 4095U))
     return 4U;
-  if ((limit == (min_bit | max_bit)) ||
-      ((edge != 0U) && (limit == 0U)))
-    return 6U; /* dual NC fault or bounced edge: fail closed */
+  if (limit == (min_bit | max_bit))
+    return 6U; /* both NC switches active on same axis: fail closed */
+  if (edge != 0U)
+  {
+    /* Only a physical target NC arrival during SEEK may consume an
+     * EXTI edge as success. A bounce while escaping or centering must
+     * never be followed by automatically re-enabling PWM.
+     */
+    if (!((stage == STEER_CAL_SEEK_MIN && edge == min_bit &&
+           limit == min_bit) ||
+          (stage == STEER_CAL_SEEK_MAX && edge == max_bit &&
+           limit == max_bit)))
+      return 6U;
+  }
 
   movement = AS5600_ShortestDeltaCounts(axis->last_raw, raw);
   if ((movement > STEER_CAL_JUMP_MAX_RAW) ||
@@ -3488,6 +3499,7 @@ static uint8_t Steering_CalInputsNeutral(void)
           PS2_Pad.Mode == 0x73U &&
           PS2_Pad.R1 == 0U && PS2_Pad.R2 == 0U &&
           PS2_Pad.L1 == 0U && PS2_Pad.L2 == 0U &&
+          PS2_Pad.Start == 0U &&
           PS2_Pad.Up == 0U && PS2_Pad.Down == 0U &&
           PS2_Pad.Left == 0U && PS2_Pad.Right == 0U &&
           PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT &&
