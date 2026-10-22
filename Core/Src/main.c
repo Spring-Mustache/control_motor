@@ -1643,7 +1643,18 @@ volatile uint16_t steer_cal_right_max_runtime = 3680U;
 #define STEER_POS_RIGHT_MIN_RAW      (steer_cal_right_min_runtime)
 #define STEER_POS_RIGHT_CENTER_RAW    3398U
 #define STEER_POS_RIGHT_MAX_RAW      (steer_cal_right_max_runtime)
-#define STEER_POS_TOL_RAW             5
+#define STEER_POS_TOL_RAW             5 /* R2 MIN unchanged */
+/* M7-S07H: R1 CENTER capture has separate tolerance for each gearbox.
+ * The 5-count R2 MIN threshold and all physical NC safety are unchanged.
+ * Compare RAW counts, not degrees or PWM percentages.
+ */
+volatile uint16_t steer_pos_left_center_tol_raw = 15U;
+volatile uint16_t steer_pos_right_center_tol_raw = 20U;
+static uint16_t Steering_CenterTolClamp(uint16_t value)
+{
+  if (value < 8U) return 8U;
+  return (value > 30U) ? 30U : value;
+}
 #define STEER_POS_RANGE_MARGIN      64 /* limited overshoot recovery envelope */
 #define STEER_POS_MAX_JUMP_RAW      90
 #define STEER_POS_TIMEOUT_MS      5000U
@@ -2083,14 +2094,25 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   else steer_pos_right_error = err;
 
   abs_error = (uint16_t)((err < 0) ? -err : err);
-  if (abs_error <= STEER_POS_TOL_RAW)
+  /* R1 CENTER uses each motor's mechanical settling tolerance.
+   * R2 MIN still uses the original strict ±5 RAW threshold.
+   * Motors already in CENTER band must not hunt on an R1 press.
+   */
   {
-    if (axis->stable_count < STEER_POS_STABLE_SAMPLES)
-      axis->stable_count++;
-    if (axis->stable_count >= STEER_POS_STABLE_SAMPLES)
-      Steering_PositionAxisDone(left, 2U);
-    return;
+    uint16_t tol = (steer_pos_command == 1U) ?
+        Steering_CenterTolClamp(left ? steer_pos_left_center_tol_raw :
+                                      steer_pos_right_center_tol_raw) :
+        STEER_POS_TOL_RAW;
+    if (abs_error <= tol)
+    {
+      if (axis->stable_count < STEER_POS_STABLE_SAMPLES)
+        axis->stable_count++;
+      if (axis->stable_count >= STEER_POS_STABLE_SAMPLES)
+        Steering_PositionAxisDone(left, 2U);
+      return;
+    }
   }
+
   axis->stable_count = 0U;
 
   if (abs_error + 2U <= axis->best_abs_error)
