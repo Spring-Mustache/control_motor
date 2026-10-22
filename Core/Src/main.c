@@ -2075,6 +2075,11 @@ static void Steering_PositionUpdate(void)
       if ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U)
         Steering_PositionAxisDone(0U, 3U);
     }
+    steer_pos_escape_mask = (uint8_t)(
+        ((steer_pos_left_state == STEER_AXIS_ESCAPING) ?
+           STEER_LIMIT_L_MIN_MASK : 0U) |
+        ((steer_pos_right_state == STEER_AXIS_ESCAPING) ?
+           STEER_LIMIT_R_MIN_MASK : 0U));
 
     /* At start collect independent baselines, reject each invalid side.
      * Do not let a fault on one channel force the other to stop.
@@ -2150,6 +2155,11 @@ static void Steering_PositionUpdate(void)
 
   Steering_PositionAxisUpdate(1U, raw_mask, now, &left_cmd, &left_dir);
   Steering_PositionAxisUpdate(0U, raw_mask, now, &right_cmd, &right_dir);
+  steer_pos_escape_mask = (uint8_t)(
+      ((steer_pos_left_state == STEER_AXIS_ESCAPING) ?
+         STEER_LIMIT_L_MIN_MASK : 0U) |
+      ((steer_pos_right_state == STEER_AXIS_ESCAPING) ?
+         STEER_LIMIT_R_MIN_MASK : 0U));
 
   /* ATOMIC recheck: no limit IRQ may arrive between checking GPIO and
    * writing compare; when interrupts unmask, pending limit callback
