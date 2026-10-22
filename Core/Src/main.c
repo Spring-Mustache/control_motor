@@ -1567,6 +1567,16 @@ volatile uint8_t steer_manual_left_result = 0U;
 volatile uint8_t steer_manual_right_result = 0U;
 volatile uint16_t steer_manual_left_pwm = 0U;
 volatile uint16_t steer_manual_right_pwm = 0U;
+/* Live status during startup PWM-OFF stabilization (5=SETTLING).
+ * Each motor's time/RAW is observed independently; settling may
+ * complete at different times without blocking its partner.
+ */
+volatile uint16_t steer_manual_left_settle_raw = 0U;
+volatile uint16_t steer_manual_right_settle_raw = 0U;
+volatile uint32_t steer_manual_left_settle_elapsed_ms = 0U;
+volatile uint32_t steer_manual_right_settle_elapsed_ms = 0U;
+volatile uint32_t steer_manual_left_settle_count = 0U;
+volatile uint32_t steer_manual_right_settle_count = 0U;
 volatile uint16_t steer_manual_left_dpad_pwm = 300U;
 volatile uint16_t steer_manual_right_dpad_pwm = 100U;
 volatile uint16_t steer_manual_left_rx_min_pwm = 175U;
@@ -2834,25 +2844,43 @@ static void Steering_PositionUpdate(void)
  * values. Neutral cuts PWM in the same control iteration.
  * Turning around from a touched limit requires short escape and NEW press.
  */
-/* Conservative start after 20 RAW was not enough to avoid NC contact.
- * Clamp live tuning to [30..120] counts. Not a mechanical braking guarantee.
+/* M7-S10: Each gearbox has its own inertia and stopping clearance.
+ * LEFT overran the earlier shared 40-count threshold; start at 100 RAW.
+ * RIGHT retains the 40 RAW margin measured in prior controller tests.
+ * Adjustable independently: LEFT 60..180, RIGHT 30..120 counts.
+ * These thresholds do not provide active braking; verify coasting
+ * separately and increase per-axis margin if hardware still contacts NC.
  */
-volatile uint16_t steer_manual_soft_margin_raw = 40U;
-#define STEER_MANUAL_SOFT_MARGIN_RAW  \
-    ((steer_manual_soft_margin_raw < 30U) ? 30U : \
-     ((steer_manual_soft_margin_raw > 120U) ? 120U : \
-      steer_manual_soft_margin_raw))
-#define STEER_MANUAL_APPROACH_WINDOW_RAW 80U
-#define STEER_MANUAL_LEFT_SOFT_MIN  (STEER_POS_LEFT_MIN_RAW - STEER_MANUAL_SOFT_MARGIN_RAW)
-#define STEER_MANUAL_LEFT_SOFT_MAX  (STEER_POS_LEFT_MAX_RAW + STEER_MANUAL_SOFT_MARGIN_RAW)
-#define STEER_MANUAL_RIGHT_SOFT_MIN (STEER_POS_RIGHT_MIN_RAW + STEER_MANUAL_SOFT_MARGIN_RAW)
-#define STEER_MANUAL_RIGHT_SOFT_MAX (STEER_POS_RIGHT_MAX_RAW - STEER_MANUAL_SOFT_MARGIN_RAW)
+volatile uint16_t steer_manual_left_soft_margin_raw = 100U;
+volatile uint16_t steer_manual_right_soft_margin_raw = 40U;
+#define STEER_MANUAL_LEFT_SOFT_MARGIN_RAW \
+    ((steer_manual_left_soft_margin_raw < 60U) ? 60U : \
+     ((steer_manual_left_soft_margin_raw > 180U) ? 180U : \
+      steer_manual_left_soft_margin_raw))
+#define STEER_MANUAL_RIGHT_SOFT_MARGIN_RAW \
+    ((steer_manual_right_soft_margin_raw < 30U) ? 30U : \
+     ((steer_manual_right_soft_margin_raw > 120U) ? 120U : \
+      steer_manual_right_soft_margin_raw))
+#define STEER_MANUAL_APPROACH_WINDOW_RAW 100U
+#define STEER_MANUAL_LEFT_SOFT_MIN  (STEER_POS_LEFT_MIN_RAW - STEER_MANUAL_LEFT_SOFT_MARGIN_RAW)
+#define STEER_MANUAL_LEFT_SOFT_MAX  (STEER_POS_LEFT_MAX_RAW + STEER_MANUAL_LEFT_SOFT_MARGIN_RAW)
+#define STEER_MANUAL_RIGHT_SOFT_MIN (STEER_POS_RIGHT_MIN_RAW + STEER_MANUAL_RIGHT_SOFT_MARGIN_RAW)
+#define STEER_MANUAL_RIGHT_SOFT_MAX (STEER_POS_RIGHT_MAX_RAW - STEER_MANUAL_RIGHT_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_RESULT_SOFT    11U
 #define STEER_MANUAL_RESULT_WRONG_DIRECTION 12U
 #define STEER_MANUAL_RESULT_STALL   13U
 #define STEER_MANUAL_RUN_MAX_MS       5000U
 #define STEER_MANUAL_ESCAPE_MAX_MS    1000U
 #define STEER_MANUAL_STALL_MS          650U
+/* Neutral-to-new-command start guard: PWM=0 until each AS5600 has
+ * stopped moving. Prevents a coast toward R_MAX being mistaken for
+ * motion under a fresh R_MIN command; doesn't mask real wrong-DIR faults.
+ */
+#define STEER_MANUAL_START_QUIET_MS       100U
+#define STEER_MANUAL_START_SETTLE_MAX_MS 850U
+#define STEER_MANUAL_START_LEFT_MIN_MS   170U
+#define STEER_MANUAL_START_RIGHT_MIN_MS  260U
+#define STEER_MANUAL_RESULT_UNSETTLED    14U
 #define STEER_MANUAL_PROGRESS_DELTA     2U
 #define STEER_MANUAL_PWM_HARD_MAX     400U
 
@@ -2861,6 +2889,7 @@ volatile uint16_t steer_manual_soft_margin_raw = 40U;
 #define STEER_MANUAL_ESCAPE     2U
 #define STEER_MANUAL_DONE       3U
 #define STEER_MANUAL_FAULT      4U
+#define STEER_MANUAL_SETTLING   5U
 
 typedef struct
 {
@@ -2868,6 +2897,9 @@ typedef struct
   uint16_t best_distance;
   uint32_t progress_ms;
   uint32_t escape_start_ms;
+  uint32_t settle_begin_ms;
+  uint32_t settle_quiet_since_ms;
+  uint16_t settle_quiet_raw;
 } SteeringManualAxis_t;
 
 static SteeringManualAxis_t steer_manual_left_axis = {0};
