@@ -2766,6 +2766,14 @@ static void Steering_ManualUpdate(void)
   primask = __get_PRIMASK();
   __disable_irq();
   mask = Steering_TestRawLimitMask();
+  /* Include IRQ edges that arrived after the earlier pending snapshot;
+   * a noisy NC rising edge must NEVER be followed by re-energizing PWM.
+   */
+  pending = steer_manual_irq_pending_mask;
+  if ((pending & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
+    Steering_ManualAxisFault(1U, 9U);
+  if ((pending & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
+    Steering_ManualAxisFault(0U, 9U);
   lstate = steer_manual_left_state;
   rstate = steer_manual_right_state;
 
@@ -3305,9 +3313,9 @@ static void Voice_ExecuteMotorControl(void)
 
 
 /*
- * M7 / PS2 mapping - observation-only stage.
- * This does not energize any motor. R1/R2 require the separately validated
- * AS5600 position controller; L1/L2 require independent wheel setpoints.
+ * M7 / PS2 mapping - decoded request telemetry.
+ * Values reflect manual-steering requests; the separate arbitration and
+ * limit-protected services below decide if PWM actually reaches motors.
  * Right-hand joystick RX is the selected steering axis; LY stays wheel drive.
  *
  * Steering direction semantic: D-pad LEFT / RX<128 => both towards MIN,
@@ -3373,15 +3381,19 @@ static void PS2_ObserveNewMapping(void)
   if (PS2_Pad.Left != 0U)
   {
     debug_ps2_steer_direction = -1;
-    debug_ps2_steer_left_pwm = STEER_TEST_LEFT_PWM_DUTY;
-    debug_ps2_steer_right_pwm = STEER_TEST_RIGHT_PWM_DUTY;
+    debug_ps2_steer_left_pwm =
+        Steering_ManualClampPWM(steer_manual_left_dpad_pwm);
+    debug_ps2_steer_right_pwm =
+        Steering_ManualClampPWM(steer_manual_right_dpad_pwm);
     return;
   }
   if (PS2_Pad.Right != 0U)
   {
     debug_ps2_steer_direction = 1;
-    debug_ps2_steer_left_pwm = STEER_TEST_LEFT_PWM_DUTY;
-    debug_ps2_steer_right_pwm = STEER_TEST_RIGHT_PWM_DUTY;
+    debug_ps2_steer_left_pwm =
+        Steering_ManualClampPWM(steer_manual_left_dpad_pwm);
+    debug_ps2_steer_right_pwm =
+        Steering_ManualClampPWM(steer_manual_right_dpad_pwm);
     return;
   }
 
@@ -3395,16 +3407,13 @@ static void PS2_ObserveNewMapping(void)
   if (magnitude > 127U) magnitude = 127U;
   magnitude -= PS2_RX_DEADZONE_COUNTS;
 
-  /* Full stick: LEFT 2*20%=40%, RIGHT 2*10%=20%.
-   * Previously 30% LEFT was too fast; these values are NOT hardware-approved.
-   * This stage reports requested PWM but does not write to TIM12/TIM14.
+  /* Mapping debug reflects the currently configured manual steering
+   * request; applied PWM may still be zero at an AS5600 or NC limit.
    */
-  debug_ps2_steer_left_pwm = (uint16_t)
-      ((2U * STEER_TEST_LEFT_PWM_DUTY * magnitude) /
-       (127U - PS2_RX_DEADZONE_COUNTS));
-  debug_ps2_steer_right_pwm = (uint16_t)
-      ((2U * STEER_TEST_RIGHT_PWM_DUTY * magnitude) /
-       (127U - PS2_RX_DEADZONE_COUNTS));
+  debug_ps2_steer_left_pwm = Steering_ManualRXDuty(
+      steer_manual_left_rx_min_pwm, steer_manual_left_rx_max_pwm, magnitude);
+  debug_ps2_steer_right_pwm = Steering_ManualRXDuty(
+      steer_manual_right_rx_min_pwm, steer_manual_right_rx_max_pwm, magnitude);
 }
 
 /*
@@ -4156,7 +4165,7 @@ int main(void)
      * PS2 chỉ "được kết nối" nhưng đang neutral sẽ không đè Voice.
      */
     PS2_Read_Data();
-    PS2_ObserveNewMapping(); /* read-only mapping, never actuates motors */
+    PS2_ObserveNewMapping(); /* decoded requests; output gating is separate */
 
     Control_Arbitrate();
 
