@@ -3640,6 +3640,20 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
     if ((edge != 0U) || (limit != 0U))
       return Steering_CalLimitFault(left, 3U);
     if (Steering_PositionReadOne(left, &raw) == 0U) return 4U;
+    /* DONE isn't permission to accept an off-center result after
+     * waiting for a slower partner. Keep monitoring the finished
+     * axis and reject the entire scan if it subsequently drifts.
+     */
+    {
+      int16_t delta = AS5600_ShortestDeltaCounts(
+          raw, left ? STEER_POS_LEFT_CENTER_RAW :
+                      STEER_POS_RIGHT_CENTER_RAW);
+      uint16_t abs_delta = (uint16_t)((delta < 0) ? -delta : delta);
+      if (abs_delta > Steering_CenterTolClamp(
+              left ? steer_cal_left_center_tol_raw :
+                     steer_cal_right_center_tol_raw))
+        return 8U; /* no actuator retry while partner is moving */
+    }
     return 0U;
   }
 
