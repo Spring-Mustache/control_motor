@@ -3028,6 +3028,11 @@ static void Steering_ManualRightOff(void)
   steer_manual_right_pwm = 0U;
 }
 
+/* steer_cal_arm is defined later in main.c after the manual
+ * section; it is only disarmed here, never enabled by this helper.
+ */
+extern volatile uint8_t steer_cal_arm;
+
 /* STOP BOTH steering PWMs synchronously even if ONLY one NC limit
  * was hit during manual control. This incident occurred while the
  * command was HELD, so a retry is never allowed without power cycling.
@@ -3182,24 +3187,14 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
     return;
   }
 
-  if ((Steering_PositionReadOne(left, &raw) == 0U) ||
-      (Steering_PositionRawInRange(left, raw) == 0U))
+  if (Steering_PositionReadOne(left, &raw) == 0U)
   {
     Steering_ManualAxisFault(left, 4U);
     return;
   }
-  delta = AS5600_ShortestDeltaCounts(axis->previous_raw, raw);
-  if ((delta > STEER_POS_MAX_JUMP_RAW) || (delta < -STEER_POS_MAX_JUMP_RAW))
-  {
-    Steering_ManualAxisFault(left, 4U);
-    return;
-  }
-  axis->previous_raw = raw;
-
-  /* Independent BACKUP envelope for a missing/shorted NC wire:
-   * no D-pad/RX control is allowed to cross a measured physical
-   * endstop, regardless of requested direction or active switch state.
-   * Fail CLOSED and require power-down inspection.
+  /* Independent encoder HARD fence catches overtravel even when
+   * the corresponding physical NC line failed to report an edge.
+   * Do this BEFORE the wider sensor-quality range gate.
    */
   if (((left != 0U) &&
        ((raw >= STEER_POS_LEFT_MIN_RAW) ||
@@ -3214,6 +3209,22 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
     Steering_ManualAxisFault(left, 15U);
     return;
   }
+  if (Steering_PositionRawInRange(left, raw) == 0U)
+  {
+    /* Invalid encoder coordinate; fail closed for the session. */
+    Steering_ManualEmergencyTrip(2U, (left != 0U) ?
+        (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK) :
+        (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK));
+    Steering_ManualAxisFault(left, 4U);
+    return;
+  }
+  delta = AS5600_ShortestDeltaCounts(axis->previous_raw, raw);
+  if ((delta > STEER_POS_MAX_JUMP_RAW) || (delta < -STEER_POS_MAX_JUMP_RAW))
+  {
+    Steering_ManualAxisFault(left, 4U);
+    return;
+  }
+  axis->previous_raw = raw;
 
   if (state == STEER_MANUAL_SETTLING)
   {
@@ -3717,8 +3728,9 @@ static void Steering_ManualUpdate(void)
     }
   }
 
-  if ((steer_manual_left_state == STEER_MANUAL_MOVING) ||
-      (steer_manual_left_state == STEER_MANUAL_ESCAPE))
+  if ((steer_manual_safety_trip == 0U) &&
+      ((steer_manual_left_state == STEER_MANUAL_MOVING) ||
+       (steer_manual_left_state == STEER_MANUAL_ESCAPE)))
   {
     HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port, MOTOR_DIR_TURN_left_Pin,
                       (command < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
@@ -3727,8 +3739,9 @@ static void Steering_ManualUpdate(void)
   }
   else Steering_ManualLeftOff();
 
-  if ((steer_manual_right_state == STEER_MANUAL_MOVING) ||
-      (steer_manual_right_state == STEER_MANUAL_ESCAPE))
+  if ((steer_manual_safety_trip == 0U) &&
+      ((steer_manual_right_state == STEER_MANUAL_MOVING) ||
+       (steer_manual_right_state == STEER_MANUAL_ESCAPE)))
   {
     if ((ra != 0U) && (steer_manual_right_first_drive_raw == 0U))
       steer_manual_right_first_drive_raw = debug_as5600_right_raw;
@@ -5727,8 +5740,13 @@ static void PS2_ApplyManualControl(void)
    * Stopping them here on each ~20ms PS2 loop formerly defeated RX/D-pad.
    * Neutral/release is cut in Steering_ManualUpdate(), not here.
    */
-  if ((steer_manual_active == 0U) &&
-      (Steering_ManualRequestDirection() == 0))
+  if (((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
+       (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT)) &&
+      (steer_pos_active == 0U) &&
+      (steer_cal_active == 0U))
+    Turn_Motors_Stop(); /* wheel motion NEVER powers a turn channel */
+  else if ((steer_manual_active == 0U) &&
+           (Steering_ManualRequestDirection() == 0))
     Turn_Motors_Stop();
 }
 
@@ -5743,6 +5761,18 @@ static void PS2_ApplyManualControl(void)
 static void Control_Arbitrate(void)
 {
   ps2_manual_active = PS2_IsManualControlActive();
+
+  /* A previously tripped manual hard-limit is stronger than ANY held
+   * PS2 request. PWM=0 on TIM12/TIM14, wheel motors emergency stop.
+   * This latch is intentionally NOT reset by PS2 neutral or Live Expr.
+   */
+  if (steer_manual_safety_trip != 0U)
+  {
+    control_mode = CONTROL_MODE_STOP;
+    Wheel_EmergencyStop();
+    Turn_Motors_Stop();
+    return;
+  }
 
   /*
    * 1) STOP cao nhất.
@@ -6417,15 +6447,41 @@ int main(void)
      * Leaving an active L_MIN, L_MAX, or R_MIN: <=1s and require
      * a NEW manual request after verified switch release.
      */
-    Steering_TestPulseUpdate();
-    /* Release the previous manual PWM owner BEFORE checking a fresh
-     * R1/R2 edge. Otherwise the position command gets rejected simply
-     * because steer_manual_active was still set for this same cycle.
-     */
-    Steering_ManualUpdate();   /* D-pad LEFT/RIGHT and joystick RX */
-    Steering_PositionUpdate(); /* R1/R2 independent closed-loop */
-    Steering_CalUpdate();      /* SELECT: guarded auto MIN/MAX scan */
-    Steering_PositionTelemetryIdleUpdate(); /* AS5600 live without poll flag */
+    if (steer_manual_safety_trip != 0U)
+    {
+      /* No other PWM owner may re-enable steering after a hard NC or
+       * encoder limit in MANUAL mode. No automatic software re-arm.
+       */
+      steer_manual_enable = 0U;
+      steer_manual_rx_enable = 0U;
+      steer_pos_enable = 0U;
+      steer_cal_arm = 0U;
+      steer_test_arm = 0U;
+      steer_test_request = 0U;
+      Steering_ManualStop();
+      Wheel_EmergencyStop();
+      Turn_Motors_Stop();
+    }
+    else
+    {
+      Steering_TestPulseUpdate();
+      /* All steering services share TIM12/TIM14 ownership. */
+      Steering_ManualUpdate();   /* D-pad LEFT/RIGHT; RX opt-in only */
+      if (steer_manual_safety_trip == 0U)
+        Steering_PositionUpdate(); /* R1/R2 */
+      if (steer_manual_safety_trip == 0U)
+        Steering_CalUpdate();      /* SELECT */
+      if (steer_manual_safety_trip != 0U)
+      {
+        /* Interrupt or raw limit may have tripped during a service. */
+        Steering_ManualStop();
+        Wheel_EmergencyStop();
+        Turn_Motors_Stop();
+      }
+    }
+    Steering_PositionTelemetryIdleUpdate();
+    if (steer_manual_safety_trip != 0U)
+      Turn_Motors_Stop(); /* final steering CCR-zero fence */
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
     RamLogger_DumpCsvUpdate();
