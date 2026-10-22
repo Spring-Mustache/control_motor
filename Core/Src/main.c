@@ -5057,6 +5057,97 @@ static void Turn_Motors_Stop(void)
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
 }
 
+
+/* M7-S13: power-OFF bench diagnostic only. Completely detach both
+ * steering PWM channels from the timer alternate function during
+ * an incident quarantine. A 0% timer compare is not an independent
+ * safety disconnection, and this code cannot control what happens
+ * while the MCU is off, booting or resetting. A driver power E-stop
+ * and electrical checks are required BEFORE any powered motor test.
+ */
+volatile uint8_t steer_diag_gpio_park_enabled = 1U;
+volatile uint8_t steer_diag_right_pin_high = 0U;
+volatile uint8_t steer_diag_left_pin_high = 0U;
+volatile uint8_t steer_diag_right_pin_mode = 0U; /* GPIO MODER: 1=output */
+volatile uint8_t steer_diag_left_pin_mode = 0U;
+volatile uint8_t steer_diag_right_timer_cc_enabled = 0U;
+volatile uint8_t steer_diag_left_timer_cc_enabled = 0U;
+volatile uint16_t steer_diag_right_timer_ccr = 0U;
+volatile uint16_t steer_diag_left_timer_ccr = 0U;
+volatile uint32_t steer_diag_park_samples = 0U;
+volatile uint32_t steer_diag_park_violation_count = 0U;
+
+#if STEER_SAFETY_INCIDENT_LOCKOUT != 0U
+static void Steering_QuarantineParkPins(void)
+{
+  GPIO_InitTypeDef init = {0};
+  /* No HAL_TIM_PWM_Start on either steering timer in this build.
+   * Disable output channels and counters independently of CCR=0.
+   */
+  __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+  __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+  TIM12->CCER &= (uint16_t)~TIM_CCER_CC2E;
+  TIM14->CCER &= (uint16_t)~TIM_CCER_CC1E;
+  __HAL_TIM_DISABLE(&htim12);
+  __HAL_TIM_DISABLE(&htim14);
+
+  /* Preload low before switching the PWM pins from AF to GPIO. */
+  HAL_GPIO_WritePin(PWM_turn_left_GPIO_Port, PWM_turn_left_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(PWM_turn_right_GPIO_Port, PWM_turn_right_Pin, GPIO_PIN_RESET);
+  init.Mode = GPIO_MODE_OUTPUT_PP;
+  init.Pull = GPIO_PULLDOWN;
+  init.Speed = GPIO_SPEED_FREQ_LOW;
+  init.Pin = PWM_turn_left_Pin;
+  HAL_GPIO_Init(PWM_turn_left_GPIO_Port, &init);
+  init.Pin = PWM_turn_right_Pin;
+  HAL_GPIO_Init(PWM_turn_right_GPIO_Port, &init);
+}
+
+static void Steering_QuarantineAuditPins(void)
+{
+  uint8_t right_high, left_high, right_mode, left_mode;
+  uint8_t right_cc, left_cc;
+  if (steer_diag_gpio_park_enabled != 1U) return;
+
+  right_high = (HAL_GPIO_ReadPin(PWM_turn_right_GPIO_Port,
+                                PWM_turn_right_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+  left_high = (HAL_GPIO_ReadPin(PWM_turn_left_GPIO_Port,
+                               PWM_turn_left_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+  right_mode = (uint8_t)((GPIOF->MODER >> (9U * 2U)) & 3U);
+  left_mode = (uint8_t)((GPIOB->MODER >> (15U * 2U)) & 3U);
+  right_cc = ((TIM14->CCER & TIM_CCER_CC1E) != 0U) ? 1U : 0U;
+  left_cc = ((TIM12->CCER & TIM_CCER_CC2E) != 0U) ? 1U : 0U;
+
+  steer_diag_right_pin_high = right_high;
+  steer_diag_left_pin_high = left_high;
+  steer_diag_right_pin_mode = right_mode;
+  steer_diag_left_pin_mode = left_mode;
+  steer_diag_right_timer_cc_enabled = right_cc;
+  steer_diag_left_timer_cc_enabled = left_cc;
+  steer_diag_right_timer_ccr = (uint16_t)TIM14->CCR1;
+  steer_diag_left_timer_ccr = (uint16_t)TIM12->CCR2;
+  steer_diag_park_samples++;
+
+  if ((right_high != 0U) || (left_high != 0U) ||
+      (right_mode != 1U) || (left_mode != 1U) ||
+      (right_cc != 0U) || (left_cc != 0U) ||
+      (steer_diag_right_timer_ccr != 0U) ||
+      (steer_diag_left_timer_ccr != 0U))
+  {
+    steer_diag_park_violation_count++;
+    /* Restore the output state, then latch the fault. Still not
+     * equivalent to independent removal of motor supply.
+     */
+    Steering_QuarantineParkPins();
+    steer_safety_trip_latched = 1U;
+    if (steer_safety_trip_reason == 0U)
+      steer_safety_trip_reason = 5U; /* software pin park violation */
+  }
+  HAL_GPIO_WritePin(PWM_turn_left_GPIO_Port, PWM_turn_left_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(PWM_turn_right_GPIO_Port, PWM_turn_right_Pin, GPIO_PIN_RESET);
+}
+#endif
+
 /*
  * STOP khẩn cấp cấp xe: wheel_control cắt 4 motor bánh và reset
  * state điều khiển; main giữ trách nhiệm dừng riêng 2 motor đánh lái.
@@ -6683,6 +6774,12 @@ int main(void)
   MX_TIM11_Init();
   MX_TIM12_Init();
   MX_TIM14_Init();
+#if STEER_SAFETY_INCIDENT_LOCKOUT != 0U
+  /* Minimize powered-up time spent in PWM alternate-function mode.
+   * External pull-down/independent motor E-stop still required.
+   */
+  Steering_QuarantineParkPins();
+#endif
   MX_USART6_UART_Init();
   MX_I2C1_Init();
   MX_I2C2_Init();
@@ -6717,16 +6814,21 @@ int main(void)
     Error_Handler();
   }
 
-  /* M7-S02: start steering PWM channels at ZERO duty only.
-   * No steering motion can occur without manual Live Expressions request.
+  /* Steering timer channels may start ONLY in a future unlocked build.
+   * This incident diagnostic build never starts them. The pins are
+   * separately parked as push-pull GPIO LOW.
    */
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+#if STEER_SAFETY_INCIDENT_LOCKOUT == 0U
   if (HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2) != HAL_OK ||
       HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
+#else
+  Steering_QuarantineParkPins();
+#endif
   /* NC interrupts are enabled in MX_GPIO_Init() before these PWM
    * timers are initialized. Only now is ISR CCR access safe.
    */
@@ -7135,6 +7237,9 @@ int main(void)
     if (debug_steer_auto_as5600_idle_observe != 0U)
       Steering_PositionTelemetryIdleUpdate();
     PS2_DebugObserveRightOutput(); /* after all PWM owners have run */
+#if STEER_SAFETY_INCIDENT_LOCKOUT != 0U
+    Steering_QuarantineAuditPins(); /* pin state only; no motor test */
+#endif
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
     RamLogger_DumpCsvUpdate();
