@@ -2874,36 +2874,50 @@ static void Steering_ManualUpdate(void)
   lstate = steer_manual_left_state;
   rstate = steer_manual_right_state;
 
-  /* Stop if a limit rose during the AS5600 reads, and never reenergize
-   * a channel until a NEW neutral->direction manual request.
+  /* NC inputs must be re-evaluated ATOMICALLY before CCR writes.
+   * At the expected target stop only this side; when escaping accept
+   * ONLY its originating opposite limit (or stop on release).
+   * Two asserted switches on one side are NEVER an escape condition.
    */
-  if (((lstate == STEER_MANUAL_MOVING) ||
-       (lstate == STEER_MANUAL_ESCAPE)) &&
-      ((mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U))
+  if ((lstate == STEER_MANUAL_MOVING) ||
+      (lstate == STEER_MANUAL_ESCAPE))
   {
-    uint8_t expected = (command < 0) ? STEER_LIMIT_L_MIN_MASK :
-                        STEER_LIMIT_L_MAX_MASK;
-    uint8_t opposite = (command < 0) ? STEER_LIMIT_L_MAX_MASK :
-                        STEER_LIMIT_L_MIN_MASK;
-    if (((mask & expected) != 0U) && ((mask & opposite) == 0U))
-      Steering_ManualAxisDone(1U, 3U);
-    else if ((lstate != STEER_MANUAL_ESCAPE) ||
-             ((mask & opposite) == 0U))
-      Steering_ManualAxisFault(1U, 9U);
+    uint8_t own = (uint8_t)
+        (mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK));
+    uint8_t expected = (command < 0) ?
+        STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_L_MAX_MASK;
+    uint8_t opposite = (command < 0) ?
+        STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_L_MIN_MASK;
+    if (lstate == STEER_MANUAL_ESCAPE)
+    {
+      if (own == 0U) Steering_ManualAxisDone(1U, 7U);
+      else if (own != opposite) Steering_ManualAxisFault(1U, 9U);
+    }
+    else
+    {
+      if (own == expected) Steering_ManualAxisDone(1U, 3U);
+      else if (own != 0U) Steering_ManualAxisFault(1U, 9U);
+    }
   }
-  if (((rstate == STEER_MANUAL_MOVING) ||
-       (rstate == STEER_MANUAL_ESCAPE)) &&
-      ((mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U))
+  if ((rstate == STEER_MANUAL_MOVING) ||
+      (rstate == STEER_MANUAL_ESCAPE))
   {
-    uint8_t expected = (command < 0) ? STEER_LIMIT_R_MIN_MASK :
-                        STEER_LIMIT_R_MAX_MASK;
-    uint8_t opposite = (command < 0) ? STEER_LIMIT_R_MAX_MASK :
-                        STEER_LIMIT_R_MIN_MASK;
-    if (((mask & expected) != 0U) && ((mask & opposite) == 0U))
-      Steering_ManualAxisDone(0U, 3U);
-    else if ((rstate != STEER_MANUAL_ESCAPE) ||
-             ((mask & opposite) == 0U))
-      Steering_ManualAxisFault(0U, 9U);
+    uint8_t own = (uint8_t)
+        (mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK));
+    uint8_t expected = (command < 0) ?
+        STEER_LIMIT_R_MIN_MASK : STEER_LIMIT_R_MAX_MASK;
+    uint8_t opposite = (command < 0) ?
+        STEER_LIMIT_R_MAX_MASK : STEER_LIMIT_R_MIN_MASK;
+    if (rstate == STEER_MANUAL_ESCAPE)
+    {
+      if (own == 0U) Steering_ManualAxisDone(0U, 7U);
+      else if (own != opposite) Steering_ManualAxisFault(0U, 9U);
+    }
+    else
+    {
+      if (own == expected) Steering_ManualAxisDone(0U, 3U);
+      else if (own != 0U) Steering_ManualAxisFault(0U, 9U);
+    }
   }
 
   if ((steer_manual_left_state == STEER_MANUAL_MOVING) ||
