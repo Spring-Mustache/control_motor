@@ -3317,6 +3317,32 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
   axis->last_drive_valid = 0U;
 }
 
+static uint8_t Steering_CalLimitFault(uint8_t left, uint8_t reason)
+{
+  steer_cal_limit_fault_side = left ? 1U : 2U;
+  steer_cal_limit_fault_reason = reason;
+  return 6U;
+}
+
+/* Expected duplicate EXTI from the same NC when backing away can be
+ * suppressed for one control frame. Mismatched NC edges are fatal.
+ */
+static uint8_t Steering_CalEdgeSafe(uint8_t stage, uint8_t edge,
+                                    uint8_t limit, uint8_t min_bit,
+                                    uint8_t max_bit)
+{
+  if (edge == 0U) return 1U;
+  if (stage == STEER_CAL_SEEK_MIN &&
+      edge == min_bit && limit == min_bit) return 1U;
+  if (stage == STEER_CAL_SEEK_MAX &&
+      edge == max_bit && limit == max_bit) return 1U;
+  if (stage == STEER_CAL_EXIT_MIN && edge == min_bit &&
+      (limit == min_bit || limit == 0U)) return 1U;
+  if ((stage == STEER_CAL_EXIT_MAX || stage == STEER_CAL_PRE_EXIT_MAX) &&
+      edge == max_bit && (limit == max_bit || limit == 0U)) return 1U;
+  return 0U;
+}
+
 /* 0 = healthy. Nonzero result code aborts the entire calibration.
  * Each side has separate MIN/MAX, movement and time monitoring.
  */
@@ -3335,8 +3361,18 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
   int16_t movement, error;
   uint8_t direction_zero = 1U;
   uint32_t deadline;
-  uint16_t requested = left ? steer_cal_left_seek_duty :
-                              steer_cal_right_seek_duty;
+  uint16_t requested = 0U;
+  if ((stage == STEER_CAL_EXIT_MIN) ||
+      (stage == STEER_CAL_EXIT_MAX) ||
+      (stage == STEER_CAL_PRE_EXIT_MAX))
+    requested = left ? steer_cal_left_escape_duty :
+                       steer_cal_right_escape_duty;
+  else if (stage == STEER_CAL_TO_CENTER)
+    requested = left ? steer_cal_left_center_duty :
+                       steer_cal_right_center_duty;
+  else
+    requested = left ? steer_cal_left_seek_duty :
+                       steer_cal_right_seek_duty;
 
   *pwm = 0U;
   *dir = GPIO_PIN_RESET;
@@ -3345,7 +3381,8 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
     /* While waiting for the other motor, keep this AS5600 live and
      * ensure a finished axis is still centered with all NCs closed.
      */
-    if ((edge != 0U) || (limit != 0U)) return 6U;
+    if ((edge != 0U) || (limit != 0U))
+      return Steering_CalLimitFault(left, 3U);
     if (Steering_PositionReadOne(left, &raw) == 0U) return 4U;
     return 0U;
   }
@@ -3353,19 +3390,10 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
   if ((Steering_PositionReadOne(left, &raw) == 0U) || (raw > 4095U))
     return 4U;
   if (limit == (min_bit | max_bit))
-    return 6U; /* both NC switches active on same axis: fail closed */
-  if (edge != 0U)
-  {
-    /* Only a physical target NC arrival during SEEK may consume an
-     * EXTI edge as success. A bounce while escaping or centering must
-     * never be followed by automatically re-enabling PWM.
-     */
-    if (!((stage == STEER_CAL_SEEK_MIN && edge == min_bit &&
-           limit == min_bit) ||
-          (stage == STEER_CAL_SEEK_MAX && edge == max_bit &&
-           limit == max_bit)))
-      return 6U;
-  }
+    return Steering_CalLimitFault(left, 1U);
+  if (Steering_CalEdgeSafe(stage, edge, limit,
+                           min_bit, max_bit) == 0U)
+    return Steering_CalLimitFault(left, 2U);
 
   movement = AS5600_ShortestDeltaCounts(axis->last_raw, raw);
   if ((movement > STEER_CAL_JUMP_MAX_RAW) ||
@@ -3381,9 +3409,15 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       (stage == STEER_CAL_PRE_EXIT_MAX))
     deadline = STEER_CAL_EXIT_TIMEOUT_MS;
   else if (stage == STEER_CAL_TO_CENTER)
-    deadline = STEER_CAL_CENTER_TIMEOUT_MS;
+    deadline = left ? steer_cal_left_center_timeout_ms :
+                      steer_cal_right_center_timeout_ms;
   else
-    deadline = STEER_CAL_SCAN_TIMEOUT_MS;
+    deadline = left ? steer_cal_left_seek_timeout_ms :
+                      steer_cal_right_seek_timeout_ms;
+  if (deadline > 14000U) deadline = 14000U;
+  if ((stage != STEER_CAL_EXIT_MIN) && (stage != STEER_CAL_EXIT_MAX) &&
+      (stage != STEER_CAL_PRE_EXIT_MAX) && (deadline < 1500U))
+    deadline = 1500U;
 
   if ((uint32_t)(now - axis->stage_begin) >= deadline)
     return 5U;
@@ -3404,7 +3438,7 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
        * proceeding MIN. Unrequested MAX during a running scan fails.
        */
       if ((uint32_t)(now - steer_cal_begin_ms) > 300U)
-        return 6U;
+        return Steering_CalLimitFault(left, 3U);
       Steering_CalAxisStage(axis, STEER_CAL_PRE_EXIT_MAX, raw, now);
       return 0U;
     }
@@ -3420,7 +3454,7 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
     int16_t traveled = AS5600_ShortestDeltaCounts(axis->start_raw, raw);
     uint8_t inc = (uint8_t)(((left != 0U) && (from_min == 0U)) ||
                             ((left == 0U) && (from_min != 0U)));
-    if (limit == unwanted) return 6U;
+    if (limit == unwanted) return Steering_CalLimitFault(left, 3U);
     if (limit == 0U)
     {
       /* NC release must correspond to real measured away movement.
@@ -3428,7 +3462,7 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
        */
       if (((inc != 0U) && (traveled < 3)) ||
           ((inc == 0U) && (traveled > -3)))
-        return 6U;
+        return Steering_CalLimitFault(left, 5U);
       if (stage == STEER_CAL_EXIT_MIN)
         Steering_CalAxisStage(axis, STEER_CAL_SEEK_MAX, raw, now);
       else if (stage == STEER_CAL_PRE_EXIT_MAX)
@@ -3440,7 +3474,9 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       }
       return 0U; /* at least one full control frame with zero CCR */
     }
-    if (limit != own) return 6U;
+    if (limit != own) return Steering_CalLimitFault(left, 3U);
+    /* NC bounced during safe departure. Do not energize in this frame. */
+    if (edge == own) return 0U;
     direction_zero = (from_min != 0U) ? 0U : 1U;
   }
   else if (stage == STEER_CAL_SEEK_MAX)
@@ -3453,14 +3489,14 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       Steering_CalAxisStage(axis, STEER_CAL_EXIT_MAX, raw, now);
       return 0U;
     }
-    if (limit == min_bit) return 6U;
+    if (limit == min_bit) return Steering_CalLimitFault(left, 3U);
     direction_zero = 0U; /* DIR1 = both sides toward MAX */
   }
   else if (stage == STEER_CAL_TO_CENTER)
   {
     uint16_t center = left ? STEER_POS_LEFT_CENTER_RAW :
                              STEER_POS_RIGHT_CENTER_RAW;
-    if (limit != 0U) return 6U;
+    if (limit != 0U) return Steering_CalLimitFault(left, 3U);
     error = AS5600_ShortestDeltaCounts(raw, center);
     if ((error >= -STEER_POS_TOL_RAW) &&
         (error <= STEER_POS_TOL_RAW))
@@ -3474,15 +3510,19 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
     /* LEFT raw grows in DIR0; RIGHT raw shrinks in DIR0. */
     direction_zero = left ? (error > 0) : (error < 0);
   }
-  else return 6U;
+  else return Steering_CalLimitFault(left, 3U);
 
   /* Directional AS5600 movement check, excluding initial 0 step.
    * DIR0 means left RAW increases / right RAW decreases.
    */
-  if ((movement > 5) || (movement < -5))
+  if (((movement > 5) || (movement < -5)) &&
+      (axis->last_drive_valid != 0U))
   {
-    uint8_t should_increase = left ? direction_zero :
-                                     (uint8_t)(!direction_zero);
+    /* The sample reflects PREVIOUS cycle's motor direction, not
+     * the direction chosen by the new phase this cycle.
+     */
+    uint8_t should_increase = left ? axis->last_drive_dir0 :
+                                     (uint8_t)(!axis->last_drive_dir0);
     if (((should_increase != 0U) && (movement < 0)) ||
         ((should_increase == 0U) && (movement > 0)))
       return 7U;
@@ -3516,7 +3556,18 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       ((stage == STEER_CAL_SEEK_MIN) ||
        (stage == STEER_CAL_SEEK_MAX)))
   {
-    uint16_t low = left ? 150U : 60U;
+    uint16_t low = left ? steer_cal_left_approach_floor :
+                           steer_cal_right_approach_floor;
+    if (left != 0U)
+    {
+      if (low > 300U) low = 300U;
+      if (low < 100U) low = 100U;
+    }
+    else
+    {
+      if (low > 100U) low = 100U;
+      if (low < 40U) low = 40U;
+    }
     if (requested > low)
       requested = (uint16_t)(low +
           ((uint32_t)(requested - low) * magnitude) / 80U);
