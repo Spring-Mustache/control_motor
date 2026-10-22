@@ -3028,6 +3028,31 @@ static void Steering_ManualRightOff(void)
   steer_manual_right_pwm = 0U;
 }
 
+/* STOP BOTH steering PWMs synchronously even if ONLY one NC limit
+ * was hit during manual control. This incident occurred while the
+ * command was HELD, so a retry is never allowed without power cycling.
+ * Hardware supply shutdown remains essential: CCR=0 is not braking.
+ */
+static void Steering_ManualEmergencyTrip(uint8_t reason, uint8_t bit)
+{
+  if (steer_manual_safety_trip == 0U)
+  {
+    steer_manual_safety_trip = 1U;
+    steer_manual_safety_trip_reason = reason;
+    steer_manual_safety_trip_mask = bit;
+    steer_manual_safety_trip_left_raw = debug_as5600_left_raw;
+    steer_manual_safety_trip_right_raw = debug_as5600_right_raw;
+    steer_manual_safety_trip_count++;
+  }
+  steer_manual_enable = 0U;
+  steer_manual_rx_enable = 0U;
+  steer_pos_enable = 0U;
+  steer_cal_arm = 0U;
+  steer_manual_neutral_required = 1U;
+  Steering_ManualLeftOff();
+  Steering_ManualRightOff();
+}
+
 static void Steering_ManualStop(void)
 {
   /* If manual does not own the PWM, do NOT overwrite R1/R2 or
@@ -3054,14 +3079,18 @@ static void Steering_ManualOnLimitInterrupt(uint8_t bit)
   steer_manual_irq_pending_mask |= bit;
   steer_manual_irq_trip_mask |= bit;
   steer_manual_irq_count++;
-  if ((bit & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
-    Steering_ManualLeftOff();
-  if ((bit & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
-    Steering_ManualRightOff();
+  /* Reaching a physical NC in a D-pad/RX soft-limit mode is a serious
+   * failure, never a routine target arrival. Latch BOTH PWMs off NOW.
+   */
+  Steering_ManualEmergencyTrip(1U, bit);
 }
 
 static void Steering_ManualAxisDone(uint8_t left, uint8_t reason)
 {
+  if (reason == 3U) /* Physical endstop reached before soft-stop */
+    Steering_ManualEmergencyTrip(3U, left ? 
+        STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK :
+        STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK);
   if (left != 0U)
   {
     Steering_ManualLeftOff();
@@ -3082,6 +3111,10 @@ static void Steering_ManualAxisDone(uint8_t left, uint8_t reason)
 
 static void Steering_ManualAxisFault(uint8_t left, uint8_t reason)
 {
+  if (reason == 9U) /* raw GPIO/IRQ says unexpected NC */
+    Steering_ManualEmergencyTrip(3U, left ?
+        STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK :
+        STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK);
   if (left != 0U)
   {
     Steering_ManualLeftOff();
@@ -3162,6 +3195,25 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
     return;
   }
   axis->previous_raw = raw;
+
+  /* Independent BACKUP envelope for a missing/shorted NC wire:
+   * no D-pad/RX control is allowed to cross a measured physical
+   * endstop, regardless of requested direction or active switch state.
+   * Fail CLOSED and require power-down inspection.
+   */
+  if (((left != 0U) &&
+       ((raw >= STEER_POS_LEFT_MIN_RAW) ||
+        (raw <= STEER_POS_LEFT_MAX_RAW))) ||
+      ((left == 0U) &&
+       ((raw <= STEER_POS_RIGHT_MIN_RAW) ||
+        (raw >= STEER_POS_RIGHT_MAX_RAW))))
+  {
+    Steering_ManualEmergencyTrip(2U, (left != 0U) ?
+        (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK) :
+        (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK));
+    Steering_ManualAxisFault(left, 15U);
+    return;
+  }
 
   if (state == STEER_MANUAL_SETTLING)
   {
