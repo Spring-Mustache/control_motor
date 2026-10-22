@@ -5520,6 +5520,155 @@ volatile uint8_t debug_ps2_rx_value = 128U;
 volatile uint8_t debug_ps2_input_conflict = 0U; /* bit0 R1+R2, bit1 L1+L2, bit2 left+right */
 volatile uint32_t debug_ps2_mapping_sample_count = 0U;
 
+
+/* S12: always-on, input-only PS2 diagnostics.
+ * All 16 decoded buttons remain visible even during the incident
+ * steering quarantine. None of these counters authorize motor outputs.
+ * 16-bit bit positions:
+ * 0 SELECT, 1 L3, 2 R3, 3 START, 4 UP, 5 RIGHT, 6 DOWN,
+ * 7 LEFT, 8 L2, 9 R2, 10 L1, 11 R1,
+ * 12 TRIANGLE, 13 CIRCLE, 14 CROSS, 15 SQUARE.
+ */
+volatile uint8_t debug_ps2_auto_observe_enable = 1U;
+volatile uint8_t debug_steer_auto_as5600_idle_observe = 1U;
+volatile uint16_t debug_ps2_button_mask = 0U;
+volatile uint16_t debug_ps2_button_rising_mask = 0U;
+volatile uint16_t debug_ps2_button_seen_mask = 0U;
+volatile uint32_t debug_ps2_button_press_edges = 0U;
+volatile uint32_t debug_ps2_ly_forward_frames = 0U;
+volatile uint32_t debug_ps2_dpad_up_frames = 0U;
+volatile uint32_t debug_ps2_ly_rx_non_neutral_frames = 0U;
+volatile uint16_t debug_ps2_ly_rx_max_abs_offset = 0U;
+volatile uint8_t debug_ps2_ly_forward_last_value = 128U;
+volatile uint8_t debug_ps2_ly_forward_last_rx = 128U;
+/* TIM14 CCR is a MCU REGISTER, not proof of voltage at driver IN1.
+ * NC safety lock remains on. Capture outputs after all services in
+ * the control loop, separately for LY-forward and D-pad UP samples.
+ */
+volatile uint8_t debug_ps2_drive_snapshot_source = 0U; /* 0 idle/other, 1 LY, 2 D-pad UP */
+volatile uint32_t debug_ps2_ly_forward_output_samples = 0U;
+volatile uint32_t debug_ps2_dpad_up_output_samples = 0U;
+volatile uint32_t debug_ps2_ly_right_ccr_nonzero_frames = 0U;
+volatile uint32_t debug_ps2_dpad_up_right_ccr_nonzero_frames = 0U;
+volatile uint16_t debug_ps2_ly_right_ccr_last = 0U;
+volatile uint16_t debug_ps2_dpad_up_right_ccr_last = 0U;
+volatile uint8_t debug_ps2_ly_right_dir_last = 0U;
+volatile uint8_t debug_ps2_dpad_up_right_dir_last = 0U;
+volatile uint32_t debug_ps2_ly_right_dir_change_count = 0U;
+volatile uint32_t debug_ps2_dpad_up_right_dir_change_count = 0U;
+volatile uint16_t debug_ps2_ly_right_as5600_raw = 0U;
+volatile uint32_t debug_ps2_ly_right_as5600_sample_ms = 0U;
+
+/* Called directly after a full PS2 sample. It does not write PWM,
+ * steering enables or any motor command. Unconnected packets clear
+ * the live mask; historical 'seen' and counters remain observable.
+ */
+static void PS2_DebugObserveAllInputs(void)
+{
+  static uint16_t previous_mask = 0U;
+  uint16_t mask;
+  uint16_t rising;
+  int16_t rx_offset;
+  uint16_t rx_magnitude;
+
+  if (debug_ps2_auto_observe_enable == 0U) return;
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
+  {
+    debug_ps2_button_mask = 0U;
+    debug_ps2_button_rising_mask = 0U;
+    previous_mask = 0U;
+    return;
+  }
+
+  mask = ((uint16_t)(PS2_Pad.Select != 0U) << 0) |
+         ((uint16_t)(PS2_Pad.L3 != 0U) << 1) |
+         ((uint16_t)(PS2_Pad.R3 != 0U) << 2) |
+         ((uint16_t)(PS2_Pad.Start != 0U) << 3) |
+         ((uint16_t)(PS2_Pad.Up != 0U) << 4) |
+         ((uint16_t)(PS2_Pad.Right != 0U) << 5) |
+         ((uint16_t)(PS2_Pad.Down != 0U) << 6) |
+         ((uint16_t)(PS2_Pad.Left != 0U) << 7) |
+         ((uint16_t)(PS2_Pad.L2 != 0U) << 8) |
+         ((uint16_t)(PS2_Pad.R2 != 0U) << 9) |
+         ((uint16_t)(PS2_Pad.L1 != 0U) << 10) |
+         ((uint16_t)(PS2_Pad.R1 != 0U) << 11) |
+         ((uint16_t)(PS2_Pad.Triangle != 0U) << 12) |
+         ((uint16_t)(PS2_Pad.Circle != 0U) << 13) |
+         ((uint16_t)(PS2_Pad.Cross != 0U) << 14) |
+         ((uint16_t)(PS2_Pad.Square != 0U) << 15);
+
+  rising = (uint16_t)(mask & (uint16_t)~previous_mask);
+  debug_ps2_button_mask = mask;
+  debug_ps2_button_rising_mask = rising;
+  debug_ps2_button_seen_mask |= mask;
+  if (rising != 0U) debug_ps2_button_press_edges++;
+  previous_mask = mask;
+
+  /* Compare joystick LY-forward with D-pad UP, without motor power. */
+  if (PS2_Pad.LY < PS2_LY_FORWARD_LIMIT)
+  {
+    debug_ps2_ly_forward_frames++;
+    debug_ps2_ly_forward_last_value = PS2_Pad.LY;
+    debug_ps2_ly_forward_last_rx = PS2_Pad.RX;
+    rx_offset = (int16_t)PS2_Pad.RX - 128;
+    rx_magnitude = (uint16_t)((rx_offset < 0) ? -rx_offset : rx_offset);
+    if (rx_magnitude > 10U) debug_ps2_ly_rx_non_neutral_frames++;
+    if (rx_magnitude > debug_ps2_ly_rx_max_abs_offset)
+      debug_ps2_ly_rx_max_abs_offset = rx_magnitude;
+  }
+  if (PS2_Pad.Up != 0U) debug_ps2_dpad_up_frames++;
+}
+
+static void PS2_DebugObserveRightOutput(void)
+{
+  static uint8_t previous_source = 0U;
+  static uint8_t previous_dir = 0U;
+  uint8_t source = 0U, dir;
+  uint16_t ccr;
+
+  if (debug_ps2_auto_observe_enable == 0U) return;
+  if ((PS2_Pad.Connected == 1U) && (PS2_Pad.Mode == 0x73U))
+  {
+    if (PS2_Pad.LY < PS2_LY_FORWARD_LIMIT)
+      source = 1U;
+    else if ((PS2_Pad.Up != 0U) &&
+             (PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT) &&
+             (PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT))
+      source = 2U;
+  }
+  debug_ps2_drive_snapshot_source = source;
+  if (source == 0U)
+  {
+    previous_source = 0U;
+    return;
+  }
+  ccr = (uint16_t)__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1);
+  dir = (HAL_GPIO_ReadPin(MOTOR_DIR_TURN_right_GPIO_Port,
+                          MOTOR_DIR_TURN_right_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+  if (source == 1U)
+  {
+    debug_ps2_ly_forward_output_samples++;
+    debug_ps2_ly_right_ccr_last = ccr;
+    if (ccr != 0U) debug_ps2_ly_right_ccr_nonzero_frames++;
+    debug_ps2_ly_right_dir_last = dir;
+    debug_ps2_ly_right_as5600_raw = debug_as5600_right_raw;
+    debug_ps2_ly_right_as5600_sample_ms = steer_pos_right_last_sample_ms;
+    if ((previous_source == source) && (previous_dir != dir))
+      debug_ps2_ly_right_dir_change_count++;
+  }
+  else
+  {
+    debug_ps2_dpad_up_output_samples++;
+    debug_ps2_dpad_up_right_ccr_last = ccr;
+    if (ccr != 0U) debug_ps2_dpad_up_right_ccr_nonzero_frames++;
+    debug_ps2_dpad_up_right_dir_last = dir;
+    if ((previous_source == source) && (previous_dir != dir))
+      debug_ps2_dpad_up_right_dir_change_count++;
+  }
+  previous_source = source;
+  previous_dir = dir;
+}
+
 static void PS2_ObserveNewMapping(void)
 {
   int16_t rx_offset;
@@ -5562,6 +5711,15 @@ static void PS2_ObserveNewMapping(void)
     debug_ps2_input_conflict |= 4U;
     return;
   }
+
+  /* Input-only diagnostics must not report an actionable steering
+   * request during a LY/Up/Down wheel command. The buttons themselves
+   * remain visible in debug_ps2_button_mask.
+   */
+  if ((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
+      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
+      (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U))
+    return;
 
   /* D-pad has priority over RX when one direction is held. */
   if (PS2_Pad.Left != 0U)
@@ -6655,6 +6813,7 @@ int main(void)
      * PS2 chỉ "được kết nối" nhưng đang neutral sẽ không đè Voice.
      */
     PS2_Read_Data();
+    PS2_DebugObserveAllInputs();  /* All 16 PS2 buttons; input only */
     PS2_ObserveNewMapping(); /* decoded requests; output gating is separate */
 
     Control_Arbitrate();
@@ -6806,7 +6965,13 @@ int main(void)
         Steering_CalUpdate();      /* SELECT - any NC trip latches */
       }
     }
-    Steering_PositionTelemetryIdleUpdate(); /* no-powered AS5600 monitor */
+    /* Existing bounded idle telemetry already refreshes LEFT/RIGHT
+     * AS5600 alternately; do NOT enable heavyweight per-loop I2C probe
+     * while investigating timing of LY wheel control.
+     */
+    if (debug_steer_auto_as5600_idle_observe != 0U)
+      Steering_PositionTelemetryIdleUpdate();
+    PS2_DebugObserveRightOutput(); /* after all PWM owners have run */
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
     RamLogger_DumpCsvUpdate();
