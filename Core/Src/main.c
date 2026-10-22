@@ -1655,12 +1655,13 @@ static int8_t Steering_ManualRequestDirection(void)
   }
 
   if ((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
-      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT))
+      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
+      (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U))
   {
     if ((PS2_Pad.RX < 118U) || (PS2_Pad.RX > 138U))
       steer_manual_rx_rejected_wheel_count++;
     rx_candidate = 0;
-    return 0; /* LY wheel drive explicitly excludes ALL steering */
+    return 0; /* ANY four-wheel drive command excludes steering */
   }
 
   if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
@@ -1715,6 +1716,7 @@ static uint8_t Steering_ManualInputsNeutral(void)
           (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
           (PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT) &&
           (PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT) &&
+          (PS2_Pad.Up == 0U) && (PS2_Pad.Down == 0U) &&
           (rx >= -10) && (rx <= 10)) ? 1U : 0U;
 }
 
@@ -5750,7 +5752,8 @@ static void PS2_ApplyManualControl(void)
    * Neutral/release is cut in Steering_ManualUpdate(), not here.
    */
   if (((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
-       (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT)) &&
+       (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
+       (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U)) &&
       (steer_pos_active == 0U) &&
       (steer_cal_active == 0U))
     Turn_Motors_Stop(); /* wheel motion NEVER powers a turn channel */
