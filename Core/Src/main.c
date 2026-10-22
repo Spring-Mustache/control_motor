@@ -1552,7 +1552,9 @@ volatile uint16_t steer_manual_rx_deadzone_raw = 48U;
  */
 volatile uint8_t steer_manual_safety_trip = 0U;
 volatile uint8_t steer_manual_safety_trip_reason = 0U;
-/* 1 NC EXTI; 2 encoder beyond physical MIN/MAX; 3 sampled NC active */
+/* 1 NC EXTI; 2 encoder beyond physical MIN/MAX; 3 sampled NC active;
+ * 4 incorrect motor direction; 5 AS5600/I2C invalid.
+ */
 volatile uint8_t steer_manual_safety_trip_mask = 0U;
 volatile uint16_t steer_manual_safety_trip_left_raw = 0U;
 volatile uint16_t steer_manual_safety_trip_right_raw = 0U;
@@ -3116,8 +3118,16 @@ static void Steering_ManualAxisDone(uint8_t left, uint8_t reason)
 
 static void Steering_ManualAxisFault(uint8_t left, uint8_t reason)
 {
-  if (reason == 9U) /* raw GPIO/IRQ says unexpected NC */
+  if (reason == 9U) /* GPIO/IRQ says unexpected NC */
     Steering_ManualEmergencyTrip(3U, left ?
+        STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK :
+        STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK);
+  if (reason == STEER_MANUAL_RESULT_WRONG_DIRECTION)
+    Steering_ManualEmergencyTrip(4U, left ?
+        STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK :
+        STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK);
+  if (reason == 4U) /* AS5600 quality/communication/coordinate */
+    Steering_ManualEmergencyTrip(5U, left ?
         STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK :
         STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK);
   if (left != 0U)
