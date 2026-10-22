@@ -1533,38 +1533,53 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
 
 
 /*
- * M7-S04: R1 -> CENTER, R2 -> MIN. Opt-in by design: no autonomous
- * steering motion until steer_pos_enable is set to 1 in Live Expressions
- * AFTER confirming AS5600, limits, DIR orientation and free suspended wheels.
+ * M7-S04B: independent left/right PS2 R1/R2 steering position control.
+ * Default DISARMED; enabling requires suspended bench and verified sensors.
  *
- * Existing one-shot limit diagnostics, wheel PI/FF/S-curve, Voice, logger,
- * and STOP arbitration remain unchanged.
+ * R1 = CENTER: independent move; if initially touching MIN, do only a
+ * short release of that side then stop and require a NEW R1 press.
+ * R2 = MIN: each axis independently stops at its own NC MIN limit,
+ * or at its AS5600 calibrated MIN ±5 counts (distinct arrival reason).
+ * A correctly triggered MIN of one side MUST NOT stop the other side.
+ * An unexpected limit/fault stops the affected side; systemic STOP,
+ * RF loss, loss of arbitration or manual diagnostic conflict stops both.
+ *
+ * AS5600 live values are refreshed while steering is active; when idle
+ * one of the two sensors is polled per bounded service interval, without
+ * requiring debug_as5600_poll_enable or the heavyweight debug probe.
  */
-#define STEER_POS_LEFT_MIN_RAW       2314U
-#define STEER_POS_LEFT_CENTER_RAW    1857U
-#define STEER_POS_LEFT_MAX_RAW       1429U
-#define STEER_POS_RIGHT_MIN_RAW      2929U
-#define STEER_POS_RIGHT_CENTER_RAW   3398U
-#define STEER_POS_RIGHT_MAX_RAW      3694U
-#define STEER_POS_CENTER_TOL         5
-#define STEER_POS_MIN_TOL            5
-#define STEER_POS_MARGIN_COUNTS     12
-#define STEER_POS_MAX_JUMP_COUNTS   90
-#define STEER_POS_RUN_MAX_MS      5000U
-#define STEER_POS_ESCAPE_MAX_MS   1000U
-#define STEER_POS_STALL_MS         500U
+#define STEER_POS_LEFT_MIN_RAW     2314U
+#define STEER_POS_LEFT_CENTER_RAW  1857U
+#define STEER_POS_LEFT_MAX_RAW     1429U
+#define STEER_POS_RIGHT_MIN_RAW    2929U
+#define STEER_POS_RIGHT_CENTER_RAW 3398U
+#define STEER_POS_RIGHT_MAX_RAW    3694U
+#define STEER_POS_TOL_RAW             5
+#define STEER_POS_RANGE_MARGIN      12
+#define STEER_POS_MAX_JUMP_RAW      90
+#define STEER_POS_TIMEOUT_MS      5000U
+#define STEER_POS_ESCAPE_MS       1000U
+#define STEER_POS_STALL_MS         650U
+#define STEER_POS_IDLE_POLL_MS      50U
+#define STEER_POS_RX_NEUTRAL_DELTA  10U
 #define STEER_POS_STABLE_SAMPLES     3U
-#define STEER_POS_RX_NEUTRAL_DELTA   10U
 
-/* Result: 0=idle, 1=running, 2=arrived, 3=limit, 4=sensor,
- * 5=timeout, 6=blocked, 7=MIN escape/repress, 8=stall, 9=cancel.
+#define STEER_AXIS_IDLE     0U
+#define STEER_AXIS_MOVING   1U
+#define STEER_AXIS_ESCAPING 2U
+#define STEER_AXIS_DONE     3U
+#define STEER_AXIS_ERROR    4U
+
+/* Per-axis result: 0 pending, 2 reached AS5600, 3 hit expected MIN,
+ * 4 sensor fault, 5 timeout, 7 escaped MIN (press R1 again), 8 stalled
+ * or went the wrong way, 9 unexpected limit / arbitration cancelled.
  */
 volatile uint8_t steer_pos_enable = 0U;
 volatile uint8_t steer_pos_active = 0U;
 volatile uint8_t steer_pos_result = 0U;
-volatile uint8_t steer_pos_command = 0U;   /* 1 CENTER / 2 MIN */
+volatile uint8_t steer_pos_command = 0U;
 volatile uint8_t steer_pos_escape_mask = 0U;
-volatile uint8_t steer_pos_buttons = 0U;   /* bit0 R1 / bit1 R2 */
+volatile uint8_t steer_pos_buttons = 0U;
 volatile uint16_t steer_pos_left_raw = 0U;
 volatile uint16_t steer_pos_right_raw = 0U;
 volatile int16_t steer_pos_left_error = 0;
@@ -1575,72 +1590,147 @@ volatile uint32_t steer_pos_run_count = 0U;
 volatile uint32_t steer_pos_reject_count = 0U;
 volatile uint32_t steer_pos_finish_count = 0U;
 volatile uint8_t steer_pos_limit_trip_mask = 0U;
-static uint8_t steer_pos_previous_buttons = 0U;
-static uint8_t steer_pos_stable_samples = 0U;
-static uint16_t steer_pos_left_last_raw = 0U;
-static uint16_t steer_pos_right_last_raw = 0U;
-static int16_t steer_pos_left_step = 0;
-static int16_t steer_pos_right_step = 0;
-static uint32_t steer_pos_start_ms = 0U;
-static uint32_t steer_pos_left_motion_ms = 0U;
-static uint32_t steer_pos_right_motion_ms = 0U;
-static uint16_t steer_pos_left_best_error = 32767U;
-static uint16_t steer_pos_right_best_error = 32767U;
 
-static uint16_t Steering_PositionDuty(int16_t error, uint16_t minimum,
-                                     uint16_t maximum, uint16_t gain_divisor)
+/* Each motor has its OWN measured operating PWM range. Compare ticks,
+ * ARR=999, NOT percentages. Independent of old manual M7-S02 PWM.
+ * User tested LEFT 175..300 counts; RIGHT retains initial 50..100.
+ * These are Live Expressions tunables, clamped below on every use.
+ */
+volatile uint16_t steer_pos_left_pwm_min = 175U;
+volatile uint16_t steer_pos_left_pwm_max = 300U;
+volatile uint16_t steer_pos_right_pwm_min = 50U;
+volatile uint16_t steer_pos_right_pwm_max = 100U;
+volatile uint8_t steer_pos_left_state = STEER_AXIS_IDLE;
+volatile uint8_t steer_pos_right_state = STEER_AXIS_IDLE;
+volatile uint8_t steer_pos_left_result = 0U;
+volatile uint8_t steer_pos_right_result = 0U;
+volatile uint32_t steer_pos_left_last_sample_ms = 0U;
+volatile uint32_t steer_pos_right_last_sample_ms = 0U;
+volatile uint32_t steer_pos_left_new_sample_count = 0U;
+volatile uint32_t steer_pos_right_new_sample_count = 0U;
+
+typedef struct
 {
-  uint16_t magnitude = (uint16_t)((error < 0) ? -error : error);
-  uint32_t pwm = (uint32_t)minimum + (uint32_t)magnitude / gain_divisor;
-  return (uint16_t)((pwm > maximum) ? maximum : pwm);
+  uint16_t last_raw;
+  uint16_t best_abs_error;
+  uint32_t progress_ms;
+  uint8_t stable_count;
+} SteeringPositionAxis_t;
+
+static SteeringPositionAxis_t steer_left_axis = {0};
+static SteeringPositionAxis_t steer_right_axis = {0};
+static uint8_t steer_pos_previous_buttons = 0U;
+static uint32_t steer_pos_start_ms = 0U;
+static uint32_t steer_pos_idle_last_ms = 0U;
+static uint8_t steer_pos_idle_next_side = 0U;
+/* EXTI sets ONLY its own side's bit and zeros its own channel. */
+static volatile uint8_t steer_pos_irq_pending_mask = 0U;
+
+static uint16_t Steering_PositionClampDuty(uint16_t value)
+{
+  return (value > 400U) ? 400U : value;
 }
 
-static uint8_t Steering_PositionSensorRead(void)
+static uint16_t Steering_PositionDuty(int16_t err, uint16_t min_duty,
+                                     uint16_t max_duty, uint16_t divisor)
 {
-  uint8_t ls = 0U, rs = 0U;
-  uint16_t l = 0U, r = 0U;
-  if ((as5600_left_probe_enabled == 0U) ||
-      (as5600_right_probe_enabled == 0U))
-    return 0U;
+  uint32_t v;
+  uint16_t magnitude = (uint16_t)((err < 0) ? -err : err);
+  min_duty = Steering_PositionClampDuty(min_duty);
+  max_duty = Steering_PositionClampDuty(max_duty);
+  if (max_duty < min_duty) max_duty = min_duty;
+  v = (uint32_t)min_duty + (uint32_t)magnitude / divisor;
+  return (uint16_t)((v > max_duty) ? max_duty : v);
+}
 
-  if ((AS5600_ReadRawAndStatus(&As5600_Left, &l, &ls) != HAL_OK) ||
-      (AS5600_ReadRawAndStatus(&As5600_Right, &r, &rs) != HAL_OK) ||
-      (AS5600_DebugReadingValid(1U, ls) == 0U) ||
-      (AS5600_DebugReadingValid(1U, rs) == 0U))
-    return 0U;
+/* Single bounded HAL transaction. Keep debug RAW/MD/ML/MH fresh both
+ * during position control and outside it. No separate debug enable
+ * and no IsDeviceReady probe in this fast path.
+ */
+static uint8_t Steering_PositionReadOne(uint8_t left, uint16_t *raw)
+{
+  AS5600_HandleTypeDef *sensor = left ? &As5600_Left : &As5600_Right;
+  uint8_t status = 0U;
+  uint16_t value = 0U;
+  uint32_t now = HAL_GetTick();
+  HAL_StatusTypeDef result = HAL_ERROR;
 
-  /* Restrict each sensor to its measured mechanical envelope.
-   * On any bad jump/invalid range fail closed before setting PWM.
-   */
-  if ((AS5600_ShortestDeltaCounts(STEER_POS_LEFT_CENTER_RAW, l) <
-       (-428 - STEER_POS_MARGIN_COUNTS)) ||
-      (AS5600_ShortestDeltaCounts(STEER_POS_LEFT_CENTER_RAW, l) >
-       (457 + STEER_POS_MARGIN_COUNTS)) ||
-      (AS5600_ShortestDeltaCounts(STEER_POS_RIGHT_CENTER_RAW, r) <
-       (-469 - STEER_POS_MARGIN_COUNTS)) ||
-      (AS5600_ShortestDeltaCounts(STEER_POS_RIGHT_CENTER_RAW, r) >
-       (296 + STEER_POS_MARGIN_COUNTS)))
-    return 0U;
-
-  steer_pos_left_step = 0;
-  steer_pos_right_step = 0;
-  if (steer_pos_active != 0U)
+  if (((left != 0U) && (as5600_left_probe_enabled != 0U)) ||
+      ((left == 0U) && (as5600_right_probe_enabled != 0U)))
   {
-    int16_t ld = AS5600_ShortestDeltaCounts(steer_pos_left_last_raw, l);
-    int16_t rd = AS5600_ShortestDeltaCounts(steer_pos_right_last_raw, r);
-    if ((ld > STEER_POS_MAX_JUMP_COUNTS) || (ld < -STEER_POS_MAX_JUMP_COUNTS) ||
-        (rd > STEER_POS_MAX_JUMP_COUNTS) || (rd < -STEER_POS_MAX_JUMP_COUNTS))
-      return 0U;
-    steer_pos_left_step = ld;
-    steer_pos_right_step = rd;
-    if ((ld >= 2) || (ld <= -2)) steer_pos_left_motion_ms = HAL_GetTick();
-    if ((rd >= 2) || (rd <= -2)) steer_pos_right_motion_ms = HAL_GetTick();
+    result = AS5600_ReadRawAndStatus(sensor, &value, &status);
   }
-  steer_pos_left_raw = l;
-  steer_pos_right_raw = r;
-  steer_pos_left_last_raw = l;
-  steer_pos_right_last_raw = r;
+
+  if (left != 0U)
+  {
+    debug_as5600_left_comm_ok = (result == HAL_OK) ? 1U : 0U;
+    debug_as5600_left_read_status = (uint8_t)result;
+    steer_pos_left_last_sample_ms = now;
+    if (result == HAL_OK)
+    {
+      debug_as5600_left_raw = value;
+      debug_as5600_left_deg = AS5600_RawToDegrees(value);
+      debug_as5600_left_status = status;
+      debug_as5600_left_magnet_detected =
+          ((status & AS5600_STATUS_MD) != 0U) ? 1U : 0U;
+      debug_as5600_left_magnet_too_weak =
+          ((status & AS5600_STATUS_ML) != 0U) ? 1U : 0U;
+      debug_as5600_left_magnet_too_strong =
+          ((status & AS5600_STATUS_MH) != 0U) ? 1U : 0U;
+      debug_as5600_left_read_ok_count++;
+      steer_pos_left_new_sample_count++;
+      steer_pos_left_raw = value;
+    }
+    else
+    {
+      debug_as5600_left_read_fail_count++;
+    }
+  }
+  else
+  {
+    debug_as5600_right_comm_ok = (result == HAL_OK) ? 1U : 0U;
+    debug_as5600_right_read_status = (uint8_t)result;
+    steer_pos_right_last_sample_ms = now;
+    if (result == HAL_OK)
+    {
+      debug_as5600_right_raw = value;
+      debug_as5600_right_deg = AS5600_RawToDegrees(value);
+      debug_as5600_right_status = status;
+      debug_as5600_right_magnet_detected =
+          ((status & AS5600_STATUS_MD) != 0U) ? 1U : 0U;
+      debug_as5600_right_magnet_too_weak =
+          ((status & AS5600_STATUS_ML) != 0U) ? 1U : 0U;
+      debug_as5600_right_magnet_too_strong =
+          ((status & AS5600_STATUS_MH) != 0U) ? 1U : 0U;
+      debug_as5600_right_read_ok_count++;
+      steer_pos_right_new_sample_count++;
+      steer_pos_right_raw = value;
+    }
+    else
+    {
+      debug_as5600_right_read_fail_count++;
+    }
+  }
+
+  if ((result != HAL_OK) ||
+      (AS5600_DebugReadingValid(1U, status) == 0U))
+    return 0U;
+  *raw = value;
   return 1U;
+}
+
+static uint8_t Steering_PositionRawInRange(uint8_t left, uint16_t raw)
+{
+  int16_t d;
+  if (left != 0U)
+  {
+    d = AS5600_ShortestDeltaCounts(STEER_POS_LEFT_CENTER_RAW, raw);
+    return ((d >= (-428 - STEER_POS_RANGE_MARGIN)) &&
+            (d <= (457 + STEER_POS_RANGE_MARGIN))) ? 1U : 0U;
+  }
+  d = AS5600_ShortestDeltaCounts(STEER_POS_RIGHT_CENTER_RAW, raw);
+  return ((d >= (-469 - STEER_POS_RANGE_MARGIN)) &&
+          (d <= (296 + STEER_POS_RANGE_MARGIN))) ? 1U : 0U;
 }
 
 static uint8_t Steering_PositionWheelsStopped(void)
@@ -1658,12 +1748,22 @@ static uint8_t Steering_PositionWheelsStopped(void)
   return 1U;
 }
 
+static void Steering_PositionLeftOff(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+  steer_pos_left_pwm = 0U;
+}
+
+static void Steering_PositionRightOff(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+  steer_pos_right_pwm = 0U;
+}
+
 static void Steering_PositionFinish(uint8_t result)
 {
-  /* ISR-safe PWM disable: PWM=0 is not motor supply disconnect. */
-  Steering_TestOutputsOff();
-  steer_pos_left_pwm = 0U;
-  steer_pos_right_pwm = 0U;
+  Steering_PositionLeftOff();
+  Steering_PositionRightOff();
   if (steer_pos_active != 0U) steer_pos_finish_count++;
   steer_pos_active = 0U;
   steer_pos_escape_mask = 0U;
@@ -1671,116 +1771,327 @@ static void Steering_PositionFinish(uint8_t result)
   steer_pos_result = result;
 }
 
+/* IRQ must cut only the affected motor for NC limit rising edge.
+ * R2 MIN contact is an expected arrival, not a shared fault.
+ * Final state is processed by main loop, never inside HAL interrupt.
+ */
 static void Steering_PositionOnLimitInterrupt(uint8_t limit_bit)
 {
-  if (steer_pos_active != 0U)
+  if (steer_pos_active == 0U) return;
+  steer_pos_limit_trip_mask |= limit_bit;
+  steer_pos_irq_pending_mask |= limit_bit;
+  if ((limit_bit & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
+    Steering_PositionLeftOff();
+  if ((limit_bit & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
+    Steering_PositionRightOff();
+}
+
+static void Steering_PositionAxisDone(uint8_t left, uint8_t result)
+{
+  if (left != 0U)
   {
-    steer_pos_limit_trip_mask |= limit_bit;
-    Steering_PositionFinish(3U);
+    Steering_PositionLeftOff();
+    steer_pos_left_state = STEER_AXIS_DONE;
+    steer_pos_left_result = result;
+  }
+  else
+  {
+    Steering_PositionRightOff();
+    steer_pos_right_state = STEER_AXIS_DONE;
+    steer_pos_right_result = result;
   }
 }
 
-/* Only this function writes position PWM. It is called AFTER M3
- * arbitration and diagnostic pulse service, never from a timer IRQ.
- * A new R1/R2 press is one-shot; release does not keep rearming.
+static void Steering_PositionAxisFault(uint8_t left, uint8_t result)
+{
+  if (left != 0U)
+  {
+    Steering_PositionLeftOff();
+    steer_pos_left_state = STEER_AXIS_ERROR;
+    steer_pos_left_result = result;
+  }
+  else
+  {
+    Steering_PositionRightOff();
+    steer_pos_right_state = STEER_AXIS_ERROR;
+    steer_pos_right_result = result;
+  }
+}
+
+/* Independent axis servo. No checks on the other side's limit inputs.
+ * Uses actual observed progress, not only encoder noise / timeout.
  */
+static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
+                                        uint32_t now, uint16_t *duty,
+                                        GPIO_PinState *direction)
+{
+  uint8_t state = left ? steer_pos_left_state : steer_pos_right_state;
+  uint8_t own_min = left ? STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_R_MIN_MASK;
+  uint8_t own_max = left ? STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_R_MAX_MASK;
+  SteeringPositionAxis_t *axis = left ? &steer_left_axis : &steer_right_axis;
+  uint16_t raw = 0U, goal;
+  int16_t err, step;
+  uint16_t abs_error;
+
+  *duty = 0U;
+  if ((state != STEER_AXIS_MOVING) && (state != STEER_AXIS_ESCAPING))
+    return;
+
+  /* Expected MIN wins over a sensor fault at the endpoint for R2;
+   * always cut the PWM for that axis, never for its partner.
+   */
+  if ((steer_pos_command == 2U) && ((limit_mask & own_min) != 0U))
+  {
+    Steering_PositionAxisDone(left, 3U);
+    return;
+  }
+  if (((limit_mask & own_max) != 0U) ||
+      (((limit_mask & own_min) != 0U) && (state != STEER_AXIS_ESCAPING)))
+  {
+    Steering_PositionAxisFault(left, 9U);
+    return;
+  }
+
+  if (Steering_PositionReadOne(left, &raw) == 0U ||
+      Steering_PositionRawInRange(left, raw) == 0U)
+  {
+    Steering_PositionAxisFault(left, 4U);
+    return;
+  }
+
+  step = AS5600_ShortestDeltaCounts(axis->last_raw, raw);
+  if ((step > STEER_POS_MAX_JUMP_RAW) || (step < -STEER_POS_MAX_JUMP_RAW))
+  {
+    Steering_PositionAxisFault(left, 4U);
+    return;
+  }
+  axis->last_raw = raw;
+
+  if (state == STEER_AXIS_ESCAPING)
+  {
+    /* R1 at MIN: depart in DIR1 for at most 1 s, stop on own release.
+     * LEFT RAW falls; RIGHT RAW rises while departing MIN.
+     */
+    if ((limit_mask & own_min) == 0U)
+    {
+      Steering_PositionAxisDone(left, 7U);
+      return;
+    }
+    if ((uint32_t)(now - steer_pos_start_ms) >= STEER_POS_ESCAPE_MS)
+    {
+      Steering_PositionAxisFault(left, 5U);
+      return;
+    }
+    if (((left != 0U) && (step > 5)) ||
+        ((left == 0U) && (step < -5)))
+    {
+      Steering_PositionAxisFault(left, 8U);
+      return;
+    }
+    if ((step >= 2) || (step <= -2)) axis->progress_ms = now;
+    if ((uint32_t)(now - axis->progress_ms) > STEER_POS_STALL_MS)
+    {
+      Steering_PositionAxisFault(left, 8U);
+      return;
+    }
+    *direction = GPIO_PIN_SET;
+    *duty = left ? Steering_PositionClampDuty(steer_pos_left_pwm_max)
+                 : Steering_PositionClampDuty(steer_pos_right_pwm_max);
+    return;
+  }
+
+  goal = (steer_pos_command == 1U) ?
+      (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
+      (left ? STEER_POS_LEFT_MIN_RAW : STEER_POS_RIGHT_MIN_RAW);
+  err = AS5600_ShortestDeltaCounts(raw, goal);
+  if (left != 0U) steer_pos_left_error = err;
+  else steer_pos_right_error = err;
+
+  abs_error = (uint16_t)((err < 0) ? -err : err);
+  if (abs_error <= STEER_POS_TOL_RAW)
+  {
+    if (axis->stable_count < STEER_POS_STABLE_SAMPLES)
+      axis->stable_count++;
+    if (axis->stable_count >= STEER_POS_STABLE_SAMPLES)
+      Steering_PositionAxisDone(left, 2U);
+    return;
+  }
+  axis->stable_count = 0U;
+
+  if (abs_error + 2U <= axis->best_abs_error)
+  {
+    axis->best_abs_error = abs_error;
+    axis->progress_ms = now;
+  }
+  if (((uint32_t)abs_error > ((uint32_t)axis->best_abs_error + 20U)) ||
+      ((uint32_t)(now - axis->progress_ms) > STEER_POS_STALL_MS))
+  {
+    Steering_PositionAxisFault(left, 8U);
+    return;
+  }
+
+  if (left != 0U)
+  {
+    /* LEFT angle toward MIN increases: DIR0; toward MAX decreases: DIR1. */
+    *direction = (err > 0) ? GPIO_PIN_RESET : GPIO_PIN_SET;
+    *duty = Steering_PositionDuty(err, steer_pos_left_pwm_min,
+                                  steer_pos_left_pwm_max, 2U);
+  }
+  else
+  {
+    /* RIGHT angle toward MIN decreases: DIR0; toward MAX increases: DIR1. */
+    *direction = (err < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET;
+    *duty = Steering_PositionDuty(err, steer_pos_right_pwm_min,
+                                  steer_pos_right_pwm_max, 4U);
+  }
+}
+
+/* Legacy full-probe debug can still be enabled manually, but the normal
+ * Live Expressions telemetry is automatically serviced with no enable.
+ * One sensor per visit (<=2ms HAL read), alternating approximately 50ms
+ * apart to avoid old double-bus polling jitter in M6 wheel PI.
+ */
+static void Steering_PositionTelemetryIdleUpdate(void)
+{
+  uint16_t raw;
+  uint32_t now = HAL_GetTick();
+  if ((steer_pos_active != 0U) || (debug_as5600_poll_enable != 0U))
+    return;
+  if ((uint32_t)(now - steer_pos_idle_last_ms) < STEER_POS_IDLE_POLL_MS)
+    return;
+  steer_pos_idle_last_ms = now;
+  (void)Steering_PositionReadOne(steer_pos_idle_next_side, &raw);
+  steer_pos_idle_next_side ^= 1U;
+}
+
 static void Steering_PositionUpdate(void)
 {
-  uint8_t buttons = 0U;
-  uint8_t raw_mask;
-  uint8_t can_start;
-  uint8_t is_escape;
-  uint16_t left_pwm = 0U, right_pwm = 0U;
-  uint32_t irq_state;
   uint32_t now = HAL_GetTick();
+  uint32_t irq_state;
+  uint8_t buttons = 0U;
+  uint8_t raw_mask, pending;
+  uint8_t allowed;
+  uint16_t left_cmd = 0U, right_cmd = 0U;
+  GPIO_PinState left_dir = GPIO_PIN_RESET;
+  GPIO_PinState right_dir = GPIO_PIN_RESET;
 
-  if ((PS2_Pad.R1 != 0U) && (PS2_Pad.Connected == 1U))
-    buttons |= 1U;
-  if ((PS2_Pad.R2 != 0U) && (PS2_Pad.Connected == 1U))
-    buttons |= 2U;
+  if ((PS2_Pad.Connected == 1U) && (PS2_Pad.R1 != 0U)) buttons |= 1U;
+  if ((PS2_Pad.Connected == 1U) && (PS2_Pad.R2 != 0U)) buttons |= 2U;
   steer_pos_buttons = buttons;
 
-  /* New direction or any other PS2 input cancels active position mode.
-   * R1/R2 are independent of drive/spin requests and may not overlap.
-   */
-  can_start = ((PS2_Pad.Connected == 1U) && (PS2_Pad.Mode == 0x73U) &&
-               (control_mode == CONTROL_MODE_PS2) &&
-               (control_stop_latched == 0U) && (ps2_cancel_hold == 0U) &&
-               (ps2_spin_rf_latched == 0U) && (voice_execution_active == 0U) &&
-               (voice_command_ready == 0U) &&
-               (PS2_Pad.L1 == 0U) && (PS2_Pad.L2 == 0U) &&
-               (PS2_Pad.Up == 0U) && (PS2_Pad.Down == 0U) &&
-               (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
-               (PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT) &&
-               (PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT) &&
-               (PS2_Pad.RX >= (128U-STEER_POS_RX_NEUTRAL_DELTA)) &&
-               (PS2_Pad.RX <= (128U+STEER_POS_RX_NEUTRAL_DELTA)) &&
-               (steer_pos_enable == 1U) &&
-               (debug_as5600_poll_enable == 0U) &&
-               (steer_test_running == 0U) &&
-               (steer_test_request == 0U) &&
-               (steer_test_arm == 0U) &&
-               (Steering_PositionWheelsStopped() != 0U));
+  allowed = ((PS2_Pad.Connected == 1U) && (PS2_Pad.Mode == 0x73U) &&
+             (control_mode == CONTROL_MODE_PS2) &&
+             (control_stop_latched == 0U) && (ps2_cancel_hold == 0U) &&
+             (ps2_spin_rf_latched == 0U) &&
+             (voice_execution_active == 0U) && (voice_command_ready == 0U) &&
+             (PS2_Pad.L1 == 0U) && (PS2_Pad.L2 == 0U) &&
+             (PS2_Pad.Up == 0U) && (PS2_Pad.Down == 0U) &&
+             (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
+             (PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT) &&
+             (PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT) &&
+             (PS2_Pad.RX >= (128U - STEER_POS_RX_NEUTRAL_DELTA)) &&
+             (PS2_Pad.RX <= (128U + STEER_POS_RX_NEUTRAL_DELTA)) &&
+             (steer_pos_enable == 1U) &&
+             (debug_as5600_poll_enable == 0U) &&
+             (steer_test_running == 0U) && (steer_test_request == 0U) &&
+             (steer_test_arm == 0U) &&
+             (Steering_PositionWheelsStopped() != 0U));
 
   if (steer_pos_active == 0U)
   {
-    /* Preserve legacy manually-armed M7-S02 steering pulses: this idle
-     * position service must NOT zero TIM12/TIM14 during a diagnostic run.
-     */
-    if (steer_test_running == 0U) Steering_TestOutputsOff();
+    if (steer_test_running == 0U)
+    {
+      Steering_PositionLeftOff();
+      Steering_PositionRightOff();
+    }
     if ((buttons == 0U) || (steer_pos_previous_buttons != 0U))
     {
       steer_pos_previous_buttons = buttons;
       return;
     }
     steer_pos_previous_buttons = buttons;
-    if ((buttons == 3U) || (can_start == 0U))
+
+    if ((buttons == 3U) || (allowed == 0U) ||
+        (debug_limit_r_max.initialized == 0U) ||
+        (debug_limit_r_min.initialized == 0U) ||
+        (debug_limit_l_min.initialized == 0U) ||
+        (debug_limit_l_max.initialized == 0U))
     {
       steer_pos_result = 6U;
       steer_pos_reject_count++;
       return;
     }
+
     raw_mask = Steering_TestRawLimitMask();
-    if ((debug_limit_r_max.initialized == 0U) ||
-        (debug_limit_r_min.initialized == 0U) ||
-        (debug_limit_l_min.initialized == 0U) ||
-        (debug_limit_l_max.initialized == 0U) ||
-        (Steering_PositionSensorRead() == 0U))
-    {
-      steer_pos_result = 4U;
-      steer_pos_reject_count++;
-      return;
-    }
-    /* R1 can do an <=1s MIN limit escape first. For safety it STOPS
-     * when the switch releases; user must release and press R1 again
-     * to travel to CENTER. No auto R_MAX escape is implemented.
+    /* Both MAX contacts remain prohibited: no verified automatic escape.
+     * A MIN contact is acceptable for R2 arrival or R1 short escape.
      */
-    if ((raw_mask != 0U) &&
-        !((buttons == 1U) &&
-          ((raw_mask & (uint8_t)~(STEER_LIMIT_L_MIN_MASK |
-                                  STEER_LIMIT_R_MIN_MASK)) == 0U)))
+    if ((raw_mask & (STEER_LIMIT_L_MAX_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
     {
       steer_pos_result = 3U;
       steer_pos_reject_count++;
       return;
     }
-    steer_pos_escape_mask = raw_mask;
+
     steer_pos_active = 1U;
     steer_pos_command = buttons;
     steer_pos_result = 1U;
-    steer_pos_limit_trip_mask = 0U;
-    steer_pos_stable_samples = 0U;
     steer_pos_start_ms = now;
-    steer_pos_left_motion_ms = now;
-    steer_pos_right_motion_ms = now;
-    steer_pos_left_best_error = 32767U;
-    steer_pos_right_best_error = 32767U;
+    steer_pos_irq_pending_mask = 0U;
+    steer_pos_limit_trip_mask = 0U;
+    steer_pos_left_state = STEER_AXIS_MOVING;
+    steer_pos_right_state = STEER_AXIS_MOVING;
+    steer_pos_left_result = 0U;
+    steer_pos_right_result = 0U;
+    steer_left_axis.progress_ms = now;
+    steer_right_axis.progress_ms = now;
+    steer_left_axis.best_abs_error = 32767U;
+    steer_right_axis.best_abs_error = 32767U;
+    steer_left_axis.stable_count = 0U;
+    steer_right_axis.stable_count = 0U;
     steer_pos_run_count++;
+
+    if (buttons == 1U)
+    {
+      if ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U)
+        steer_pos_left_state = STEER_AXIS_ESCAPING;
+      if ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U)
+        steer_pos_right_state = STEER_AXIS_ESCAPING;
+    }
+    else
+    {
+      if ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U)
+        Steering_PositionAxisDone(1U, 3U);
+      if ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U)
+        Steering_PositionAxisDone(0U, 3U);
+    }
+
+    /* At start collect independent baselines, reject each invalid side.
+     * Do not let a fault on one channel force the other to stop.
+     */
+    if (steer_pos_left_state != STEER_AXIS_DONE)
+    {
+      uint16_t v;
+      if ((Steering_PositionReadOne(1U, &v) == 0U) ||
+          (Steering_PositionRawInRange(1U, v) == 0U))
+        Steering_PositionAxisFault(1U, 4U);
+      else
+        steer_left_axis.last_raw = v;
+    }
+    if (steer_pos_right_state != STEER_AXIS_DONE)
+    {
+      uint16_t v;
+      if ((Steering_PositionReadOne(0U, &v) == 0U) ||
+          (Steering_PositionRawInRange(0U, v) == 0U))
+        Steering_PositionAxisFault(0U, 4U);
+      else
+        steer_right_axis.last_raw = v;
+    }
   }
   else
   {
     steer_pos_previous_buttons = buttons;
-    if ((can_start == 0U) ||
+    if ((allowed == 0U) ||
         ((buttons != 0U) && (buttons != steer_pos_command)))
     {
       Steering_PositionFinish(9U);
@@ -1788,171 +2099,127 @@ static void Steering_PositionUpdate(void)
     }
   }
 
-  is_escape = (steer_pos_escape_mask != 0U) ? 1U : 0U;
   raw_mask = Steering_TestRawLimitMask();
+  irq_state = __get_PRIMASK();
+  __disable_irq();
+  pending = steer_pos_irq_pending_mask;
+  steer_pos_irq_pending_mask = 0U;
+  if (irq_state == 0U) __enable_irq();
 
-  if (is_escape != 0U)
+  /* Apply per-axis IRQ hits; one axis reaches its own MIN without
+   * disturbing the partner motor. Unexpected hits are local faults.
+   */
+  if ((pending & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
   {
-    if (Steering_PositionSensorRead() == 0U)
-    {
-      Steering_PositionFinish(4U);
-      return;
-    }
-    if ((uint32_t)(now - steer_pos_start_ms) >= STEER_POS_ESCAPE_MAX_MS)
-    {
-      Steering_PositionFinish(5U);
-      return;
-    }
-    if ((raw_mask & (uint8_t)~steer_pos_escape_mask) != 0U)
-    {
-      Steering_PositionFinish(3U);
-      return;
-    }
-    /* On release stop; never automatically continue towards CENTER. */
-    if (raw_mask == 0U)
-    {
-      Steering_PositionFinish(7U);
-      return;
-    }
-    left_pwm = ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U) ?
-        STEER_TEST_LEFT_PWM_DUTY : 0U;
-    right_pwm = ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U) ?
-        STEER_TEST_RIGHT_PWM_DUTY : 0U;
-    /* Escape MIN: LEFT RAW must decrease; RIGHT RAW must increase. */
-    if (((left_pwm != 0U) && (steer_pos_left_step > 5)) ||
-        ((right_pwm != 0U) && (steer_pos_right_step < -5)) ||
-        ((left_pwm != 0U) &&
-         ((uint32_t)(now - steer_pos_left_motion_ms) > STEER_POS_STALL_MS)) ||
-        ((right_pwm != 0U) &&
-         ((uint32_t)(now - steer_pos_right_motion_ms) > STEER_POS_STALL_MS)))
-    {
-      Steering_PositionFinish(8U);
-      return;
-    }
-    /* Both escape MIN toward CENTER use DIR1. */
+    if ((steer_pos_command == 2U) &&
+        ((pending & STEER_LIMIT_L_MIN_MASK) != 0U) &&
+        ((pending & STEER_LIMIT_L_MAX_MASK) == 0U))
+      Steering_PositionAxisDone(1U, 3U);
+    else
+      Steering_PositionAxisFault(1U, 9U);
   }
-  else
+  if ((pending & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
   {
-    uint16_t left_goal = (steer_pos_command == 1U) ?
-        STEER_POS_LEFT_CENTER_RAW : STEER_POS_LEFT_MIN_RAW;
-    uint16_t right_goal = (steer_pos_command == 1U) ?
-        STEER_POS_RIGHT_CENTER_RAW : STEER_POS_RIGHT_MIN_RAW;
-    int16_t lerr, rerr;
-    if (raw_mask != 0U)
-    {
-      Steering_PositionFinish(3U);
-      return;
-    }
-    if ((uint32_t)(now - steer_pos_start_ms) >= STEER_POS_RUN_MAX_MS)
-    {
-      Steering_PositionFinish(5U);
-      return;
-    }
-    if (Steering_PositionSensorRead() == 0U)
-    {
-      Steering_PositionFinish(4U);
-      return;
-    }
-
-    lerr = AS5600_ShortestDeltaCounts(steer_pos_left_raw, left_goal);
-    rerr = AS5600_ShortestDeltaCounts(steer_pos_right_raw, right_goal);
-    steer_pos_left_error = lerr;
-    steer_pos_right_error = rerr;
-    /* Abort persistent drift away from the requested angle, including
-     * slow wrong-way rotation below the single-frame detection threshold.
-     */
-    {
-      uint16_t la = (uint16_t)((lerr < 0) ? -lerr : lerr);
-      uint16_t ra = (uint16_t)((rerr < 0) ? -rerr : rerr);
-      if (la < steer_pos_left_best_error) steer_pos_left_best_error = la;
-      if (ra < steer_pos_right_best_error) steer_pos_right_best_error = ra;
-      if (((uint32_t)la > ((uint32_t)steer_pos_left_best_error + 20U)) ||
-          ((uint32_t)ra > ((uint32_t)steer_pos_right_best_error + 20U)))
-      {
-        Steering_PositionFinish(8U);
-        return;
-      }
-    }
-    if ((lerr >= -STEER_POS_CENTER_TOL) &&
-        (lerr <= STEER_POS_CENTER_TOL) &&
-        (rerr >= -STEER_POS_CENTER_TOL) &&
-        (rerr <= STEER_POS_CENTER_TOL))
-    {
-      steer_pos_stable_samples++;
-      Steering_TestOutputsOff();
-      steer_pos_left_pwm = 0U;
-      steer_pos_right_pwm = 0U;
-      if (steer_pos_stable_samples >= STEER_POS_STABLE_SAMPLES)
-        Steering_PositionFinish(2U);
-      return;
-    }
-    steer_pos_stable_samples = 0U;
-    left_pwm = ((lerr < -STEER_POS_CENTER_TOL) ||
-                (lerr > STEER_POS_CENTER_TOL)) ?
-        Steering_PositionDuty(lerr, 80U, STEER_TEST_LEFT_PWM_DUTY, 2U) : 0U;
-    right_pwm = ((rerr < -STEER_POS_MIN_TOL) ||
-                 (rerr > STEER_POS_MIN_TOL)) ?
-        Steering_PositionDuty(rerr, 50U, STEER_TEST_RIGHT_PWM_DUTY, 4U) : 0U;
-
-    if ((left_pwm != 0U) &&
-        (((lerr > 0) && (steer_pos_left_step < -5)) ||
-         ((lerr < 0) && (steer_pos_left_step > 5))))
-    {
-      Steering_PositionFinish(8U); /* angle moved away from goal */
-      return;
-    }
-    if ((right_pwm != 0U) &&
-        (((rerr > 0) && (steer_pos_right_step < -5)) ||
-         ((rerr < 0) && (steer_pos_right_step > 5))))
-    {
-      Steering_PositionFinish(8U);
-      return;
-    }
-    if ((left_pwm != 0U) &&
-        ((uint32_t)(now - steer_pos_left_motion_ms) > STEER_POS_STALL_MS))
-    {
-      Steering_PositionFinish(8U);
-      return;
-    }
-    if ((right_pwm != 0U) &&
-        ((uint32_t)(now - steer_pos_right_motion_ms) > STEER_POS_STALL_MS))
-    {
-      Steering_PositionFinish(8U);
-      return;
-    }
-    if (left_pwm == 0U) steer_pos_left_motion_ms = now;
-    if (right_pwm == 0U) steer_pos_right_motion_ms = now;
+    if ((steer_pos_command == 2U) &&
+        ((pending & STEER_LIMIT_R_MIN_MASK) != 0U) &&
+        ((pending & STEER_LIMIT_R_MAX_MASK) == 0U))
+      Steering_PositionAxisDone(0U, 3U);
+    else
+      Steering_PositionAxisFault(0U, 9U);
   }
 
-  /* EXTI may immediately stop on any newly rising NC-open limit.
-   * Never re-energize after an EXTI trip; validate raw limit atomically.
+  if ((uint32_t)(now - steer_pos_start_ms) >= STEER_POS_TIMEOUT_MS)
+  {
+    if ((steer_pos_left_state == STEER_AXIS_MOVING) ||
+        (steer_pos_left_state == STEER_AXIS_ESCAPING))
+      Steering_PositionAxisFault(1U, 5U);
+    if ((steer_pos_right_state == STEER_AXIS_MOVING) ||
+        (steer_pos_right_state == STEER_AXIS_ESCAPING))
+      Steering_PositionAxisFault(0U, 5U);
+  }
+
+  Steering_PositionAxisUpdate(1U, raw_mask, now, &left_cmd, &left_dir);
+  Steering_PositionAxisUpdate(0U, raw_mask, now, &right_cmd, &right_dir);
+
+  /* ATOMIC recheck: no limit IRQ may arrive between checking GPIO and
+   * writing compare; when interrupts unmask, pending limit callback
+   * immediately kills only the axis whose NC contact rose.
    */
   irq_state = __get_PRIMASK();
   __disable_irq();
-  if ((steer_pos_active != 0U) &&
-      (((is_escape != 0U) &&
-        ((Steering_TestRawLimitMask() &
-           (uint8_t)~steer_pos_escape_mask) == 0U)) ||
-       ((is_escape == 0U) && (Steering_TestRawLimitMask() == 0U))))
+  raw_mask = Steering_TestRawLimitMask();
+
+  if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
+      ((raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U))
   {
-    if (left_pwm != 0U)
-      HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port, MOTOR_DIR_TURN_left_Pin,
-          (is_escape != 0U || steer_pos_left_error < 0) ?
-          GPIO_PIN_SET : GPIO_PIN_RESET);
-    if (right_pwm != 0U)
-      HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port, MOTOR_DIR_TURN_right_Pin,
-          (is_escape != 0U || steer_pos_right_error > 0) ?
-          GPIO_PIN_SET : GPIO_PIN_RESET);
-    __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, left_pwm);
-    __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, right_pwm);
-    steer_pos_left_pwm = left_pwm;
-    steer_pos_right_pwm = right_pwm;
+    if ((steer_pos_command == 2U) &&
+        ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U) &&
+        ((raw_mask & STEER_LIMIT_L_MAX_MASK) == 0U))
+      Steering_PositionAxisDone(1U, 3U);
+    else
+      Steering_PositionAxisFault(1U, 9U);
+  }
+  if ((steer_pos_right_state == STEER_AXIS_MOVING) &&
+      ((raw_mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U))
+  {
+    if ((steer_pos_command == 2U) &&
+        ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U) &&
+        ((raw_mask & STEER_LIMIT_R_MAX_MASK) == 0U))
+      Steering_PositionAxisDone(0U, 3U);
+    else
+      Steering_PositionAxisFault(0U, 9U);
+  }
+
+  if ((steer_pos_left_state == STEER_AXIS_MOVING) ||
+      (steer_pos_left_state == STEER_AXIS_ESCAPING))
+  {
+    if ((steer_pos_left_state != STEER_AXIS_ESCAPING) ||
+        ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U))
+    {
+      if (left_cmd != 0U)
+        HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port,
+                          MOTOR_DIR_TURN_left_Pin, left_dir);
+      __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, left_cmd);
+      steer_pos_left_pwm = left_cmd;
+    }
+    else
+      Steering_PositionAxisDone(1U, 7U);
   }
   else
+    Steering_PositionLeftOff();
+
+  if ((steer_pos_right_state == STEER_AXIS_MOVING) ||
+      (steer_pos_right_state == STEER_AXIS_ESCAPING))
   {
-    Steering_PositionFinish(3U);
+    if ((steer_pos_right_state != STEER_AXIS_ESCAPING) ||
+        ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U))
+    {
+      if (right_cmd != 0U)
+        HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port,
+                          MOTOR_DIR_TURN_right_Pin, right_dir);
+      __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, right_cmd);
+      steer_pos_right_pwm = right_cmd;
+    }
+    else
+      Steering_PositionAxisDone(0U, 7U);
   }
+  else
+    Steering_PositionRightOff();
+
   if (irq_state == 0U) __enable_irq();
+
+  if ((steer_pos_left_state >= STEER_AXIS_DONE) &&
+      (steer_pos_right_state >= STEER_AXIS_DONE))
+  {
+    uint8_t result = 2U;
+    if ((steer_pos_left_state == STEER_AXIS_ERROR) ||
+        (steer_pos_right_state == STEER_AXIS_ERROR))
+      result = 8U;
+    else if ((steer_pos_left_result == 7U) ||
+             (steer_pos_right_result == 7U))
+      result = 7U;
+    Steering_PositionFinish(result);
+  }
 }
 
 static int16_t PS2_Convert_LY_To_PWM(uint8_t ly)
@@ -3317,6 +3584,7 @@ int main(void)
      */
     Steering_TestPulseUpdate();
     Steering_PositionUpdate(); /* default DISABLED; needs explicit opt-in */
+    Steering_PositionTelemetryIdleUpdate(); /* AS5600 live without poll flag */
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
     RamLogger_DumpCsvUpdate();
