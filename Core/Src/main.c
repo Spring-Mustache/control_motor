@@ -1642,6 +1642,13 @@ static uint8_t Steering_ManualInputsNeutral(void)
 volatile uint8_t steer_pos_enable = 0U;
 volatile uint8_t steer_pos_active = 0U;
 volatile uint8_t steer_pos_result = 0U;
+/* Why a fresh R1/R2 press was rejected:
+ * 0 accepted; 1 disarmed; 2 PS2 lost/digital; 3 STOP/Voice/priority;
+ * 4 conflicting PS2 movement inputs; 5 wheels not settled;
+ * 6 debug/diagnostic steering active; 7 limit input not initialized;
+ * 8 R1+R2 together; 9 manual PWM owner still active.
+ */
+volatile uint8_t steer_pos_block_reason = 0U;
 volatile uint8_t steer_pos_command = 0U;
 volatile uint8_t steer_pos_escape_mask = 0U;
 volatile uint8_t steer_pos_buttons = 0U;
@@ -2118,11 +2125,40 @@ static void Steering_PositionUpdate(void)
         (debug_limit_l_min.initialized == 0U) ||
         (debug_limit_l_max.initialized == 0U))
     {
+      if (buttons == 3U) steer_pos_block_reason = 8U;
+      else if (steer_pos_enable != 1U) steer_pos_block_reason = 1U;
+      else if ((PS2_Pad.Connected != 1U) ||
+               (PS2_Pad.Mode != 0x73U))
+        steer_pos_block_reason = 2U;
+      else if ((debug_limit_r_max.initialized == 0U) ||
+               (debug_limit_r_min.initialized == 0U) ||
+               (debug_limit_l_min.initialized == 0U) ||
+               (debug_limit_l_max.initialized == 0U))
+        steer_pos_block_reason = 7U;
+      else if (steer_manual_active != 0U) steer_pos_block_reason = 9U;
+      else if (Steering_PositionWheelsStopped() == 0U)
+        steer_pos_block_reason = 5U;
+      else if ((debug_as5600_poll_enable != 0U) ||
+               (steer_test_running != 0U) ||
+               (steer_test_request != 0U) ||
+               (steer_test_arm != 0U))
+        steer_pos_block_reason = 6U;
+      else if ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U) ||
+               (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
+               (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U) ||
+               (PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
+               (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
+               (PS2_Pad.RX < (128U - STEER_POS_RX_NEUTRAL_DELTA)) ||
+               (PS2_Pad.RX > (128U + STEER_POS_RX_NEUTRAL_DELTA)))
+        steer_pos_block_reason = 4U;
+      else steer_pos_block_reason = 3U;
+
       steer_pos_result = 6U;
       steer_pos_reject_count++;
       return;
     }
 
+    steer_pos_block_reason = 0U;
     raw_mask = Steering_TestRawLimitMask();
     /* Each asserted NC endstop may be departed only for <=1s in the
      * known safe opposite direction. A dual active limit on one axis is
