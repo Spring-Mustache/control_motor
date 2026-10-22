@@ -3463,9 +3463,20 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       (movement < -STEER_CAL_JUMP_MAX_RAW))
     return 4U;
   axis->last_raw = raw;
-
-  if ((movement >= 2) || (movement <= -2))
-    axis->last_progress_ms = now;
+  if (left != 0U)
+  {
+    steer_cal_left_last_raw = raw;
+    steer_cal_left_last_delta = movement;
+    steer_cal_left_progress_age_ms =
+        (uint32_t)(now - axis->last_progress_ms);
+  }
+  else
+  {
+    steer_cal_right_last_raw = raw;
+    steer_cal_right_last_delta = movement;
+    steer_cal_right_progress_age_ms =
+        (uint32_t)(now - axis->last_progress_ms);
+  }
 
   if ((stage == STEER_CAL_EXIT_MIN) ||
       (stage == STEER_CAL_EXIT_MAX) ||
@@ -3538,6 +3549,16 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       return 0U; /* at least one full control frame with zero CCR */
     }
     if (limit != own) return Steering_CalLimitFault(left, 3U);
+    /* Allow the old inbound motion to settle before reversing under
+     * load. The switch remains asserted and the output is forced zero.
+     * When the settling interval ends, reset the stall clock so the
+     * motor gets its full independent escape stall allowance.
+     */
+    if ((uint32_t)(now - axis->stage_begin) < STEER_CAL_REVERSE_SETTLE_MS)
+    {
+      axis->last_progress_ms = now;
+      return 0U;
+    }
     /* NC bounced during safe departure. Do not energize in this frame. */
     if (edge == own) return 0U;
     direction_zero = (from_min != 0U) ? 0U : 1U;
@@ -3575,20 +3596,21 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
   }
   else return Steering_CalLimitFault(left, 3U);
 
-  /* Directional AS5600 movement check, excluding initial 0 step.
-   * DIR0 means left RAW increases / right RAW decreases.
+  /* Progress is only motion TOWARD the previously commanded
+   * direction. Jitter or small reverse movement must not reset the
+   * watchdog and mask a stuck or miswired axis.
    */
-  if (((movement > 5) || (movement < -5)) &&
-      (axis->last_drive_valid != 0U))
+  if (axis->last_drive_valid != 0U)
   {
-    /* The sample reflects PREVIOUS cycle's motor direction, not
-     * the direction chosen by the new phase this cycle.
-     */
     uint8_t should_increase = left ? axis->last_drive_dir0 :
                                      (uint8_t)(!axis->last_drive_dir0);
-    if (((should_increase != 0U) && (movement < 0)) ||
-        ((should_increase == 0U) && (movement > 0)))
-      return 7U;
+    if (((should_increase != 0U) && (movement < -5)) ||
+        ((should_increase == 0U) && (movement > 5)))
+      return Steering_CalMotionFault(left, 1U, stage, raw,
+                                      movement, now);
+    if (((should_increase != 0U) && (movement >= 2)) ||
+        ((should_increase == 0U) && (movement <= -2)))
+      axis->last_progress_ms = now;
   }
   {
     uint16_t stall_ms = left ? steer_cal_left_stall_timeout_ms :
@@ -3596,7 +3618,8 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
     if (stall_ms < 500U) stall_ms = 500U;
     if (stall_ms > 1600U) stall_ms = 1600U;
     if ((uint32_t)(now - axis->last_progress_ms) >= stall_ms)
-      return 7U;
+      return Steering_CalMotionFault(left, 2U, stage, raw,
+                                      movement, now);
   }
 
   /* Never let calibration exceed the independently tested PWM ceilings. */
@@ -3936,9 +3959,11 @@ static void Steering_CalUpdate(void)
     steer_cal_left_axis.last_drive_valid = (lpwm != 0U) ? 1U : 0U;
     steer_cal_left_axis.last_drive_dir0 =
         (ldir == GPIO_PIN_RESET) ? 1U : 0U;
+    if (lpwm != 0U) steer_cal_left_axis.last_drive_ms = now;
     steer_cal_right_axis.last_drive_valid = (rpwm != 0U) ? 1U : 0U;
     steer_cal_right_axis.last_drive_dir0 =
         (rdir == GPIO_PIN_RESET) ? 1U : 0U;
+    if (rpwm != 0U) steer_cal_right_axis.last_drive_ms = now;
   }
   if (primask == 0U) __enable_irq();
   if (steer_cal_active == 0U) return;
