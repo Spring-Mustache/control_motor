@@ -1592,7 +1592,9 @@ volatile uint32_t steer_manual_irq_count = 0U;
 volatile uint8_t steer_manual_irq_trip_mask = 0U;
 static volatile uint8_t steer_manual_irq_pending_mask = 0U;
 
-/* Kept in physical-meaning order: -1 = MIN, +1 = MAX. */
+/* User steering input meaning for LEFT axis: -1 = LEFT MIN,
+ * +1 = LEFT MAX. RIGHT intentionally has the opposite axis target.
+ */
 static int8_t Steering_ManualRequestDirection(void)
 {
   int16_t rx;
@@ -5243,7 +5245,7 @@ volatile uint8_t debug_ps2_new_mapping_valid = 0U;
 volatile uint8_t debug_ps2_request_center = 0U;
 volatile uint8_t debug_ps2_request_min = 0U;
 volatile int8_t debug_ps2_spin_direction = 0; /* +1 L1, -1 L2 */
-volatile int8_t debug_ps2_steer_direction = 0; /* -1 MIN, +1 MAX */
+volatile int8_t debug_ps2_steer_direction = 0; /* -1 LEFT->MIN, RIGHT->MAX; +1 LEFT->MAX, RIGHT->MIN */
 volatile uint16_t debug_ps2_steer_left_pwm = 0U;
 volatile uint16_t debug_ps2_steer_right_pwm = 0U;
 volatile uint8_t debug_ps2_rx_value = 128U;
