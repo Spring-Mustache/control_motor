@@ -2017,6 +2017,208 @@ static void Steering_PositionEscapeReleased(uint8_t left, uint32_t now)
   else steer_pos_right_state = STEER_AXIS_MOVING;
 }
 
+/* R1 fine correction. All calls are AFTER the normal I2C/NC/sensor
+ * plausibility checks, BEFORE the existing atomic CCR/late-IRQ guards.
+ * Each axis owns only its own PWM. Phase 1 holds CCR=0 until mechanical
+ * coasting has stopped; phase 2 emits ONE short direction-checked pulse.
+ * No unbounded hunt or automatic power escalation is permitted.
+ */
+static uint16_t Steering_PositionFinePulseMs(uint16_t v)
+{
+  if (v < 12U) return 12U;
+  return (v > 60U) ? 60U : v;
+}
+
+static void Steering_PositionFineFault(uint8_t left, uint8_t reason)
+{
+  if (left != 0U)
+  {
+    steer_pos_left_fine_fault = reason;
+    steer_pos_left_fine_phase = 4U;
+  }
+  else
+  {
+    steer_pos_right_fine_fault = reason;
+    steer_pos_right_fine_phase = 4U;
+  }
+  Steering_PositionAxisFault(left, STEER_POS_FINE_RESULT_FAIL);
+}
+
+static void Steering_PositionFineUpdate(uint8_t left,
+                                        SteeringPositionAxis_t *axis,
+                                        uint16_t raw, int16_t err,
+                                        int16_t step, uint32_t now,
+                                        uint16_t *duty,
+                                        GPIO_PinState *direction)
+{
+  uint16_t magnitude = (uint16_t)((err < 0) ? -err : err);
+  uint16_t tol = Steering_CenterFineTolClamp(
+      left ? steer_pos_left_center_tol_raw :
+             steer_pos_right_center_tol_raw);
+  uint16_t pulse_ms = Steering_PositionFinePulseMs(
+      left ? steer_pos_left_fine_pulse_ms :
+             steer_pos_right_fine_pulse_ms);
+  uint16_t pwm = Steering_PositionClampDuty(
+      left ? steer_pos_left_fine_pwm : steer_pos_right_fine_pwm);
+  uint16_t pwm_cap = Steering_PositionClampDuty(
+      left ? steer_pos_left_pwm_max : steer_pos_right_pwm_max);
+  uint8_t dir0;
+  int16_t quiet_drift;
+
+  *duty = 0U;
+  if (left != 0U)
+  {
+    steer_pos_left_fine_error = err;
+    steer_pos_left_fine_pulses = axis->fine_pulses;
+  }
+  else
+  {
+    steer_pos_right_fine_error = err;
+    steer_pos_right_fine_pulses = axis->fine_pulses;
+  }
+  if (magnitude > STEER_POS_FINE_ABORT_RAW)
+  {
+    Steering_PositionFineFault(left, 2U); /* unexpected overshoot */
+    return;
+  }
+
+  /* Bounded per-motor compare: no more than existing tested max.
+   * A very weak motor may not respond to short pulses: 8 attempts
+   * then report a local fault instead of claiming ±5 was reached.
+   */
+  if (pwm > pwm_cap) pwm = pwm_cap;
+  if (left != 0U)
+  {
+    if (pwm > 300U) pwm = 300U;
+  }
+  else
+  {
+    if (pwm > 100U) pwm = 100U;
+  }
+  if (pwm == 0U)
+  {
+    Steering_PositionFineFault(left, 3U); /* explicitly disabled pulse */
+    return;
+  }
+
+  if (axis->fine_phase == STEER_POS_FINE_PHASE_IDLE)
+  {
+    axis->fine_phase = STEER_POS_FINE_PHASE_SETTLE;
+    axis->fine_phase_start_ms = now;
+    axis->fine_quiet_since_ms = now;
+    axis->fine_quiet_raw = raw;
+  }
+
+  if (axis->fine_phase == STEER_POS_FINE_PHASE_PULSE)
+  {
+    uint8_t expect_increase = left ? axis->fine_dir0 :
+                                    (uint8_t)(!axis->fine_dir0);
+    /* Only diagnose wrong direction while actual PWM is pulsing,
+     * after the previous quiet interval, not while the motor coasts.
+     */
+    if (((expect_increase != 0U) && (step < -5)) ||
+        ((expect_increase == 0U) && (step > 5)))
+    {
+      Steering_PositionFineFault(left, 4U);
+      return;
+    }
+
+    if ((magnitude <= tol) ||
+        ((axis->fine_start_error > 0) && (err <= 0)) ||
+        ((axis->fine_start_error < 0) && (err >= 0)) ||
+        ((uint32_t)(now - axis->fine_phase_start_ms) >= pulse_ms))
+    {
+      axis->fine_phase = STEER_POS_FINE_PHASE_SETTLE;
+      axis->fine_phase_start_ms = now;
+      axis->fine_quiet_since_ms = now;
+      axis->fine_quiet_raw = raw;
+      /* PWM is zero THIS frame. No immediate powered reversal. */
+    }
+    else
+    {
+      *direction = (axis->fine_dir0 != 0U) ?
+                   GPIO_PIN_RESET : GPIO_PIN_SET;
+      *duty = pwm;
+    }
+  }
+  else if (axis->fine_phase == STEER_POS_FINE_PHASE_SETTLE)
+  {
+    quiet_drift = AS5600_ShortestDeltaCounts(axis->fine_quiet_raw, raw);
+    if ((step > 1) || (step < -1) ||
+        (quiet_drift > 2) || (quiet_drift < -2))
+    {
+      axis->fine_quiet_since_ms = now;
+      axis->fine_quiet_raw = raw;
+    }
+
+    /* Never re-power during coasting. ±5 succeeds only if the
+     * measured sensor is still inside the band AFTER the quiet hold.
+     */
+    if (((uint32_t)(now - axis->fine_phase_start_ms) >=
+         STEER_POS_FINE_OFF_MIN_MS) &&
+        ((uint32_t)(now - axis->fine_quiet_since_ms) >=
+         STEER_POS_FINE_QUIET_MS))
+    {
+      if (magnitude <= tol)
+      {
+        if ((uint32_t)(now - axis->fine_quiet_since_ms) >=
+            STEER_POS_FINE_CAPTURE_MS)
+        {
+          if (left != 0U)
+          {
+            steer_pos_left_center_final_raw = raw;
+            steer_pos_left_fine_phase = 3U;
+          }
+          else
+          {
+            steer_pos_right_center_final_raw = raw;
+            steer_pos_right_fine_phase = 3U;
+          }
+          Steering_PositionAxisDone(left, 2U);
+          return;
+        }
+      }
+      else
+      {
+        if (axis->fine_pulses >= STEER_POS_FINE_MAX_PULSES)
+        {
+          Steering_PositionFineFault(left, 1U); /* exhausted trim pulses */
+          return;
+        }
+
+        /* A new pulse begins ONLY after zero-PWM settle; right DIR0
+         * decreases RAW, left DIR0 increases RAW.
+         */
+        dir0 = left ? (err > 0) : (err < 0);
+        axis->fine_dir0 = dir0;
+        axis->fine_start_error = err;
+        axis->fine_phase = STEER_POS_FINE_PHASE_PULSE;
+        axis->fine_phase_start_ms = now;
+        axis->fine_pulses++;
+        *direction = (dir0 != 0U) ?
+                     GPIO_PIN_RESET : GPIO_PIN_SET;
+        *duty = pwm;
+      }
+    }
+  }
+  else
+  {
+    Steering_PositionFineFault(left, 5U); /* invalid internal phase */
+    return;
+  }
+
+  if (left != 0U)
+  {
+    steer_pos_left_fine_phase = axis->fine_phase;
+    steer_pos_left_fine_pulses = axis->fine_pulses;
+  }
+  else
+  {
+    steer_pos_right_fine_phase = axis->fine_phase;
+    steer_pos_right_fine_pulses = axis->fine_pulses;
+  }
+}
+
 /* Independent axis servo. No checks on the other side's limit inputs.
  * Uses actual observed progress, not only encoder noise / timeout.
  */
@@ -2141,23 +2343,28 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   else steer_pos_right_error = err;
 
   abs_error = (uint16_t)((err < 0) ? -err : err);
-  /* R1 CENTER uses each motor's mechanical settling tolerance.
-   * R2 MIN still uses the original strict ±5 RAW threshold.
-   * Motors already in CENTER band must not hunt on an R1 press.
+  /* R1: coarse approach to ±35, then independently pulsed ±5 trim.
+   * Never declare R1 DONE merely because error is within Select's
+   * larger 15/20-count coarse acceptance band.
+   * R2 MIN remains its previously validated ±5 controller.
    */
+  if (steer_pos_command == 1U)
   {
-    uint16_t tol = (steer_pos_command == 1U) ?
-        Steering_CenterTolClamp(left ? steer_pos_left_center_tol_raw :
-                                      steer_pos_right_center_tol_raw) :
-        STEER_POS_TOL_RAW;
-    if (abs_error <= tol)
+    if ((axis->fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
+        (abs_error <= STEER_POS_FINE_ENTER_RAW))
     {
-      if (axis->stable_count < STEER_POS_STABLE_SAMPLES)
-        axis->stable_count++;
-      if (axis->stable_count >= STEER_POS_STABLE_SAMPLES)
-        Steering_PositionAxisDone(left, 2U);
+      Steering_PositionFineUpdate(left, axis, raw, err, step, now,
+                                  duty, direction);
       return;
     }
+  }
+  else if (abs_error <= STEER_POS_TOL_RAW)
+  {
+    if (axis->stable_count < STEER_POS_STABLE_SAMPLES)
+      axis->stable_count++;
+    if (axis->stable_count >= STEER_POS_STABLE_SAMPLES)
+      Steering_PositionAxisDone(left, 2U);
+    return;
   }
 
   axis->stable_count = 0U;
