@@ -6029,6 +6029,294 @@ static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
       break;
   }
 }
+/* S11 DEBUG SYMBOL RETENTION -- diagnostics only.
+ * With incident lockout compiled ON, GCC/linker can remove volatile
+ * variables whose only users were eliminated steering motion paths.
+ * Keep the legacy watch variables in the DEBUG ELF by reading them
+ * ONCE at boot. All branches and motion gates remain unchanged.
+ * This function neither writes steering controls nor enables PWM.
+ * Not compiled into Release firmware.
+ */
+#ifdef DEBUG
+static volatile uint32_t steer_debug_watch_boot_nonzero_count = 0U;
+static void Steering_DebugRetainWatchSymbols(void)
+{
+  uint32_t nonzero = 0U;
+  nonzero += (uint32_t)(debug_as5600_poll_enable != 0);
+  nonzero += (uint32_t)(debug_as5600_left_raw != 0);
+  nonzero += (uint32_t)(debug_as5600_right_raw != 0);
+  nonzero += (uint32_t)(debug_as5600_left_deg != 0);
+  nonzero += (uint32_t)(debug_as5600_right_deg != 0);
+  nonzero += (uint32_t)(debug_as5600_left_status != 0);
+  nonzero += (uint32_t)(debug_as5600_right_status != 0);
+  nonzero += (uint32_t)(debug_as5600_left_comm_ok != 0);
+  nonzero += (uint32_t)(debug_as5600_right_comm_ok != 0);
+  nonzero += (uint32_t)(debug_as5600_left_magnet_detected != 0);
+  nonzero += (uint32_t)(debug_as5600_right_magnet_detected != 0);
+  nonzero += (uint32_t)(debug_as5600_left_magnet_too_weak != 0);
+  nonzero += (uint32_t)(debug_as5600_right_magnet_too_weak != 0);
+  nonzero += (uint32_t)(debug_as5600_left_magnet_too_strong != 0);
+  nonzero += (uint32_t)(debug_as5600_right_magnet_too_strong != 0);
+  nonzero += (uint32_t)(debug_as5600_left_read_ok_count != 0);
+  nonzero += (uint32_t)(debug_as5600_right_read_ok_count != 0);
+  nonzero += (uint32_t)(debug_as5600_left_read_fail_count != 0);
+  nonzero += (uint32_t)(debug_as5600_right_read_fail_count != 0);
+  nonzero += (uint32_t)(debug_as5600_left_device_ready != 0);
+  nonzero += (uint32_t)(debug_as5600_right_device_ready != 0);
+  nonzero += (uint32_t)(debug_as5600_left_ready_status != 0);
+  nonzero += (uint32_t)(debug_as5600_right_ready_status != 0);
+  nonzero += (uint32_t)(debug_as5600_left_ready_error != 0);
+  nonzero += (uint32_t)(debug_as5600_right_ready_error != 0);
+  nonzero += (uint32_t)(debug_as5600_left_read_status != 0);
+  nonzero += (uint32_t)(debug_as5600_right_read_status != 0);
+  nonzero += (uint32_t)(debug_as5600_left_read_error != 0);
+  nonzero += (uint32_t)(debug_as5600_right_read_error != 0);
+  nonzero += (uint32_t)(debug_as5600_left_i2c_state != 0);
+  nonzero += (uint32_t)(debug_as5600_right_i2c_state != 0);
+  nonzero += (uint32_t)(debug_as5600_left_recovery_attempted != 0);
+  nonzero += (uint32_t)(debug_as5600_left_recovery_pulses != 0);
+  nonzero += (uint32_t)(debug_as5600_left_recovery_scl_high != 0);
+  nonzero += (uint32_t)(debug_as5600_left_recovery_sda_high != 0);
+  nonzero += (uint32_t)(debug_as5600_left_recovery_bus_ok != 0);
+  nonzero += (uint32_t)(debug_as5600_left_probe_blocked != 0);
+  nonzero += (uint32_t)(debug_as5600_left_startup_settle_ms != 0);
+  nonzero += (uint32_t)(debug_as5600_right_recovery_attempted != 0);
+  nonzero += (uint32_t)(debug_as5600_right_recovery_pulses != 0);
+  nonzero += (uint32_t)(debug_as5600_right_recovery_scl_high != 0);
+  nonzero += (uint32_t)(debug_as5600_right_recovery_sda_high != 0);
+  nonzero += (uint32_t)(debug_as5600_right_recovery_bus_ok != 0);
+  nonzero += (uint32_t)(debug_as5600_right_probe_blocked != 0);
+  nonzero += (uint32_t)(debug_as5600_right_startup_settle_ms != 0);
+  nonzero += (uint32_t)(debug_as5600_cal_command != 0);
+  nonzero += (uint32_t)(debug_as5600_cal_last_result != 0);
+  nonzero += (uint32_t)(debug_as5600_left_min_raw != 0);
+  nonzero += (uint32_t)(debug_as5600_left_center_raw != 0);
+  nonzero += (uint32_t)(debug_as5600_left_max_raw != 0);
+  nonzero += (uint32_t)(debug_as5600_right_min_raw != 0);
+  nonzero += (uint32_t)(debug_as5600_right_center_raw != 0);
+  nonzero += (uint32_t)(debug_as5600_right_max_raw != 0);
+  nonzero += (uint32_t)(debug_as5600_left_min_valid != 0);
+  nonzero += (uint32_t)(debug_as5600_left_center_valid != 0);
+  nonzero += (uint32_t)(debug_as5600_left_max_valid != 0);
+  nonzero += (uint32_t)(debug_as5600_right_min_valid != 0);
+  nonzero += (uint32_t)(debug_as5600_right_center_valid != 0);
+  nonzero += (uint32_t)(debug_as5600_right_max_valid != 0);
+  nonzero += (uint32_t)(debug_as5600_left_min_from_center_counts != 0);
+  nonzero += (uint32_t)(debug_as5600_left_max_from_center_counts != 0);
+  nonzero += (uint32_t)(debug_as5600_right_min_from_center_counts != 0);
+  nonzero += (uint32_t)(debug_as5600_right_max_from_center_counts != 0);
+  nonzero += (uint32_t)(debug_as5600_left_span_counts != 0);
+  nonzero += (uint32_t)(debug_as5600_right_span_counts != 0);
+  nonzero += (uint32_t)(debug_as5600_left_min_from_center_deg != 0);
+  nonzero += (uint32_t)(debug_as5600_left_max_from_center_deg != 0);
+  nonzero += (uint32_t)(debug_as5600_right_min_from_center_deg != 0);
+  nonzero += (uint32_t)(debug_as5600_right_max_from_center_deg != 0);
+  nonzero += (uint32_t)(debug_as5600_left_span_deg != 0);
+  nonzero += (uint32_t)(debug_as5600_right_span_deg != 0);
+  nonzero += (uint32_t)(steer_safety_motion_permit != 0);
+  nonzero += (uint32_t)(steer_safety_trip_latched != 0);
+  nonzero += (uint32_t)(steer_safety_trip_mask != 0);
+  nonzero += (uint32_t)(steer_safety_trip_reason != 0);
+  nonzero += (uint32_t)(steer_safety_trip_left_raw != 0);
+  nonzero += (uint32_t)(steer_safety_trip_right_raw != 0);
+  nonzero += (uint32_t)(steer_safety_blocked_cycles != 0);
+  nonzero += (uint32_t)(steer_safety_neutral_required != 0);
+  nonzero += (uint32_t)(steer_safety_neutral_pass_count != 0);
+  nonzero += (uint32_t)(steer_manual_rx_enable != 0);
+  nonzero += (uint32_t)(steer_manual_rx_deadzone_raw != 0);
+  nonzero += (uint32_t)(steer_manual_rx_rejected_wheel_count != 0);
+  nonzero += (uint32_t)(steer_manual_enable != 0);
+  nonzero += (uint32_t)(steer_cal_active != 0);
+  nonzero += (uint32_t)(steer_manual_active != 0);
+  nonzero += (uint32_t)(steer_manual_direction != 0);
+  nonzero += (uint32_t)(steer_manual_neutral_required != 0);
+  nonzero += (uint32_t)(steer_manual_block_reason != 0);
+  nonzero += (uint32_t)(steer_manual_left_soft_target != 0);
+  nonzero += (uint32_t)(steer_manual_right_soft_target != 0);
+  nonzero += (uint32_t)(steer_manual_left_soft_remaining != 0);
+  nonzero += (uint32_t)(steer_manual_right_soft_remaining != 0);
+  nonzero += (uint32_t)(steer_manual_left_soft_stop_count != 0);
+  nonzero += (uint32_t)(steer_manual_right_soft_stop_count != 0);
+  nonzero += (uint32_t)(steer_manual_left_stop_raw != 0);
+  nonzero += (uint32_t)(steer_manual_right_stop_raw != 0);
+  nonzero += (uint32_t)(steer_manual_left_stop_limit_mask != 0);
+  nonzero += (uint32_t)(steer_manual_right_stop_limit_mask != 0);
+  nonzero += (uint32_t)(steer_manual_left_state != 0);
+  nonzero += (uint32_t)(steer_manual_right_state != 0);
+  nonzero += (uint32_t)(steer_manual_left_result != 0);
+  nonzero += (uint32_t)(steer_manual_right_result != 0);
+  nonzero += (uint32_t)(steer_manual_left_pwm != 0);
+  nonzero += (uint32_t)(steer_manual_right_pwm != 0);
+  nonzero += (uint32_t)(steer_manual_left_settle_raw != 0);
+  nonzero += (uint32_t)(steer_manual_right_settle_raw != 0);
+  nonzero += (uint32_t)(steer_manual_left_settle_elapsed_ms != 0);
+  nonzero += (uint32_t)(steer_manual_right_settle_elapsed_ms != 0);
+  nonzero += (uint32_t)(steer_manual_left_settle_count != 0);
+  nonzero += (uint32_t)(steer_manual_right_settle_count != 0);
+  nonzero += (uint32_t)(steer_manual_right_start_raw != 0);
+  nonzero += (uint32_t)(steer_manual_right_settle_max_raw != 0);
+  nonzero += (uint32_t)(steer_manual_right_first_drive_raw != 0);
+  nonzero += (uint32_t)(steer_manual_left_dpad_pwm != 0);
+  nonzero += (uint32_t)(steer_manual_right_dpad_pwm != 0);
+  nonzero += (uint32_t)(steer_manual_left_rx_min_pwm != 0);
+  nonzero += (uint32_t)(steer_manual_right_rx_min_pwm != 0);
+  nonzero += (uint32_t)(steer_manual_left_rx_max_pwm != 0);
+  nonzero += (uint32_t)(steer_manual_right_rx_max_pwm != 0);
+  nonzero += (uint32_t)(steer_manual_left_requested_direction != 0);
+  nonzero += (uint32_t)(steer_manual_right_requested_direction != 0);
+  nonzero += (uint32_t)(steer_manual_allow_right_max_escape != 0);
+  nonzero += (uint32_t)(steer_manual_allow_wheel_motion != 0);
+  nonzero += (uint32_t)(steer_manual_start_count != 0);
+  nonzero += (uint32_t)(steer_manual_stop_count != 0);
+  nonzero += (uint32_t)(steer_manual_reject_count != 0);
+  nonzero += (uint32_t)(steer_manual_irq_count != 0);
+  nonzero += (uint32_t)(steer_manual_irq_trip_mask != 0);
+  nonzero += (uint32_t)(steer_cal_left_min_runtime != 0);
+  nonzero += (uint32_t)(steer_cal_left_max_runtime != 0);
+  nonzero += (uint32_t)(steer_cal_right_min_runtime != 0);
+  nonzero += (uint32_t)(steer_cal_right_max_runtime != 0);
+  nonzero += (uint32_t)(steer_pos_left_center_tol_raw != 0);
+  nonzero += (uint32_t)(steer_pos_right_center_tol_raw != 0);
+  nonzero += (uint32_t)(steer_pos_enable != 0);
+  nonzero += (uint32_t)(steer_pos_active != 0);
+  nonzero += (uint32_t)(steer_pos_result != 0);
+  nonzero += (uint32_t)(steer_pos_block_reason != 0);
+  nonzero += (uint32_t)(steer_pos_command != 0);
+  nonzero += (uint32_t)(steer_pos_escape_mask != 0);
+  nonzero += (uint32_t)(steer_pos_buttons != 0);
+  nonzero += (uint32_t)(steer_pos_left_raw != 0);
+  nonzero += (uint32_t)(steer_pos_right_raw != 0);
+  nonzero += (uint32_t)(steer_pos_left_error != 0);
+  nonzero += (uint32_t)(steer_pos_right_error != 0);
+  nonzero += (uint32_t)(steer_pos_left_pwm != 0);
+  nonzero += (uint32_t)(steer_pos_right_pwm != 0);
+  nonzero += (uint32_t)(steer_pos_run_count != 0);
+  nonzero += (uint32_t)(steer_pos_reject_count != 0);
+  nonzero += (uint32_t)(steer_pos_finish_count != 0);
+  nonzero += (uint32_t)(steer_pos_limit_trip_mask != 0);
+  nonzero += (uint32_t)(steer_pos_left_pwm_min != 0);
+  nonzero += (uint32_t)(steer_pos_left_pwm_max != 0);
+  nonzero += (uint32_t)(steer_pos_right_pwm_min != 0);
+  nonzero += (uint32_t)(steer_pos_right_pwm_max != 0);
+  nonzero += (uint32_t)(steer_pos_left_fine_pwm != 0);
+  nonzero += (uint32_t)(steer_pos_right_fine_pwm != 0);
+  nonzero += (uint32_t)(steer_pos_left_fine_pulse_ms != 0);
+  nonzero += (uint32_t)(steer_pos_right_fine_pulse_ms != 0);
+  nonzero += (uint32_t)(steer_pos_left_fine_phase != 0);
+  nonzero += (uint32_t)(steer_pos_right_fine_phase != 0);
+  nonzero += (uint32_t)(steer_pos_left_fine_pulses != 0);
+  nonzero += (uint32_t)(steer_pos_right_fine_pulses != 0);
+  nonzero += (uint32_t)(steer_pos_left_fine_error != 0);
+  nonzero += (uint32_t)(steer_pos_right_fine_error != 0);
+  nonzero += (uint32_t)(steer_pos_left_center_final_raw != 0);
+  nonzero += (uint32_t)(steer_pos_right_center_final_raw != 0);
+  nonzero += (uint32_t)(steer_pos_left_fine_fault != 0);
+  nonzero += (uint32_t)(steer_pos_right_fine_fault != 0);
+  nonzero += (uint32_t)(steer_pos_left_state != 0);
+  nonzero += (uint32_t)(steer_pos_right_state != 0);
+  nonzero += (uint32_t)(steer_pos_left_result != 0);
+  nonzero += (uint32_t)(steer_pos_right_result != 0);
+  nonzero += (uint32_t)(steer_pos_left_last_sample_ms != 0);
+  nonzero += (uint32_t)(steer_pos_right_last_sample_ms != 0);
+  nonzero += (uint32_t)(steer_pos_left_new_sample_count != 0);
+  nonzero += (uint32_t)(steer_pos_right_new_sample_count != 0);
+  nonzero += (uint32_t)(steer_manual_left_soft_margin_raw != 0);
+  nonzero += (uint32_t)(steer_manual_right_soft_margin_raw != 0);
+  nonzero += (uint32_t)(steer_cal_left_seek_timeout_ms != 0);
+  nonzero += (uint32_t)(steer_cal_right_seek_timeout_ms != 0);
+  nonzero += (uint32_t)(steer_cal_left_center_timeout_ms != 0);
+  nonzero += (uint32_t)(steer_cal_right_center_timeout_ms != 0);
+  nonzero += (uint32_t)(steer_cal_left_stall_timeout_ms != 0);
+  nonzero += (uint32_t)(steer_cal_right_stall_timeout_ms != 0);
+  nonzero += (uint32_t)(steer_cal_left_reverse_settle_ms != 0);
+  nonzero += (uint32_t)(steer_cal_right_reverse_settle_ms != 0);
+  nonzero += (uint32_t)(steer_cal_left_reverse_quiet_ms != 0);
+  nonzero += (uint32_t)(steer_cal_right_reverse_quiet_ms != 0);
+  nonzero += (uint32_t)(steer_cal_left_reverse_ready != 0);
+  nonzero += (uint32_t)(steer_cal_right_reverse_ready != 0);
+  nonzero += (uint32_t)(steer_cal_left_reverse_wait_ms != 0);
+  nonzero += (uint32_t)(steer_cal_right_reverse_wait_ms != 0);
+  nonzero += (uint32_t)(steer_cal_left_center_reverse_wait != 0);
+  nonzero += (uint32_t)(steer_cal_right_center_reverse_wait != 0);
+  nonzero += (uint32_t)(steer_cal_left_center_reverse_count != 0);
+  nonzero += (uint32_t)(steer_cal_right_center_reverse_count != 0);
+  nonzero += (uint32_t)(steer_cal_left_center_reverse_elapsed_ms != 0);
+  nonzero += (uint32_t)(steer_cal_right_center_reverse_elapsed_ms != 0);
+  nonzero += (uint32_t)(steer_cal_left_noise_hold != 0);
+  nonzero += (uint32_t)(steer_cal_right_noise_hold != 0);
+  nonzero += (uint32_t)(steer_cal_left_noise_hold_count != 0);
+  nonzero += (uint32_t)(steer_cal_right_noise_hold_count != 0);
+  nonzero += (uint32_t)(steer_cal_left_noise_unlock_count != 0);
+  nonzero += (uint32_t)(steer_cal_right_noise_unlock_count != 0);
+  nonzero += (uint32_t)(steer_cal_arm != 0);
+  nonzero += (uint32_t)(steer_cal_result != 0);
+  nonzero += (uint32_t)(steer_cal_last_run_result != 0);
+  nonzero += (uint32_t)(steer_cal_reject_reason != 0);
+  nonzero += (uint32_t)(steer_cal_unarmed_select_count != 0);
+  nonzero += (uint32_t)(steer_cal_rejected_start_count != 0);
+  nonzero += (uint32_t)(steer_cal_start_count != 0);
+  nonzero += (uint32_t)(steer_cal_left_stage != 0);
+  nonzero += (uint32_t)(steer_cal_right_stage != 0);
+  nonzero += (uint32_t)(steer_cal_left_fault != 0);
+  nonzero += (uint32_t)(steer_cal_right_fault != 0);
+  nonzero += (uint32_t)(steer_cal_left_min_found != 0);
+  nonzero += (uint32_t)(steer_cal_left_max_found != 0);
+  nonzero += (uint32_t)(steer_cal_right_min_found != 0);
+  nonzero += (uint32_t)(steer_cal_right_max_found != 0);
+  nonzero += (uint32_t)(steer_cal_left_pwm != 0);
+  nonzero += (uint32_t)(steer_cal_right_pwm != 0);
+  nonzero += (uint32_t)(steer_cal_left_seek_duty != 0);
+  nonzero += (uint32_t)(steer_cal_right_seek_duty != 0);
+  nonzero += (uint32_t)(steer_cal_left_escape_duty != 0);
+  nonzero += (uint32_t)(steer_cal_right_escape_duty != 0);
+  nonzero += (uint32_t)(steer_cal_left_center_duty != 0);
+  nonzero += (uint32_t)(steer_cal_right_center_duty != 0);
+  nonzero += (uint32_t)(steer_cal_left_center_tol_raw != 0);
+  nonzero += (uint32_t)(steer_cal_right_center_tol_raw != 0);
+  nonzero += (uint32_t)(steer_cal_left_center_error != 0);
+  nonzero += (uint32_t)(steer_cal_right_center_error != 0);
+  nonzero += (uint32_t)(steer_cal_left_center_capturing != 0);
+  nonzero += (uint32_t)(steer_cal_right_center_capturing != 0);
+  nonzero += (uint32_t)(steer_cal_left_center_accepted_raw != 0);
+  nonzero += (uint32_t)(steer_cal_right_center_accepted_raw != 0);
+  nonzero += (uint32_t)(steer_cal_left_approach_floor != 0);
+  nonzero += (uint32_t)(steer_cal_right_approach_floor != 0);
+  nonzero += (uint32_t)(steer_cal_limit_fault_reason != 0);
+  nonzero += (uint32_t)(steer_cal_limit_fault_side != 0);
+  nonzero += (uint32_t)(steer_cal_last_irq_snapshot != 0);
+  nonzero += (uint32_t)(steer_cal_last_gpio_snapshot != 0);
+  nonzero += (uint32_t)(steer_cal_limit_fault_stage != 0);
+  nonzero += (uint32_t)(steer_cal_limit_fault_irq != 0);
+  nonzero += (uint32_t)(steer_cal_limit_fault_gpio != 0);
+  nonzero += (uint32_t)(steer_cal_limit_fault_raw != 0);
+  nonzero += (uint32_t)(steer_cal_limit_fault_elapsed_ms != 0);
+  nonzero += (uint32_t)(steer_cal_limit_fault_scan_id != 0);
+  nonzero += (uint32_t)(steer_cal_motion_fault_side != 0);
+  nonzero += (uint32_t)(steer_cal_motion_fault_reason != 0);
+  nonzero += (uint32_t)(steer_cal_motion_fault_stage != 0);
+  nonzero += (uint32_t)(steer_cal_motion_fault_raw != 0);
+  nonzero += (uint32_t)(steer_cal_motion_fault_delta != 0);
+  nonzero += (uint32_t)(steer_cal_motion_fault_pwm != 0);
+  nonzero += (uint32_t)(steer_cal_motion_fault_age_ms != 0);
+  nonzero += (uint32_t)(steer_cal_motion_fault_limit_mask != 0);
+  nonzero += (uint32_t)(steer_cal_timeout_side != 0);
+  nonzero += (uint32_t)(steer_cal_timeout_stage != 0);
+  nonzero += (uint32_t)(steer_cal_timeout_raw != 0);
+  nonzero += (uint32_t)(steer_cal_timeout_elapsed_ms != 0);
+  nonzero += (uint32_t)(steer_cal_timeout_pwm != 0);
+  nonzero += (uint32_t)(steer_cal_left_last_raw != 0);
+  nonzero += (uint32_t)(steer_cal_right_last_raw != 0);
+  nonzero += (uint32_t)(steer_cal_left_last_delta != 0);
+  nonzero += (uint32_t)(steer_cal_right_last_delta != 0);
+  nonzero += (uint32_t)(steer_cal_left_progress_age_ms != 0);
+  nonzero += (uint32_t)(steer_cal_right_progress_age_ms != 0);
+  nonzero += (uint32_t)(steer_cal_completed_count != 0);
+  nonzero += (uint32_t)(steer_cal_failed_count != 0);
+  nonzero += (uint32_t)(steer_cal_irq_trip_mask != 0);
+  steer_debug_watch_boot_nonzero_count = nonzero;
+}
+#endif
+
 /* USER CODE END 0 */
 
 /**
@@ -6229,6 +6517,13 @@ int main(void)
     Error_Handler();
   }
   /* USER CODE END 2 */
+
+  /* Retain legacy steering/AS5600 debug symbols in the DEBUG ELF only.
+   * Compile-time steering incident lockout stays ON.
+   */
+#ifdef DEBUG
+  Steering_DebugRetainWatchSymbols();
+#endif
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
