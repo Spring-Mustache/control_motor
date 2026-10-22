@@ -1552,6 +1552,11 @@ volatile int16_t steer_manual_left_soft_remaining = 0;
 volatile int16_t steer_manual_right_soft_remaining = 0;
 volatile uint32_t steer_manual_left_soft_stop_count = 0U;
 volatile uint32_t steer_manual_right_soft_stop_count = 0U;
+/* Sticky snapshots record the exact position/NC bits at last per-axis stop. */
+volatile uint16_t steer_manual_left_stop_raw = 0U;
+volatile uint16_t steer_manual_right_stop_raw = 0U;
+volatile uint8_t steer_manual_left_stop_limit_mask = 0U;
+volatile uint8_t steer_manual_right_stop_limit_mask = 0U;
 volatile uint8_t steer_manual_left_state = 0U;
 volatile uint8_t steer_manual_right_state = 0U;
 volatile uint8_t steer_manual_left_result = 0U;
@@ -2472,6 +2477,8 @@ static void Steering_PositionUpdate(void)
 #define STEER_MANUAL_RIGHT_SOFT_MIN (STEER_POS_RIGHT_MIN_RAW + STEER_MANUAL_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_RIGHT_SOFT_MAX (STEER_POS_RIGHT_MAX_RAW - STEER_MANUAL_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_RESULT_SOFT    11U
+#define STEER_MANUAL_RESULT_WRONG_DIRECTION 12U
+#define STEER_MANUAL_RESULT_STALL   13U
 #define STEER_MANUAL_RUN_MAX_MS       5000U
 #define STEER_MANUAL_ESCAPE_MAX_MS    1000U
 #define STEER_MANUAL_STALL_MS          650U
@@ -2566,12 +2573,16 @@ static void Steering_ManualAxisDone(uint8_t left, uint8_t reason)
     Steering_ManualLeftOff();
     steer_manual_left_state = STEER_MANUAL_DONE;
     steer_manual_left_result = reason;
+    steer_manual_left_stop_raw = debug_as5600_left_raw;
+    steer_manual_left_stop_limit_mask = Steering_TestRawLimitMask();
   }
   else
   {
     Steering_ManualRightOff();
     steer_manual_right_state = STEER_MANUAL_DONE;
     steer_manual_right_result = reason;
+    steer_manual_right_stop_raw = debug_as5600_right_raw;
+    steer_manual_right_stop_limit_mask = Steering_TestRawLimitMask();
   }
 }
 
@@ -2582,12 +2593,16 @@ static void Steering_ManualAxisFault(uint8_t left, uint8_t reason)
     Steering_ManualLeftOff();
     steer_manual_left_state = STEER_MANUAL_FAULT;
     steer_manual_left_result = reason;
+    steer_manual_left_stop_raw = debug_as5600_left_raw;
+    steer_manual_left_stop_limit_mask = Steering_TestRawLimitMask();
   }
   else
   {
     Steering_ManualRightOff();
     steer_manual_right_state = STEER_MANUAL_FAULT;
     steer_manual_right_result = reason;
+    steer_manual_right_stop_raw = debug_as5600_right_raw;
+    steer_manual_right_stop_limit_mask = Steering_TestRawLimitMask();
   }
 }
 
@@ -2654,7 +2669,7 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
   if (((correct_sign != 0U) && (delta < -5)) ||
       ((correct_sign == 0U) && (delta > 5)))
   {
-    Steering_ManualAxisFault(left, 8U);
+    Steering_ManualAxisFault(left, STEER_MANUAL_RESULT_WRONG_DIRECTION);
     return;
   }
 
@@ -2675,7 +2690,7 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
       axis->progress_ms = now;
     if ((uint32_t)(now - axis->progress_ms) > STEER_MANUAL_STALL_MS)
     {
-      Steering_ManualAxisFault(left, 8U);
+      Steering_ManualAxisFault(left, STEER_MANUAL_RESULT_STALL);
       return;
     }
     *apply = Steering_ManualClampPWM(pwm);
@@ -2726,7 +2741,7 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
   if (((uint32_t)distance > ((uint32_t)axis->best_distance + 20U)) ||
       ((uint32_t)(now - axis->progress_ms) > STEER_MANUAL_STALL_MS))
   {
-    Steering_ManualAxisFault(left, 8U);
+    Steering_ManualAxisFault(left, STEER_MANUAL_RESULT_STALL);
     return;
   }
   *apply = Steering_ManualClampPWM(pwm);
