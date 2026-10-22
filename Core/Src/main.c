@@ -3577,6 +3577,64 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
   return 0U;
 }
 
+/* Called inside one IRQ-masked final CCR commit. Any new NC edge
+ * cancels that side's PWM THIS CYCLE, but an expected contact in SEEK
+ * or repeated contact while EXITING is NOT a global fault.
+ * The axis services the physical switch/transition next cycle.
+ */
+static uint8_t Steering_CalCommitAxisSafe(uint8_t left,
+                                          uint8_t raw_mask,
+                                          uint8_t late_edge,
+                                          uint16_t *pwm)
+{
+  SteeringCalAxis_t *axis = left ? &steer_cal_left_axis :
+                                    &steer_cal_right_axis;
+  uint8_t min_bit = left ? STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_R_MIN_MASK;
+  uint8_t max_bit = left ? STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_R_MAX_MASK;
+  uint8_t limit = (uint8_t)(raw_mask & (min_bit | max_bit));
+  uint8_t edge = (uint8_t)(late_edge & (min_bit | max_bit));
+  uint8_t stage = axis->stage;
+
+  if (limit == (min_bit | max_bit))
+    return Steering_CalLimitFault(left, 1U);
+  if (Steering_CalEdgeSafe(stage, edge, limit, min_bit, max_bit) == 0U)
+    return Steering_CalLimitFault(left, 4U);
+
+  if (stage == STEER_CAL_SEEK_MIN)
+  {
+    if (limit == max_bit) return Steering_CalLimitFault(left, 3U);
+    if (limit == min_bit) *pwm = 0U;
+  }
+  else if (stage == STEER_CAL_SEEK_MAX)
+  {
+    if (limit == min_bit) return Steering_CalLimitFault(left, 3U);
+    if (limit == max_bit) *pwm = 0U;
+  }
+  else if ((stage == STEER_CAL_EXIT_MIN) ||
+           (stage == STEER_CAL_EXIT_MAX) ||
+           (stage == STEER_CAL_PRE_EXIT_MAX))
+  {
+    uint8_t origin = (stage == STEER_CAL_EXIT_MIN) ?
+                       min_bit : max_bit;
+    if ((limit != 0U) && (limit != origin))
+      return Steering_CalLimitFault(left, 3U);
+    if (limit == 0U) *pwm = 0U; /* release: next frame transitions */
+  }
+  else if ((stage == STEER_CAL_TO_CENTER) ||
+           (stage == STEER_CAL_DONE))
+  {
+    if (limit != 0U) return Steering_CalLimitFault(left, 3U);
+    if (stage == STEER_CAL_DONE) *pwm = 0U;
+  }
+  else return Steering_CalLimitFault(left, 3U);
+
+  /* A just-arrived switch rising edge must never be followed by
+   * an immediate PWM re-energization even when the contact bounced.
+   */
+  if (edge != 0U) *pwm = 0U;
+  return 0U;
+}
+
 static uint8_t Steering_CalInputsNeutral(void)
 {
   int16_t rx = (int16_t)PS2_Pad.RX - 128;
@@ -3724,34 +3782,27 @@ static void Steering_CalUpdate(void)
     return;
   }
 
-  /* Recheck each physical endstop and late IRQ atomically before CCR
-   * writes. No retry after an EXTI edge that failed calibration logic.
+  /* Independently validate LEFT and RIGHT before PWM writes, while
+   * IRQs are masked. A normal right MIN arrival no longer aborts the
+   * still-seeking LEFT. Unexpected NC faults still STOP BOTH axes.
    */
   primask = __get_PRIMASK();
   __disable_irq();
   pending = steer_cal_irq_pending_mask;
+  steer_cal_irq_pending_mask = 0U;
   raw_limits = Steering_TestRawLimitMask();
-  if ((pending != 0U) ||
-      ((steer_cal_left_axis.stage == STEER_CAL_SEEK_MIN ||
-        steer_cal_left_axis.stage == STEER_CAL_SEEK_MAX ||
-        steer_cal_left_axis.stage == STEER_CAL_TO_CENTER) &&
-       (raw_limits & (STEER_LIMIT_L_MIN_MASK |
-                      STEER_LIMIT_L_MAX_MASK)) != 0U) ||
-      ((steer_cal_right_axis.stage == STEER_CAL_SEEK_MIN ||
-        steer_cal_right_axis.stage == STEER_CAL_SEEK_MAX ||
-        steer_cal_right_axis.stage == STEER_CAL_TO_CENTER) &&
-       (raw_limits & (STEER_LIMIT_R_MIN_MASK |
-                      STEER_LIMIT_R_MAX_MASK)) != 0U))
+  steer_cal_last_irq_snapshot = pending;
+  steer_cal_last_gpio_snapshot = raw_limits;
+  lerr = Steering_CalCommitAxisSafe(1U, raw_limits, pending, &lpwm);
+  rerr = Steering_CalCommitAxisSafe(0U, raw_limits, pending, &rpwm);
+  if ((lerr != 0U) || (rerr != 0U))
   {
+    if (lerr != 0U) steer_cal_left_fault = lerr;
+    if (rerr != 0U) steer_cal_right_fault = rerr;
     Steering_CalStop(6U);
   }
   else
   {
-    uint8_t lstage = steer_cal_left_axis.stage;
-    uint8_t rstage = steer_cal_right_axis.stage;
-    if (lstage == STEER_CAL_DONE) lpwm = 0U;
-    if (rstage == STEER_CAL_DONE) rpwm = 0U;
-
     if (lpwm != 0U)
       HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port,
                         MOTOR_DIR_TURN_left_Pin, ldir);
@@ -3762,6 +3813,12 @@ static void Steering_CalUpdate(void)
     __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, rpwm);
     steer_cal_left_pwm = lpwm;
     steer_cal_right_pwm = rpwm;
+    steer_cal_left_axis.last_drive_valid = (lpwm != 0U) ? 1U : 0U;
+    steer_cal_left_axis.last_drive_dir0 =
+        (ldir == GPIO_PIN_RESET) ? 1U : 0U;
+    steer_cal_right_axis.last_drive_valid = (rpwm != 0U) ? 1U : 0U;
+    steer_cal_right_axis.last_drive_dir0 =
+        (rdir == GPIO_PIN_RESET) ? 1U : 0U;
   }
   if (primask == 0U) __enable_irq();
   if (steer_cal_active == 0U) return;
