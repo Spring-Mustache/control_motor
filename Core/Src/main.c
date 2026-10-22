@@ -2076,7 +2076,7 @@ static void Steering_PositionUpdate(void)
   uint32_t now = HAL_GetTick();
   uint32_t irq_state;
   uint8_t buttons = 0U;
-  uint8_t raw_mask, pending;
+  uint8_t raw_mask, pending, late_pending;
   uint8_t allowed;
   uint16_t left_cmd = 0U, right_cmd = 0U;
   GPIO_PinState left_dir = GPIO_PIN_RESET;
@@ -2320,6 +2320,32 @@ static void Steering_PositionUpdate(void)
   irq_state = __get_PRIMASK();
   __disable_irq();
   raw_mask = Steering_TestRawLimitMask();
+  /* An NC rising edge may have occurred after the earlier snapshot,
+   * possibly bounced low by the time we read GPIO here. Honor it
+   * BEFORE re-energizing any PWM. Consume while interrupts are masked.
+   */
+  late_pending = steer_pos_irq_pending_mask;
+  steer_pos_irq_pending_mask = 0U;
+  if ((late_pending & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
+  {
+    if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
+        (steer_pos_command == 2U) &&
+        ((late_pending & STEER_LIMIT_L_MIN_MASK) != 0U) &&
+        ((late_pending & STEER_LIMIT_L_MAX_MASK) == 0U))
+      Steering_PositionAxisDone(1U, 3U);
+    else
+      Steering_PositionAxisFault(1U, 9U);
+  }
+  if ((late_pending & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
+  {
+    if ((steer_pos_right_state == STEER_AXIS_MOVING) &&
+        (steer_pos_command == 2U) &&
+        ((late_pending & STEER_LIMIT_R_MIN_MASK) != 0U) &&
+        ((late_pending & STEER_LIMIT_R_MAX_MASK) == 0U))
+      Steering_PositionAxisDone(0U, 3U);
+    else
+      Steering_PositionAxisFault(0U, 9U);
+  }
 
   /* Escape paths must also recheck the originating switch after I2C
    * reads: no side may be reenergized if its NC was released, if both
@@ -2903,6 +2929,7 @@ static void Steering_ManualUpdate(void)
    * a noisy NC rising edge must NEVER be followed by re-energizing PWM.
    */
   pending = steer_manual_irq_pending_mask;
+  steer_manual_irq_pending_mask = 0U;
   if ((pending & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
     Steering_ManualAxisFault(1U, 9U);
   if ((pending & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
