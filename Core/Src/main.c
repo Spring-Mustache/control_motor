@@ -3262,6 +3262,14 @@ volatile int16_t steer_cal_motion_fault_delta = 0;
 volatile uint16_t steer_cal_motion_fault_pwm = 0U;
 volatile uint32_t steer_cal_motion_fault_age_ms = 0U;
 volatile uint8_t steer_cal_motion_fault_limit_mask = 0U;
+/* A no-motion escape may hit the 1s hard stage deadline before the
+ * independent stall timer; preserve side/stage for result 5 as well.
+ */
+volatile uint8_t steer_cal_timeout_side = 0U;
+volatile uint8_t steer_cal_timeout_stage = 0U;
+volatile uint16_t steer_cal_timeout_raw = 0U;
+volatile uint32_t steer_cal_timeout_elapsed_ms = 0U;
+volatile uint16_t steer_cal_timeout_pwm = 0U;
 volatile uint16_t steer_cal_left_last_raw = 0U;
 volatile uint16_t steer_cal_right_last_raw = 0U;
 volatile int16_t steer_cal_left_last_delta = 0;
@@ -3414,6 +3422,21 @@ static uint8_t Steering_CalMotionFault(uint8_t left, uint8_t reason,
   return 7U;
 }
 
+static uint8_t Steering_CalStageTimeout(uint8_t left, uint8_t stage,
+                                         uint16_t raw, uint32_t elapsed)
+{
+  if (steer_cal_timeout_side == 0U)
+  {
+    steer_cal_timeout_side = left ? 1U : 2U;
+    steer_cal_timeout_stage = stage;
+    steer_cal_timeout_raw = raw;
+    steer_cal_timeout_elapsed_ms = elapsed;
+    steer_cal_timeout_pwm = left ? steer_cal_left_pwm :
+                                   steer_cal_right_pwm;
+  }
+  return 5U;
+}
+
 /* 0 = healthy. Nonzero result code aborts the entire calibration.
  * Each side has separate MIN/MAX, movement and time monitoring.
  */
@@ -3502,7 +3525,8 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
     deadline = 1500U;
 
   if ((uint32_t)(now - axis->stage_begin) >= deadline)
-    return 5U;
+    return Steering_CalStageTimeout(left, stage, raw,
+                                     (uint32_t)(now - axis->stage_begin));
 
   if (stage == STEER_CAL_SEEK_MIN)
   {
@@ -3879,6 +3903,11 @@ static void Steering_CalUpdate(void)
     steer_cal_motion_fault_pwm = 0U;
     steer_cal_motion_fault_age_ms = 0U;
     steer_cal_motion_fault_limit_mask = 0U;
+    steer_cal_timeout_side = 0U;
+    steer_cal_timeout_stage = 0U;
+    steer_cal_timeout_raw = 0U;
+    steer_cal_timeout_elapsed_ms = 0U;
+    steer_cal_timeout_pwm = 0U;
     steer_cal_left_last_raw = lraw;
     steer_cal_right_last_raw = rraw;
     steer_cal_left_last_delta = 0;
