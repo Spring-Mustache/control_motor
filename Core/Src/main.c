@@ -1577,6 +1577,14 @@ volatile uint32_t steer_manual_left_settle_elapsed_ms = 0U;
 volatile uint32_t steer_manual_right_settle_elapsed_ms = 0U;
 volatile uint32_t steer_manual_left_settle_count = 0U;
 volatile uint32_t steer_manual_right_settle_count = 0U;
+/* RIGHT reversal evidence: snapshot of raw start, coast-high while
+ * CCR=0, and encoder RAW before FIRST powered R_MIN/R_MAX command.
+ * If settle_max rises before first_drive, this is COAST/noise rather
+ * than a motor command toward MAX from the new stroke.
+ */
+volatile uint16_t steer_manual_right_start_raw = 0U;
+volatile uint16_t steer_manual_right_settle_max_raw = 0U;
+volatile uint16_t steer_manual_right_first_drive_raw = 0U;
 volatile uint16_t steer_manual_left_dpad_pwm = 300U;
 volatile uint16_t steer_manual_right_dpad_pwm = 100U;
 volatile uint16_t steer_manual_left_rx_min_pwm = 175U;
@@ -3088,6 +3096,8 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
     {
       steer_manual_right_settle_raw = raw;
       steer_manual_right_settle_elapsed_ms = settle_ms;
+      if (raw > steer_manual_right_settle_max_raw)
+        steer_manual_right_settle_max_raw = raw;
     }
     /* Both instantaneous AND cumulative RAW must be quiet. Even a
      * repeated +1 count drift toward MAX resets the quiet timer.
@@ -3387,6 +3397,9 @@ static void Steering_ManualUpdate(void)
     steer_manual_right_settle_elapsed_ms = 0U;
     steer_manual_left_settle_count++;
     steer_manual_right_settle_count++;
+    steer_manual_right_start_raw = 0U;
+    steer_manual_right_settle_max_raw = 0U;
+    steer_manual_right_first_drive_raw = 0U;
     steer_manual_left_result = 0U;
     steer_manual_right_result = 0U;
     steer_manual_left_axis.progress_ms = now;
@@ -3458,6 +3471,8 @@ static void Steering_ManualUpdate(void)
         steer_manual_right_axis.previous_raw = raw;
         steer_manual_right_axis.settle_quiet_raw = raw;
         steer_manual_right_settle_raw = raw;
+        steer_manual_right_start_raw = raw;
+        steer_manual_right_settle_max_raw = raw;
       }
     }
   }
@@ -3580,6 +3595,8 @@ static void Steering_ManualUpdate(void)
   if ((steer_manual_right_state == STEER_MANUAL_MOVING) ||
       (steer_manual_right_state == STEER_MANUAL_ESCAPE))
   {
+    if ((ra != 0U) && (steer_manual_right_first_drive_raw == 0U))
+      steer_manual_right_first_drive_raw = debug_as5600_right_raw;
     HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port, MOTOR_DIR_TURN_right_Pin,
                       (right_direction < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
     __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, ra);
