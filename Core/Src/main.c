@@ -2170,6 +2170,7 @@ static void Steering_PositionUpdate(void)
              (steer_pos_enable == 1U) &&
              (steer_manual_active == 0U) &&
              (steer_cal_active == 0U) &&
+             (PS2_Pad.Select == 0U) &&
              (debug_as5600_poll_enable == 0U) &&
              (steer_test_running == 0U) && (steer_test_request == 0U) &&
              (steer_test_arm == 0U) &&
@@ -2877,6 +2878,7 @@ static void Steering_ManualUpdate(void)
       (ps2_spin_rf_latched != 0U) ||
       (steer_pos_active != 0U) ||
       (steer_cal_active != 0U) ||
+      (PS2_Pad.Select != 0U) ||
       (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
       (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
       (WheelControl_SpinIsActive() != 0U) ||
