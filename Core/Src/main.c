@@ -3365,6 +3365,7 @@ typedef struct
   uint32_t center_quiet_since_ms;
   uint32_t noise_hold_start_ms;
   uint32_t noise_quiet_since_ms;
+  uint16_t noise_quiet_start_raw;
 } SteeringCalAxis_t;
 
 static SteeringCalAxis_t steer_cal_left_axis = {0};
@@ -3442,6 +3443,7 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
   axis->noise_hold = 0U;
   axis->noise_hold_count = 0U;
   axis->noise_quiet_since_ms = now;
+  axis->noise_quiet_start_raw = raw;
   /* Preserve the last physically applied direction for the transition
    * from EXIT_MAX to CENTER; otherwise a center overshoot could
    * reverse PWM immediately and trip the wrong-way guard.
@@ -3843,8 +3845,20 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
     if (bad != 0U)
       return Steering_CalMotionFault(left, 1U, stage, raw,
                                       movement, now);
-    if ((movement > 1) || (movement < -1))
-      axis->noise_quiet_since_ms = now;
+    /* Small 1-count-per-frame coasting must not masquerade as a
+     * stationary encoder. Require BOTH low instantaneous delta and
+     * <=2 counts TOTAL travel since the quiet window began.
+     */
+    {
+      int16_t quiet_drift =
+          AS5600_ShortestDeltaCounts(axis->noise_quiet_start_raw, raw);
+      if ((movement > 1) || (movement < -1) ||
+          (quiet_drift > 2) || (quiet_drift < -2))
+      {
+        axis->noise_quiet_since_ms = now;
+        axis->noise_quiet_start_raw = raw;
+      }
+    }
     if ((uint32_t)(now - axis->noise_hold_start_ms) >=
         STEER_CAL_NOISE_HOLD_MAX_MS)
       return Steering_CalMotionFault(left, 3U, stage, raw,
@@ -3898,6 +3912,7 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       axis->noise_expected_increase = should_increase;
       axis->noise_hold_start_ms = now;
       axis->noise_quiet_since_ms = now;
+      axis->noise_quiet_start_raw = raw;
       if (left != 0U)
       {
         steer_cal_left_noise_hold = 1U;
