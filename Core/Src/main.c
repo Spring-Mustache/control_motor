@@ -1539,6 +1539,10 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
  * LEFT has distinct measured breakaway torque from RIGHT.
  */
 volatile uint8_t steer_manual_enable = 0U;
+/* Declared early for arbitration/PWM ownership. Initialized in the
+ * select-calibration section below and defaults DISARMED on reset.
+ */
+volatile uint8_t steer_cal_active = 0U;
 volatile uint8_t steer_manual_active = 0U;
 volatile int8_t steer_manual_direction = 0; /* -1 toward MIN; +1 toward MAX */
 volatile uint8_t steer_manual_neutral_required = 0U;
@@ -1624,12 +1628,21 @@ static uint8_t Steering_ManualInputsNeutral(void)
  * one of the two sensors is polled per bounded service interval, without
  * requiring debug_as5600_poll_enable or the heavyweight debug probe.
  */
-#define STEER_POS_LEFT_MIN_RAW     2319U
-#define STEER_POS_LEFT_CENTER_RAW  1857U
-#define STEER_POS_LEFT_MAX_RAW     1391U
-#define STEER_POS_RIGHT_MIN_RAW    2934U
-#define STEER_POS_RIGHT_CENTER_RAW 3398U
-#define STEER_POS_RIGHT_MAX_RAW    3680U
+/* M7-S07: calibrated MIN/MAX are runtime values, not preprocessor
+ * constants. Defaults are the previously measured bench values.
+ * These RAM values change ONLY after a COMPLETE, valid Select scan.
+ * CENTER is intentionally unchanged and never learned.
+ */
+volatile uint16_t steer_cal_left_min_runtime = 2319U;
+volatile uint16_t steer_cal_left_max_runtime = 1391U;
+volatile uint16_t steer_cal_right_min_runtime = 2934U;
+volatile uint16_t steer_cal_right_max_runtime = 3680U;
+#define STEER_POS_LEFT_MIN_RAW       (steer_cal_left_min_runtime)
+#define STEER_POS_LEFT_CENTER_RAW     1857U
+#define STEER_POS_LEFT_MAX_RAW       (steer_cal_left_max_runtime)
+#define STEER_POS_RIGHT_MIN_RAW      (steer_cal_right_min_runtime)
+#define STEER_POS_RIGHT_CENTER_RAW    3398U
+#define STEER_POS_RIGHT_MAX_RAW      (steer_cal_right_max_runtime)
 #define STEER_POS_TOL_RAW             5
 #define STEER_POS_RANGE_MARGIN      64 /* limited overshoot recovery envelope */
 #define STEER_POS_MAX_JUMP_RAW      90
@@ -2118,7 +2131,7 @@ static void Steering_PositionTelemetryIdleUpdate(void)
   uint16_t raw;
   uint32_t now = HAL_GetTick();
   if ((steer_pos_active != 0U) || (steer_manual_active != 0U) ||
-      (debug_as5600_poll_enable != 0U))
+      (steer_cal_active != 0U) || (debug_as5600_poll_enable != 0U))
     return;
   if ((uint32_t)(now - steer_pos_idle_last_ms) < STEER_POS_IDLE_POLL_MS)
     return;
@@ -2156,6 +2169,7 @@ static void Steering_PositionUpdate(void)
              (PS2_Pad.RX <= (128U + STEER_POS_RX_NEUTRAL_DELTA)) &&
              (steer_pos_enable == 1U) &&
              (steer_manual_active == 0U) &&
+             (steer_cal_active == 0U) &&
              (debug_as5600_poll_enable == 0U) &&
              (steer_test_running == 0U) && (steer_test_request == 0U) &&
              (steer_test_arm == 0U) &&
@@ -2163,7 +2177,8 @@ static void Steering_PositionUpdate(void)
 
   if (steer_pos_active == 0U)
   {
-    if ((steer_test_running == 0U) && (steer_manual_active == 0U))
+    if ((steer_test_running == 0U) && (steer_manual_active == 0U) &&
+        (steer_cal_active == 0U))
     {
       Steering_PositionLeftOff();
       Steering_PositionRightOff();
@@ -2518,7 +2533,14 @@ static void Steering_PositionUpdate(void)
  * values. Neutral cuts PWM in the same control iteration.
  * Turning around from a touched limit requires short escape and NEW press.
  */
-#define STEER_MANUAL_SOFT_MARGIN_RAW   20U
+/* Conservative start after 20 RAW was not enough to avoid NC contact.
+ * Clamp live tuning to [30..120] counts. Not a mechanical braking guarantee.
+ */
+volatile uint16_t steer_manual_soft_margin_raw = 40U;
+#define STEER_MANUAL_SOFT_MARGIN_RAW  \
+    ((steer_manual_soft_margin_raw < 30U) ? 30U : \
+     ((steer_manual_soft_margin_raw > 120U) ? 120U : \
+      steer_manual_soft_margin_raw))
 #define STEER_MANUAL_APPROACH_WINDOW_RAW 80U
 #define STEER_MANUAL_LEFT_SOFT_MIN  (STEER_POS_LEFT_MIN_RAW - STEER_MANUAL_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_LEFT_SOFT_MAX  (STEER_POS_LEFT_MAX_RAW + STEER_MANUAL_SOFT_MARGIN_RAW)
@@ -2854,6 +2876,7 @@ static void Steering_ManualUpdate(void)
       (ps2_cancel_hold != 0U) ||
       (ps2_spin_rf_latched != 0U) ||
       (steer_pos_active != 0U) ||
+      (steer_cal_active != 0U) ||
       (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
       (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
       (WheelControl_SpinIsActive() != 0U) ||
@@ -3742,6 +3765,8 @@ static uint8_t PS2_IsManualControlActive(void)
       (PS2_Pad.R2 != 0U) ||
       (steer_pos_active != 0U) ||
       (steer_manual_active != 0U) ||
+      (steer_cal_active != 0U) ||
+      (PS2_Pad.Select != 0U) ||
       (Steering_ManualRequestDirection() != 0) ||
       (WheelControl_SpinIsActive() != 0U))
   {
@@ -3764,10 +3789,12 @@ static void PS2_ApplyManualControl(void)
    * Position PWM is serviced separately after arbitration.
    */
   if ((PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
+      (PS2_Pad.Select != 0U) || (steer_cal_active != 0U) ||
       (steer_pos_active != 0U))
   {
     WheelControl_SetTargetPWM(0);
-    if (steer_pos_active == 0U) Turn_Motors_Stop();
+    if ((steer_pos_active == 0U) && (steer_cal_active == 0U))
+      Turn_Motors_Stop();
     return;
   }
 
@@ -3864,7 +3891,8 @@ static void Control_Arbitrate(void)
    */
   if (((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U)) &&
       ((WheelControl_SpinIsActive() != 0U) ||
-       (steer_pos_active != 0U) || (steer_manual_active != 0U)))
+       (steer_pos_active != 0U) || (steer_manual_active != 0U) ||
+       (steer_cal_active != 0U)))
     ps2_spin_rf_latched = 1U;
 
   if (ps2_spin_rf_latched != 0U)
@@ -4515,6 +4543,7 @@ int main(void)
      */
     Steering_ManualUpdate();   /* D-pad LEFT/RIGHT and joystick RX */
     Steering_PositionUpdate(); /* R1/R2 independent closed-loop */
+    Steering_CalUpdate();      /* SELECT: guarded auto MIN/MAX scan */
     Steering_PositionTelemetryIdleUpdate(); /* AS5600 live without poll flag */
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
@@ -5539,6 +5568,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     Steering_TestOnLimitInterrupt(0x01U);
     Steering_PositionOnLimitInterrupt(0x01U);
     Steering_ManualOnLimitInterrupt(0x01U);
+    Steering_CalOnLimitInterrupt(0x01U);
   }
   else if (GPIO_Pin == LIMIT_R_MIN_Pin)
   {
@@ -5546,6 +5576,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     Steering_TestOnLimitInterrupt(0x02U);
     Steering_PositionOnLimitInterrupt(0x02U);
     Steering_ManualOnLimitInterrupt(0x02U);
+    Steering_CalOnLimitInterrupt(0x02U);
   }
   else if (GPIO_Pin == LIMIT_L_MIN_Pin)
   {
@@ -5553,6 +5584,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     Steering_TestOnLimitInterrupt(0x04U);
     Steering_PositionOnLimitInterrupt(0x04U);
     Steering_ManualOnLimitInterrupt(0x04U);
+    Steering_CalOnLimitInterrupt(0x04U);
   }
   else if (GPIO_Pin == LIMIT_L_MAX_Pin)
   {
@@ -5560,6 +5592,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     Steering_TestOnLimitInterrupt(0x08U);
     Steering_PositionOnLimitInterrupt(0x08U);
     Steering_ManualOnLimitInterrupt(0x08U);
+    Steering_CalOnLimitInterrupt(0x08U);
   }
 }
 
