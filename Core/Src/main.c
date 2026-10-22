@@ -1547,6 +1547,12 @@ volatile uint8_t steer_safety_trip_latched = 0U;
 volatile uint8_t steer_safety_trip_mask = 0U;   /* NC bits 1,2,4,8 */
 volatile uint8_t steer_safety_trip_reason = 0U; /* 1 EXTI, 2 level */
 volatile uint32_t steer_safety_blocked_cycles = 0U;
+/* A new explicit motion permit can only take effect after a fully
+ * neutral PS2 frame. Releasing an old held command must not restart
+ * an axis automatically on live debugger writes.
+ */
+volatile uint8_t steer_safety_neutral_required = 1U;
+volatile uint32_t steer_safety_neutral_pass_count = 0U;
 /* RX steering disabled until pad cross-talk/axis noise is investigated. */
 volatile uint8_t steer_manual_rx_enable = 0U;
 volatile uint8_t steer_manual_enable = 0U;
@@ -2983,6 +2989,23 @@ static void Steering_ManualStop(void)
   steer_manual_stop_count++;
   steer_manual_active = 0U;
   steer_manual_direction = 0;
+}
+
+/* Global S11 incident lockout: any NC EXTI cuts BOTH steering
+ * CCRs, regardless of which software motion service owns them.
+ * An NC that opens on a runaway motor must NOT be cleared just
+ * because a subsequent held PS2 command asks to move again.
+ * Power-cycle remains required before another deliberate bench arm.
+ * Software CCR=0 is not an independent power disconnect.
+ */
+static void Steering_SafetyOnLimitInterrupt(uint8_t bit)
+{
+  steer_safety_trip_mask |= bit;
+  steer_safety_trip_latched = 1U;
+  if (steer_safety_trip_reason == 0U)
+    steer_safety_trip_reason = 1U;
+  __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+  __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
 }
 
 /* An NC opening always kills the corresponding motor's PWM in EXTI,
@@ -6309,15 +6332,58 @@ int main(void)
      * Leaving an active L_MIN, L_MAX, or R_MIN: <=1s and require
      * a NEW manual request after verified switch release.
      */
-    Steering_TestPulseUpdate();
-    /* Release the previous manual PWM owner BEFORE checking a fresh
-     * R1/R2 edge. Otherwise the position command gets rejected simply
-     * because steer_manual_active was still set for this same cycle.
+    /* INCIDENT QUARANTINE: block ALL six-motor steering paths, not
+     * only D-pad/RX. In particular R1/R2, Select and M7-S02 diagnostic
+     * pulses must not re-energize TIM12/TIM14 while a safety trip
+     * exists or while the explicit software motion permit is zero.
      */
-    Steering_ManualUpdate();   /* D-pad LEFT/RIGHT and joystick RX */
-    Steering_PositionUpdate(); /* R1/R2 independent closed-loop */
-    Steering_CalUpdate();      /* SELECT: guarded auto MIN/MAX scan */
-    Steering_PositionTelemetryIdleUpdate(); /* AS5600 live without poll flag */
+    {
+      uint8_t nc = Steering_TestRawLimitMask();
+      if (nc != 0U)
+      {
+        steer_safety_trip_mask |= nc;
+        steer_safety_trip_latched = 1U;
+        if (steer_safety_trip_reason == 0U)
+          steer_safety_trip_reason = 2U; /* asserted NC GPIO */
+      }
+      if ((steer_safety_motion_permit != 1U) ||
+          (steer_safety_trip_latched != 0U))
+      {
+        if (steer_test_running != 0U) Steering_TestFinish(9U);
+        if (steer_manual_active != 0U) Steering_ManualStop();
+        if (steer_pos_active != 0U) Steering_PositionFinish(9U);
+        if (steer_cal_active != 0U) Steering_CalStop(9U);
+        steer_test_arm = 0U;
+        steer_test_request = 0U;
+        steer_cal_arm = 0U;
+        steer_safety_neutral_required = 1U;
+        Turn_Motors_Stop();
+        steer_safety_blocked_cycles++;
+      }
+      else if (steer_safety_neutral_required != 0U)
+      {
+        /* Requiring full neutral is not a substitute for clearing a
+         * safety trip. Any latched trip was handled ABOVE.
+         */
+        Turn_Motors_Stop();
+        if ((Steering_ManualInputsNeutral() != 0U) &&
+            (PS2_Pad.Select == 0U) &&
+            (PS2_Pad.R1 == 0U) && (PS2_Pad.R2 == 0U) &&
+            (PS2_Pad.L1 == 0U) && (PS2_Pad.L2 == 0U))
+        {
+          steer_safety_neutral_required = 0U;
+          steer_safety_neutral_pass_count++;
+        }
+      }
+      else
+      {
+        Steering_TestPulseUpdate();
+        Steering_ManualUpdate();   /* D-pad only by default; RX disabled */
+        Steering_PositionUpdate(); /* R1/R2 */
+        Steering_CalUpdate();      /* SELECT - any NC trip latches */
+      }
+    }
+    Steering_PositionTelemetryIdleUpdate(); /* no-powered AS5600 monitor */
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
     RamLogger_DumpCsvUpdate();
@@ -7338,6 +7404,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   else if (GPIO_Pin == LIMIT_R_MAX_Pin)
   {
     debug_limit_r_max.exti_rise_count++;
+    Steering_SafetyOnLimitInterrupt(0x01U);
     Steering_TestOnLimitInterrupt(0x01U);
     Steering_PositionOnLimitInterrupt(0x01U);
     Steering_ManualOnLimitInterrupt(0x01U);
@@ -7346,6 +7413,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   else if (GPIO_Pin == LIMIT_R_MIN_Pin)
   {
     debug_limit_r_min.exti_rise_count++;
+    Steering_SafetyOnLimitInterrupt(0x02U);
     Steering_TestOnLimitInterrupt(0x02U);
     Steering_PositionOnLimitInterrupt(0x02U);
     Steering_ManualOnLimitInterrupt(0x02U);
@@ -7354,6 +7422,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   else if (GPIO_Pin == LIMIT_L_MIN_Pin)
   {
     debug_limit_l_min.exti_rise_count++;
+    Steering_SafetyOnLimitInterrupt(0x04U);
     Steering_TestOnLimitInterrupt(0x04U);
     Steering_PositionOnLimitInterrupt(0x04U);
     Steering_ManualOnLimitInterrupt(0x04U);
@@ -7362,6 +7431,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   else if (GPIO_Pin == LIMIT_L_MAX_Pin)
   {
     debug_limit_l_max.exti_rise_count++;
+    Steering_SafetyOnLimitInterrupt(0x08U);
     Steering_TestOnLimitInterrupt(0x08U);
     Steering_PositionOnLimitInterrupt(0x08U);
     Steering_ManualOnLimitInterrupt(0x08U);
