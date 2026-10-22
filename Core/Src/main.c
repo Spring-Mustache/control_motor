@@ -3314,7 +3314,15 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
 
   *pwm = 0U;
   *dir = GPIO_PIN_RESET;
-  if (stage == STEER_CAL_DONE) return 0U;
+  if (stage == STEER_CAL_DONE)
+  {
+    /* While waiting for the other motor, keep this AS5600 live and
+     * ensure a finished axis is still centered with all NCs closed.
+     */
+    if ((edge != 0U) || (limit != 0U)) return 6U;
+    if (Steering_PositionReadOne(left, &raw) == 0U) return 4U;
+    return 0U;
+  }
 
   if ((Steering_PositionReadOne(left, &raw) == 0U) || (raw > 4095U))
     return 4U;
