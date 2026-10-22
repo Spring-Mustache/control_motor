@@ -1644,12 +1644,17 @@ volatile uint16_t steer_cal_right_max_runtime = 3680U;
 #define STEER_POS_RIGHT_CENTER_RAW    3398U
 #define STEER_POS_RIGHT_MAX_RAW      (steer_cal_right_max_runtime)
 #define STEER_POS_TOL_RAW             5 /* R2 MIN unchanged */
-/* M7-S07H: R1 CENTER capture has separate tolerance for each gearbox.
- * The 5-count R2 MIN threshold and all physical NC safety are unchanged.
- * Compare RAW counts, not degrees or PWM percentages.
+/* M7-S08: R1 CENTER is independent of Select CENTER capture.
+ * R1 fine correction accepts at most ±5 AS5600 RAW; Select retains
+ * separate 15/20-count calibration capture with no CENTER learning.
  */
-volatile uint16_t steer_pos_left_center_tol_raw = 15U;
-volatile uint16_t steer_pos_right_center_tol_raw = 20U;
+volatile uint16_t steer_pos_left_center_tol_raw = 5U;
+volatile uint16_t steer_pos_right_center_tol_raw = 5U;
+static uint16_t Steering_CenterFineTolClamp(uint16_t value)
+{
+  if (value < 3U) return 3U;
+  return (value > 5U) ? 5U : value;
+}
 static uint16_t Steering_CenterTolClamp(uint16_t value)
 {
   if (value < 8U) return 8U;
@@ -1663,6 +1668,21 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
 #define STEER_POS_IDLE_POLL_MS      50U
 #define STEER_POS_RX_NEUTRAL_DELTA  10U
 #define STEER_POS_STABLE_SAMPLES     3U
+/* Nonblocking R1-only fine position controller. PWM outputs are OFF
+ * while coasting/quiet capture; bounded timed motor pulses then settle.
+ * A failed tight ±5 result is reported as error, never claimed as PASS.
+ * R2 MIN retains its original controller and ±5 comparator.
+ */
+#define STEER_POS_FINE_ENTER_RAW       35U
+#define STEER_POS_FINE_ABORT_RAW       90U
+#define STEER_POS_FINE_OFF_MIN_MS     200U
+#define STEER_POS_FINE_QUIET_MS       100U
+#define STEER_POS_FINE_CAPTURE_MS     120U
+#define STEER_POS_FINE_MAX_PULSES       8U
+#define STEER_POS_FINE_PHASE_IDLE       0U
+#define STEER_POS_FINE_PHASE_SETTLE     1U
+#define STEER_POS_FINE_PHASE_PULSE      2U
+#define STEER_POS_FINE_RESULT_FAIL     10U
 
 #define STEER_AXIS_IDLE     0U
 #define STEER_AXIS_MOVING   1U
@@ -1707,6 +1727,25 @@ volatile uint16_t steer_pos_left_pwm_min = 175U;
 volatile uint16_t steer_pos_left_pwm_max = 300U;
 volatile uint16_t steer_pos_right_pwm_min = 50U;
 volatile uint16_t steer_pos_right_pwm_max = 100U;
+/* Fine-tune LEFT and RIGHT independently, compare ticks ARR=999.
+ * Short pulses intentionally start low/brief; fine trim is NOT
+ * guaranteed on high-static-friction hardware. Escalation must be
+ * validated on a supported chassis, not silently forced.
+ */
+volatile uint16_t steer_pos_left_fine_pwm = 175U;
+volatile uint16_t steer_pos_right_fine_pwm = 85U;
+volatile uint16_t steer_pos_left_fine_pulse_ms = 30U;
+volatile uint16_t steer_pos_right_fine_pulse_ms = 40U;
+volatile uint8_t steer_pos_left_fine_phase = 0U;
+volatile uint8_t steer_pos_right_fine_phase = 0U;
+volatile uint8_t steer_pos_left_fine_pulses = 0U;
+volatile uint8_t steer_pos_right_fine_pulses = 0U;
+volatile int16_t steer_pos_left_fine_error = 0;
+volatile int16_t steer_pos_right_fine_error = 0;
+volatile uint16_t steer_pos_left_center_final_raw = 0U;
+volatile uint16_t steer_pos_right_center_final_raw = 0U;
+volatile uint8_t steer_pos_left_fine_fault = 0U;
+volatile uint8_t steer_pos_right_fine_fault = 0U;
 volatile uint8_t steer_pos_left_state = STEER_AXIS_IDLE;
 volatile uint8_t steer_pos_right_state = STEER_AXIS_IDLE;
 volatile uint8_t steer_pos_left_result = 0U;
@@ -1725,6 +1764,14 @@ typedef struct
   uint16_t escape_start_raw;
   uint8_t escape_origin;  /* own MIN or MAX NC mask at start */
   uint8_t stable_count;
+  uint8_t fine_phase;
+  uint8_t fine_pulses;
+  uint8_t fine_dir0;
+  int16_t fine_start_error;
+  uint16_t fine_quiet_raw;
+  uint32_t fine_phase_start_ms;
+  uint32_t fine_quiet_since_ms;
+  uint32_t fine_capture_since_ms;
 } SteeringPositionAxis_t;
 
 static SteeringPositionAxis_t steer_left_axis = {0};
@@ -2278,6 +2325,20 @@ static void Steering_PositionUpdate(void)
     steer_right_axis.best_abs_error = 32767U;
     steer_left_axis.stable_count = 0U;
     steer_right_axis.stable_count = 0U;
+    steer_left_axis.fine_phase = STEER_POS_FINE_PHASE_IDLE;
+    steer_right_axis.fine_phase = STEER_POS_FINE_PHASE_IDLE;
+    steer_left_axis.fine_pulses = 0U;
+    steer_right_axis.fine_pulses = 0U;
+    steer_pos_left_fine_phase = 0U;
+    steer_pos_right_fine_phase = 0U;
+    steer_pos_left_fine_pulses = 0U;
+    steer_pos_right_fine_pulses = 0U;
+    steer_pos_left_fine_error = 0;
+    steer_pos_right_fine_error = 0;
+    steer_pos_left_fine_fault = 0U;
+    steer_pos_right_fine_fault = 0U;
+    steer_pos_left_center_final_raw = 0U;
+    steer_pos_right_center_final_raw = 0U;
     steer_pos_run_count++;
 
     if ((raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
