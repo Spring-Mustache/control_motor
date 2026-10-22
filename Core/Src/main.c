@@ -1568,8 +1568,13 @@ volatile uint32_t steer_safety_blocked_cycles = 0U;
  */
 volatile uint8_t steer_safety_neutral_required = 1U;
 volatile uint32_t steer_safety_neutral_pass_count = 0U;
-/* RX steering disabled until pad cross-talk/axis noise is investigated. */
+/* RX steering stays disabled until physical investigation. Diagnostics
+ * do not grant motor power when compile-time incident lockout is active.
+ */
 volatile uint8_t steer_manual_rx_enable = 0U;
+volatile uint16_t steer_manual_rx_deadzone_raw = 48U;
+volatile uint32_t steer_manual_rx_rejected_wheel_count = 0U;
+#define STEER_MANUAL_RX_DEBOUNCE_MS 150U
 volatile uint8_t steer_manual_enable = 0U;
 /* Declared early for arbitration/PWM ownership. Initialized in the
  * select-calibration section below and defaults DISARMED on reset.
@@ -1632,7 +1637,7 @@ volatile int8_t steer_manual_right_requested_direction = 0;
  * short, AS5600-verified departure from R_MAX; NEVER a full stroke from
  * an active NC limit. This remains an observable runtime safety gate.
  */
-volatile uint8_t steer_manual_allow_right_max_escape = 1U;
+volatile uint8_t steer_manual_allow_right_max_escape = 0U; /* S11: fail closed */
 /* Combined LY wheel drive + RX steering is a later bench validation gate. */
 volatile uint8_t steer_manual_allow_wheel_motion = 0U;
 volatile uint32_t steer_manual_start_count = 0U;
@@ -1647,26 +1652,70 @@ static volatile uint8_t steer_manual_irq_pending_mask = 0U;
  */
 static int8_t Steering_ManualRequestDirection(void)
 {
+  static int8_t rx_candidate = 0;
+  static uint32_t rx_candidate_since_ms = 0U;
   int16_t rx;
-  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
+  uint16_t threshold;
+  int8_t requested;
+  uint32_t now = HAL_GetTick();
+
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U) ||
+      (steer_safety_trip_latched != 0U))
+  {
+    rx_candidate = 0;
     return 0;
-  if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
-    return 0; /* contradiction; require neutral to rearm */
-  /* A 4-wheel LY/Up/Down command must NEVER authorize steering.
-   * Previously an unrelated RX deflection >10 selected steering
-   * even while LY was actively driving all four wheels.
+  }
+  /* Wheel requests are mutually exclusive with steering. Reject noisy
+   * RX data while LY/D-pad Up/Down are in use; count for diagnostics.
    */
   if ((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
       (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
       (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U))
+  {
+    if ((PS2_Pad.RX < 118U) || (PS2_Pad.RX > 138U))
+      steer_manual_rx_rejected_wheel_count++;
+    rx_candidate = 0;
     return 0;
-  if (PS2_Pad.Left != 0U) return -1;
-  if (PS2_Pad.Right != 0U) return 1;
-  if (steer_manual_rx_enable != 1U) return 0;
+  }
+  if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
+  {
+    rx_candidate = 0;
+    return 0;
+  }
+  if (PS2_Pad.Left != 0U)
+  {
+    rx_candidate = 0;
+    return -1;
+  }
+  if (PS2_Pad.Right != 0U)
+  {
+    rx_candidate = 0;
+    return 1;
+  }
+  if (steer_manual_rx_enable != 1U)
+  {
+    rx_candidate = 0;
+    return 0;
+  }
+  threshold = steer_manual_rx_deadzone_raw;
+  if (threshold < 35U) threshold = 35U;
+  if (threshold > 90U) threshold = 90U;
   rx = (int16_t)PS2_Pad.RX - 128;
-  if (rx < -10) return -1;
-  if (rx > 10) return 1;
-  return 0;
+  requested = (rx < -(int16_t)threshold) ? -1 :
+              ((rx > (int16_t)threshold) ? 1 : 0);
+  if (requested == 0)
+  {
+    rx_candidate = 0;
+    return 0;
+  }
+  if (rx_candidate != requested)
+  {
+    rx_candidate = requested;
+    rx_candidate_since_ms = now;
+    return 0;
+  }
+  return ((uint32_t)(now - rx_candidate_since_ms) >=
+          STEER_MANUAL_RX_DEBOUNCE_MS) ? requested : 0;
 }
 
 static uint8_t Steering_ManualInputsNeutral(void)
@@ -6314,6 +6363,15 @@ int main(void)
     PS2_ObserveNewMapping(); /* decoded requests; output gating is separate */
 
     Control_Arbitrate();
+    /* Any steering NC trip is a whole-vehicle incident. Arbitration may
+     * still issue wheel targets, so override them before the wheel update.
+     * This is a SOFTWARE fallback; hardware power cutoff is mandatory.
+     */
+    if (steer_safety_trip_latched != 0U)
+    {
+      control_mode = CONTROL_MODE_STOP;
+      Wheel_EmergencyStop();
+    }
 
     /*
      * USER button posts only a request from EXTI.
@@ -6329,7 +6387,13 @@ int main(void)
      * - PID OFF: giữ open-loop cũ;
      * - PID ON: feedforward + PID tốc độ từng bánh có encoder.
      */
-    WheelControl_Update();
+    if (steer_safety_trip_latched == 0U)
+      WheelControl_Update();
+    /* ISR may have latched a trip during wheel control: cut it again.
+     * Do not assume a 20ms software loop is a safety-rated E-stop.
+     */
+    if (steer_safety_trip_latched != 0U)
+      Wheel_EmergencyStop();
 
     /*
      * Auto feedforward-calibration test:
@@ -6417,6 +6481,11 @@ int main(void)
         steer_cal_arm = 0U;
         steer_safety_neutral_required = 1U;
         Turn_Motors_Stop();
+        if (steer_safety_trip_latched != 0U)
+        {
+          control_mode = CONTROL_MODE_STOP;
+          Wheel_EmergencyStop();
+        }
         steer_safety_blocked_cycles++;
       }
       else if (steer_safety_neutral_required != 0U)
