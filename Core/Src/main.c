@@ -3029,7 +3029,9 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
   uint8_t correct_sign;
 
   *apply = 0U;
-  if ((state != STEER_MANUAL_MOVING) && (state != STEER_MANUAL_ESCAPE))
+  if ((state != STEER_MANUAL_MOVING) &&
+      (state != STEER_MANUAL_ESCAPE) &&
+      (state != STEER_MANUAL_SETTLING))
   {
     /* Keep RAW/STATUS live even after a partner motor reaches the limit. */
     (void)Steering_PositionReadOne(left, &raw);
@@ -3048,6 +3050,10 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
   }
   if (((limits & opposite) != 0U) && (state != STEER_MANUAL_ESCAPE))
   {
+    /* An NC trip while settling means coast reached the WRONG
+     * mechanical boundary. No motor is permitted to power out
+     * automatically in the same held command. Operator must release.
+     */
     Steering_ManualAxisFault(left, 9U);
     return;
   }
@@ -3065,6 +3071,73 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
     return;
   }
   axis->previous_raw = raw;
+
+  if (state == STEER_MANUAL_SETTLING)
+  {
+    uint32_t settle_ms = (uint32_t)(now - axis->settle_begin_ms);
+    uint16_t min_ms = left ? STEER_MANUAL_START_LEFT_MIN_MS :
+                              STEER_MANUAL_START_RIGHT_MIN_MS;
+    int16_t drift = AS5600_ShortestDeltaCounts(
+        axis->settle_quiet_raw, raw);
+    if (left != 0U)
+    {
+      steer_manual_left_settle_raw = raw;
+      steer_manual_left_settle_elapsed_ms = settle_ms;
+    }
+    else
+    {
+      steer_manual_right_settle_raw = raw;
+      steer_manual_right_settle_elapsed_ms = settle_ms;
+    }
+    /* Both instantaneous AND cumulative RAW must be quiet. Even a
+     * repeated +1 count drift toward MAX resets the quiet timer.
+     */
+    if ((delta > 1) || (delta < -1) ||
+        (drift > 2) || (drift < -2))
+    {
+      axis->settle_quiet_since_ms = now;
+      axis->settle_quiet_raw = raw;
+    }
+    if (settle_ms >= STEER_MANUAL_START_SETTLE_MAX_MS)
+    {
+      Steering_ManualAxisFault(left, STEER_MANUAL_RESULT_UNSETTLED);
+      return;
+    }
+    if ((settle_ms >= min_ms) &&
+        ((uint32_t)(now - axis->settle_quiet_since_ms) >=
+         STEER_MANUAL_START_QUIET_MS))
+    {
+      /* Never start by driving further into a calibrated SOFT stop,
+       * even if a motor coasted across it while PWM=0.
+       */
+      uint16_t boundary = (direction < 0) ?
+          (left ? STEER_MANUAL_LEFT_SOFT_MIN :
+                  STEER_MANUAL_RIGHT_SOFT_MIN) :
+          (left ? STEER_MANUAL_LEFT_SOFT_MAX :
+                  STEER_MANUAL_RIGHT_SOFT_MAX);
+      uint8_t at_soft = (((left != 0U) && (direction < 0) &&
+                           (raw >= boundary)) ||
+                         ((left != 0U) && (direction > 0) &&
+                           (raw <= boundary)) ||
+                         ((left == 0U) && (direction < 0) &&
+                           (raw <= boundary)) ||
+                         ((left == 0U) && (direction > 0) &&
+                           (raw >= boundary))) ? 1U : 0U;
+      if (at_soft != 0U)
+      {
+        Steering_ManualAxisDone(left, STEER_MANUAL_RESULT_SOFT);
+        return;
+      }
+      axis->best_distance = 32767U;
+      axis->progress_ms = now;
+      if (left != 0U) steer_manual_left_state = STEER_MANUAL_MOVING;
+      else steer_manual_right_state = STEER_MANUAL_MOVING;
+      /* Zero CCR for this cycle, first powered action NEXT cycle
+       * after the normal independent limit/IRQ rechecks.
+       */
+    }
+    return;
+  }
 
   /* LEFT raw increases when going MIN; RIGHT raw decreases going MIN. */
   correct_sign = (uint8_t)(((left != 0U) && (direction < 0)) ||
@@ -3100,10 +3173,10 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
     return;
   }
 
-  /* D-pad/RX are MANUAL: stop 20 encoder counts *before* the
-   * mechanical MIN/MAX, not near the physical endstop as previously.
-   * No need to press NC. If already past soft boundary, the safe
-   * choice is to stop moving INTO it, not fault/latch both motors.
+  /* D-pad/RX are MANUAL: stop at each axis's independently
+   * configured clearance BEFORE its physical MIN/MAX.
+   * No need to press NC. If already beyond the boundary, never
+   * drive further into it; reversing AWAY remains a fresh command.
    */
   goal = (direction < 0) ?
       ((left != 0U) ? STEER_MANUAL_LEFT_SOFT_MIN :
@@ -3147,9 +3220,9 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
     Steering_ManualAxisFault(left, STEER_MANUAL_RESULT_STALL);
     return;
   }
-  /* Lower PWM during the last 80 RAW before the 20-count soft stop to
-   * reduce coasting beyond the boundary. No active motor brake exists:
-   * verify physical stopping distance; increase the soft margin if needed.
+  /* Lower PWM during the last approach window before the per-axis
+   * soft stop to reduce coasting. No active motor brake exists:
+   * verify physical stopping distance; increase clearance as needed.
    * Never raise a low joystick PWM to the configured approach floor.
    */
   pwm = Steering_ManualClampPWM(pwm);
