@@ -3194,7 +3194,9 @@ volatile uint16_t steer_cal_right_stall_timeout_ms = 850U;
  * This guards against interpreting residual INBOUND inertia as a
  * wrong-direction response to the OUTBOUND command.
  */
-#define STEER_CAL_REVERSE_SETTLE_MS 150U
+/* Independent settling windows: gear ratios and coasting differ. */
+volatile uint16_t steer_cal_left_reverse_settle_ms = 150U;
+volatile uint16_t steer_cal_right_reverse_settle_ms = 220U;
 #define STEER_CAL_JUMP_MAX_RAW     90
 #define STEER_CAL_STABLE_REQUIRED  3U
 
@@ -3392,17 +3394,23 @@ static uint8_t Steering_CalMotionFault(uint8_t left, uint8_t reason,
                                        uint8_t stage, uint16_t raw,
                                        int16_t delta, uint32_t now)
 {
-  steer_cal_motion_fault_side = left ? 1U : 2U;
-  steer_cal_motion_fault_reason = reason;
-  steer_cal_motion_fault_stage = stage;
-  steer_cal_motion_fault_raw = raw;
-  steer_cal_motion_fault_delta = delta;
-  steer_cal_motion_fault_pwm =
-      left ? steer_cal_left_pwm : steer_cal_right_pwm;
-  steer_cal_motion_fault_age_ms =
-      (uint32_t)(now - (left ? steer_cal_left_axis.last_progress_ms :
-                                  steer_cal_right_axis.last_progress_ms));
-  steer_cal_motion_fault_limit_mask = Steering_TestRawLimitMask();
+  /* First fault wins if both axes fail in the same loop.
+   * The control loop already stops both; don't overwrite primary cause.
+   */
+  if (steer_cal_motion_fault_side == 0U)
+  {
+    steer_cal_motion_fault_side = left ? 1U : 2U;
+    steer_cal_motion_fault_reason = reason;
+    steer_cal_motion_fault_stage = stage;
+    steer_cal_motion_fault_raw = raw;
+    steer_cal_motion_fault_delta = delta;
+    steer_cal_motion_fault_pwm =
+        left ? steer_cal_left_pwm : steer_cal_right_pwm;
+    steer_cal_motion_fault_age_ms =
+        (uint32_t)(now - (left ? steer_cal_left_axis.last_progress_ms :
+                                    steer_cal_right_axis.last_progress_ms));
+    steer_cal_motion_fault_limit_mask = Steering_TestRawLimitMask();
+  }
   return 7U;
 }
 
@@ -3554,10 +3562,16 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
      * When the settling interval ends, reset the stall clock so the
      * motor gets its full independent escape stall allowance.
      */
-    if ((uint32_t)(now - axis->stage_begin) < STEER_CAL_REVERSE_SETTLE_MS)
     {
-      axis->last_progress_ms = now;
-      return 0U;
+      uint16_t settle_ms = left ? steer_cal_left_reverse_settle_ms :
+                                  steer_cal_right_reverse_settle_ms;
+      if (settle_ms < 80U) settle_ms = 80U;
+      if (settle_ms > 350U) settle_ms = 350U;
+      if ((uint32_t)(now - axis->stage_begin) < settle_ms)
+      {
+        axis->last_progress_ms = now;
+        return 0U;
+      }
     }
     /* NC bounced during safe departure. Do not energize in this frame. */
     if (edge == own) return 0U;
