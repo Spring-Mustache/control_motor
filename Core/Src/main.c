@@ -5619,6 +5619,162 @@ static void PS2_DebugObserveAllInputs(void)
   if (PS2_Pad.Up != 0U) debug_ps2_dpad_up_frames++;
 }
 
+
+/* M7-S12 restore CHECK of legacy steering controls in a command-only
+ * shadow interpreter. D-pad L/R, RX, R1, R2 and SELECT all remain
+ * decoded, but a known overtravel incident prevents steering POWER.
+ * The shadow never writes DIR/CCR, arm flags, runtime calibration,
+ * or calls any motor-driving function.
+ *
+ * shadow_action: 0 none, 1 Dpad L, 2 Dpad R, 3 RX L, 4 RX R,
+ *                5 R1 CENTER, 6 R2 MIN, 7 SELECT scan.
+ * shadow_block: 0 unblocked command, 1 invalid PS2, 2 LY/UP/DOWN,
+ *               3 conflicting controls, 4 STOP/RF fault,
+ *               5 steering NC latch, 6 L1/L2 spin,
+ *               7 RX not armed / debounce pending.
+ * shadow_action is a DECODED request, not permission to energize.
+ * blocked requests retain action and block reason for diagnosis.
+ */
+volatile uint8_t debug_steer_shadow_enable = 1U;
+volatile uint8_t debug_steer_shadow_action = 0U;
+volatile uint8_t debug_steer_shadow_block_reason = 0U;
+volatile int8_t debug_steer_shadow_left_direction = 0;
+volatile int8_t debug_steer_shadow_right_direction = 0;
+volatile uint16_t debug_steer_shadow_left_target = 0U;
+volatile uint16_t debug_steer_shadow_right_target = 0U;
+volatile uint32_t debug_steer_shadow_seen_dpad_l = 0U;
+volatile uint32_t debug_steer_shadow_seen_dpad_r = 0U;
+volatile uint32_t debug_steer_shadow_seen_rx_l = 0U;
+volatile uint32_t debug_steer_shadow_seen_rx_r = 0U;
+volatile uint32_t debug_steer_shadow_seen_r1 = 0U;
+volatile uint32_t debug_steer_shadow_seen_r2 = 0U;
+volatile uint32_t debug_steer_shadow_seen_select = 0U;
+volatile uint32_t debug_steer_shadow_blocked_ly_frames = 0U;
+volatile uint32_t debug_steer_shadow_unblocked_frames = 0U;
+/* For RX simulation the same default 48 count, 150ms rule as S11
+ * is used. This does NOT enable RX motor actuation.
+ */
+static void PS2_DebugShadowSteeringCommands(void)
+{
+  static int8_t rx_candidate = 0;
+  static uint32_t rx_candidate_since_ms = 0U;
+  uint8_t action = 0U, block = 0U;
+  uint8_t button_group_count = 0U;
+  int16_t offset;
+  int8_t rx_request = 0;
+  uint16_t threshold;
+  uint32_t now = HAL_GetTick();
+
+  if (debug_steer_shadow_enable == 0U) return;
+  debug_steer_shadow_action = 0U;
+  debug_steer_shadow_block_reason = 0U;
+  debug_steer_shadow_left_direction = 0;
+  debug_steer_shadow_right_direction = 0;
+  debug_steer_shadow_left_target = 0U;
+  debug_steer_shadow_right_target = 0U;
+
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
+  {
+    rx_candidate = 0;
+    debug_steer_shadow_block_reason = 1U;
+    return;
+  }
+
+  if ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U)) button_group_count++;
+  if (PS2_Pad.R1 != 0U) button_group_count++;
+  if (PS2_Pad.R2 != 0U) button_group_count++;
+  if (PS2_Pad.Select != 0U) button_group_count++;
+
+  if (PS2_Pad.Select != 0U)
+    action = 7U;
+  else if (PS2_Pad.R1 != 0U)
+    action = 5U;
+  else if (PS2_Pad.R2 != 0U)
+    action = 6U;
+  else if (PS2_Pad.Left != 0U)
+    action = 1U;
+  else if (PS2_Pad.Right != 0U)
+    action = 2U;
+  else
+  {
+    offset = (int16_t)PS2_Pad.RX - 128;
+    threshold = steer_manual_rx_deadzone_raw;
+    if (threshold < 35U) threshold = 35U;
+    if (threshold > 90U) threshold = 90U;
+    rx_request = (offset < -(int16_t)threshold) ? -1 :
+                 ((offset > (int16_t)threshold) ? 1 : 0);
+    if (rx_request == 0)
+      rx_candidate = 0;
+    else if (rx_candidate != rx_request)
+    {
+      rx_candidate = rx_request;
+      rx_candidate_since_ms = now;
+    }
+    else if ((uint32_t)(now - rx_candidate_since_ms) >=
+             STEER_MANUAL_RX_DEBOUNCE_MS)
+      action = (rx_request < 0) ? 3U : 4U;
+  }
+
+  if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
+    block = 3U;
+  else if (button_group_count > 1U)
+    block = 3U;
+  else if ((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
+           (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
+           (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U))
+    block = 2U;
+  else if ((control_stop_latched != 0U) ||
+           (ps2_spin_rf_latched != 0U) || (ps2_cancel_hold != 0U))
+    block = 4U;
+  else if (steer_safety_trip_latched != 0U)
+    block = 5U;
+  else if ((PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
+           (WheelControl_SpinIsActive() != 0U))
+    block = 6U;
+  else if ((rx_request != 0) &&
+           ((action == 0U) || (steer_manual_rx_enable != 1U)))
+    block = 7U;
+
+  debug_steer_shadow_action = action;
+  debug_steer_shadow_block_reason = block;
+  if (block == 2U) debug_steer_shadow_blocked_ly_frames++;
+  if ((action != 0U) && (block == 0U))
+    debug_steer_shadow_unblocked_frames++;
+
+  if (action == 1U || action == 3U)
+  {
+    debug_steer_shadow_left_direction = -1;
+    debug_steer_shadow_right_direction = 1;
+    debug_steer_shadow_left_target = STEER_MANUAL_LEFT_SOFT_MIN;
+    debug_steer_shadow_right_target = STEER_MANUAL_RIGHT_SOFT_MAX;
+  }
+  else if (action == 2U || action == 4U)
+  {
+    debug_steer_shadow_left_direction = 1;
+    debug_steer_shadow_right_direction = -1;
+    debug_steer_shadow_left_target = STEER_MANUAL_LEFT_SOFT_MAX;
+    debug_steer_shadow_right_target = STEER_MANUAL_RIGHT_SOFT_MIN;
+  }
+  else if (action == 5U)
+  {
+    debug_steer_shadow_left_target = STEER_POS_LEFT_CENTER_RAW;
+    debug_steer_shadow_right_target = STEER_POS_RIGHT_CENTER_RAW;
+  }
+  else if (action == 6U)
+  {
+    debug_steer_shadow_left_target = STEER_POS_LEFT_MIN_RAW;
+    debug_steer_shadow_right_target = STEER_POS_RIGHT_MIN_RAW;
+  }
+
+  if (action == 1U) debug_steer_shadow_seen_dpad_l++;
+  if (action == 2U) debug_steer_shadow_seen_dpad_r++;
+  if (action == 3U) debug_steer_shadow_seen_rx_l++;
+  if (action == 4U) debug_steer_shadow_seen_rx_r++;
+  if (action == 5U) debug_steer_shadow_seen_r1++;
+  if (action == 6U) debug_steer_shadow_seen_r2++;
+  if (action == 7U) debug_steer_shadow_seen_select++;
+}
+
 static void PS2_DebugObserveRightOutput(void)
 {
   static uint8_t previous_source = 0U;
@@ -5866,6 +6022,12 @@ static void PS2_ApplyManualControl(void)
     pwm_duty = -MOTOR_DPAD_PWM;
   }
 
+  /* Hard steering quarantine: an LY/Up/Down wheel-drive request cannot
+   * leave residual steering CCR, even within the same PS2 handling step.
+   * Motor power remains independently unsafe until hardware checked.
+   */
+  if ((pwm_duty != 0) || (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U))
+    Turn_Motors_Stop();
   WheelControl_SetTargetPWM(pwm_duty);
   /* The steering service below owns TIM12/TIM14 during direct steering.
    * Stopping them here on each ~20ms PS2 loop formerly defeated RX/D-pad.
@@ -6814,6 +6976,7 @@ int main(void)
      */
     PS2_Read_Data();
     PS2_DebugObserveAllInputs();  /* All 16 PS2 buttons; input only */
+    PS2_DebugShadowSteeringCommands(); /* Dpad/RX/R1/R2/Select, NO PWM */
     PS2_ObserveNewMapping(); /* decoded requests; output gating is separate */
 
     Control_Arbitrate();
