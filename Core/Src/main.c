@@ -1544,6 +1544,7 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
  */
 volatile uint8_t steer_safety_motion_permit = 0U;
 volatile uint8_t steer_safety_trip_latched = 0U;
+static volatile uint8_t steer_safety_pwm_initialized = 0U;
 volatile uint8_t steer_safety_trip_mask = 0U;   /* NC bits 1,2,4,8 */
 volatile uint8_t steer_safety_trip_reason = 0U; /* 1 EXTI, 2 level, 3 sensor, 4 RAW overshoot */
 volatile uint16_t steer_safety_trip_left_raw = 0U;
@@ -3012,8 +3013,15 @@ static void Steering_SafetyOnLimitInterrupt(uint8_t bit)
   steer_safety_trip_latched = 1U;
   if (steer_safety_trip_reason == 0U)
     steer_safety_trip_reason = 1U;
-  __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
-  __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+  /* MX_GPIO_Init configures EXTI before TIM12/TIM14 exist. During
+   * early startup a rising NC may occur: retain the fault latch but
+   * never dereference an uninitialized TIMx register handle.
+   */
+  if (steer_safety_pwm_initialized != 0U)
+  {
+    __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+    __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+  }
 }
 
 /* An NC opening always kills the corresponding motor's PWM in EXTI,
@@ -6056,6 +6064,10 @@ int main(void)
   {
     Error_Handler();
   }
+  /* NC interrupts are enabled in MX_GPIO_Init() before these PWM
+   * timers are initialized. Only now is ISR CCR access safe.
+   */
+  steer_safety_pwm_initialized = 1U;
 
   if (HAL_TIM_Encoder_Start(&htim8, TIM_CHANNEL_ALL) != HAL_OK ||
       HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL) != HAL_OK ||
