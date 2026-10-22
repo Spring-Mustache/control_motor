@@ -1573,6 +1573,11 @@ volatile uint16_t steer_manual_left_rx_min_pwm = 175U;
 volatile uint16_t steer_manual_right_rx_min_pwm = 50U;
 volatile uint16_t steer_manual_left_rx_max_pwm = 300U;
 volatile uint16_t steer_manual_right_rx_max_pwm = 100U;
+/* Live Expressions: -1 toward own MIN, +1 toward own MAX, 0 idle.
+ * Diagnostic REQUEST only (not proof PWM is energized).
+ */
+volatile int8_t steer_manual_left_requested_direction = 0;
+volatile int8_t steer_manual_right_requested_direction = 0;
 /* RIGHT DIR0 toward MIN was established before M7-S05. Permit only a
  * short, AS5600-verified departure from R_MAX; NEVER a full stroke from
  * an active NC limit. This remains an observable runtime safety gate.
@@ -3131,13 +3136,23 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
 
 static void Steering_ManualUpdate(void)
 {
+  /* The PS2 command is the LEFT wheel steering sense.
+   * Opposed kinematics: LEFT turns toward MIN on left input, while
+   * RIGHT turns toward MAX; reverse both targets on right input.
+   * Treat each axis's physical MIN/MAX, encoder sign and NC limit
+   * based on its OWN direction, never reuse the other axis's sign.
+   */
   int8_t command = Steering_ManualRequestDirection();
+  int8_t left_direction = command;
+  int8_t right_direction = (int8_t)(-command);
   uint16_t lpwm, rpwm, la = 0U, ra = 0U;
   uint16_t magnitude = 0U;
   uint8_t lstate, rstate, mask, pending;
   uint32_t now = HAL_GetTick();
   uint32_t primask;
 
+  steer_manual_left_requested_direction = left_direction;
+  steer_manual_right_requested_direction = right_direction;
   if (command == 0)
   {
     steer_manual_block_reason =
@@ -3278,16 +3293,16 @@ static void Steering_ManualUpdate(void)
     if ((mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) ==
           (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK))
       Steering_ManualAxisFault(0U, 9U);
-    else if ((mask & ((command < 0) ? STEER_LIMIT_R_MIN_MASK :
+    else if ((mask & ((right_direction < 0) ? STEER_LIMIT_R_MIN_MASK :
                         STEER_LIMIT_R_MAX_MASK)) != 0U)
       Steering_ManualAxisDone(0U, 3U);
-    else if ((mask & ((command < 0) ? STEER_LIMIT_R_MAX_MASK :
+    else if ((mask & ((right_direction < 0) ? STEER_LIMIT_R_MAX_MASK :
                         STEER_LIMIT_R_MIN_MASK)) != 0U)
     {
       /* R_MAX departure had not passed a separate DIR0 limit-escape
        * bench test. Keep it opt-in; never assume pressing D-pad is enough.
        */
-      if ((command < 0) &&
+      if ((right_direction < 0) &&
           (steer_manual_allow_right_max_escape == 0U))
         Steering_ManualAxisFault(0U, 10U);
       else
@@ -3338,7 +3353,7 @@ static void Steering_ManualUpdate(void)
   }
   if ((pending & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
   {
-    uint8_t expect = (command < 0) ? STEER_LIMIT_R_MIN_MASK :
+    uint8_t expect = (right_direction < 0) ? STEER_LIMIT_R_MIN_MASK :
                       STEER_LIMIT_R_MAX_MASK;
     if ((pending & expect) != 0U &&
         (pending & (uint8_t)~expect &
@@ -3359,8 +3374,8 @@ static void Steering_ManualUpdate(void)
   }
 
   mask = Steering_TestRawLimitMask();
-  Steering_ManualAxisUpdate(1U, command, mask, now, lpwm, &la);
-  Steering_ManualAxisUpdate(0U, command, mask, now, rpwm, &ra);
+  Steering_ManualAxisUpdate(1U, left_direction, mask, now, lpwm, &la);
+  Steering_ManualAxisUpdate(0U, right_direction, mask, now, rpwm, &ra);
 
   primask = __get_PRIMASK();
   __disable_irq();
@@ -3407,9 +3422,9 @@ static void Steering_ManualUpdate(void)
   {
     uint8_t own = (uint8_t)
         (mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK));
-    uint8_t expected = (command < 0) ?
+    uint8_t expected = (right_direction < 0) ?
         STEER_LIMIT_R_MIN_MASK : STEER_LIMIT_R_MAX_MASK;
-    uint8_t opposite = (command < 0) ?
+    uint8_t opposite = (right_direction < 0) ?
         STEER_LIMIT_R_MAX_MASK : STEER_LIMIT_R_MIN_MASK;
     if (rstate == STEER_MANUAL_ESCAPE)
     {
@@ -3437,7 +3452,7 @@ static void Steering_ManualUpdate(void)
       (steer_manual_right_state == STEER_MANUAL_ESCAPE))
   {
     HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port, MOTOR_DIR_TURN_right_Pin,
-                      (command < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
+                      (right_direction < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
     __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, ra);
     steer_manual_right_pwm = ra;
   }
