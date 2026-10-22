@@ -3185,6 +3185,8 @@ volatile uint16_t steer_cal_left_seek_timeout_ms = 12000U;
 volatile uint16_t steer_cal_right_seek_timeout_ms = 9000U;
 volatile uint16_t steer_cal_left_center_timeout_ms = 7000U;
 volatile uint16_t steer_cal_right_center_timeout_ms = 6500U;
+volatile uint16_t steer_cal_left_stall_timeout_ms = 1100U;
+volatile uint16_t steer_cal_right_stall_timeout_ms = 850U;
 #define STEER_CAL_EXIT_TIMEOUT_MS 1000U
 #define STEER_CAL_OVERALL_TIMEOUT_MS 45000U
 #define STEER_CAL_STALL_TIMEOUT_MS 850U
@@ -3527,9 +3529,14 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
         ((should_increase == 0U) && (movement > 0)))
       return 7U;
   }
-  if ((uint32_t)(now - axis->last_progress_ms) >=
-      STEER_CAL_STALL_TIMEOUT_MS)
-    return 7U;
+  {
+    uint16_t stall_ms = left ? steer_cal_left_stall_timeout_ms :
+                               steer_cal_right_stall_timeout_ms;
+    if (stall_ms < 500U) stall_ms = 500U;
+    if (stall_ms > 1600U) stall_ms = 1600U;
+    if ((uint32_t)(now - axis->last_progress_ms) >= stall_ms)
+      return 7U;
+  }
 
   /* Never let calibration exceed the independently tested PWM ceilings. */
   if (left != 0U)
@@ -3706,6 +3713,13 @@ static void Steering_CalUpdate(void)
          (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)))
     {
       steer_cal_result = 6U; /* contradictory NC contacts */
+      steer_cal_limit_fault_reason = 1U;
+      steer_cal_limit_fault_side =
+          ((raw_limits & (STEER_LIMIT_L_MIN_MASK |
+                          STEER_LIMIT_L_MAX_MASK)) ==
+           (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ?
+          1U : 2U;
+      steer_cal_last_gpio_snapshot = raw_limits;
       return;
     }
     if ((Steering_PositionReadOne(1U, &lraw) == 0U) ||
@@ -3732,6 +3746,10 @@ static void Steering_CalUpdate(void)
     steer_cal_right_fault = 0U;
     steer_cal_irq_trip_mask = 0U;
     steer_cal_irq_pending_mask = 0U;
+    steer_cal_limit_fault_reason = 0U;
+    steer_cal_limit_fault_side = 0U;
+    steer_cal_last_irq_snapshot = 0U;
+    steer_cal_last_gpio_snapshot = 0U;
     steer_cal_result = 1U;
     steer_cal_active = 1U;
   }
