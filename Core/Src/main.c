@@ -1532,6 +1532,61 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
 
 
 
+
+/* M7-S05 PS2 direct steering (D-pad L/R and analog RX), separate from R1/R2.
+ * Requires manual arming on first bench test. Raw input remains observable
+ * even when disarmed. Timer ARR=999; these are CCR ticks, not percentages.
+ * LEFT has distinct measured breakaway torque from RIGHT.
+ */
+volatile uint8_t steer_manual_enable = 0U;
+volatile uint8_t steer_manual_active = 0U;
+volatile int8_t steer_manual_direction = 0; /* -1 toward MIN; +1 toward MAX */
+volatile uint8_t steer_manual_neutral_required = 0U;
+volatile uint8_t steer_manual_left_state = 0U;
+volatile uint8_t steer_manual_right_state = 0U;
+volatile uint8_t steer_manual_left_result = 0U;
+volatile uint8_t steer_manual_right_result = 0U;
+volatile uint16_t steer_manual_left_pwm = 0U;
+volatile uint16_t steer_manual_right_pwm = 0U;
+volatile uint16_t steer_manual_left_dpad_pwm = 300U;
+volatile uint16_t steer_manual_right_dpad_pwm = 100U;
+volatile uint16_t steer_manual_left_rx_min_pwm = 175U;
+volatile uint16_t steer_manual_right_rx_min_pwm = 50U;
+volatile uint16_t steer_manual_left_rx_max_pwm = 300U;
+volatile uint16_t steer_manual_right_rx_max_pwm = 100U;
+volatile uint8_t steer_manual_allow_right_max_escape = 0U;
+volatile uint32_t steer_manual_start_count = 0U;
+volatile uint32_t steer_manual_stop_count = 0U;
+volatile uint32_t steer_manual_reject_count = 0U;
+volatile uint32_t steer_manual_irq_count = 0U;
+volatile uint8_t steer_manual_irq_trip_mask = 0U;
+static volatile uint8_t steer_manual_irq_pending_mask = 0U;
+
+/* Kept in physical-meaning order: -1 = MIN, +1 = MAX. */
+static int8_t Steering_ManualRequestDirection(void)
+{
+  int16_t rx;
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
+    return 0;
+  if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
+    return 0; /* contradiction; require neutral to rearm */
+  if (PS2_Pad.Left != 0U) return -1;
+  if (PS2_Pad.Right != 0U) return 1;
+  rx = (int16_t)PS2_Pad.RX - 128;
+  if (rx < -10) return -1;
+  if (rx > 10) return 1;
+  return 0;
+}
+
+static uint8_t Steering_ManualInputsNeutral(void)
+{
+  int16_t rx = (int16_t)PS2_Pad.RX - 128;
+  return ((PS2_Pad.Connected == 1U) &&
+          (PS2_Pad.Mode == 0x73U) &&
+          (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
+          (rx >= -10) && (rx <= 10)) ? 1U : 0U;
+}
+
 /*
  * M7-S04B: independent left/right PS2 R1/R2 steering position control.
  * Default DISARMED; enabling requires suspended bench and verified sensors.
@@ -1965,7 +2020,8 @@ static void Steering_PositionTelemetryIdleUpdate(void)
 {
   uint16_t raw;
   uint32_t now = HAL_GetTick();
-  if ((steer_pos_active != 0U) || (debug_as5600_poll_enable != 0U))
+  if ((steer_pos_active != 0U) || (steer_manual_active != 0U) ||
+      (debug_as5600_poll_enable != 0U))
     return;
   if ((uint32_t)(now - steer_pos_idle_last_ms) < STEER_POS_IDLE_POLL_MS)
     return;
@@ -2002,6 +2058,7 @@ static void Steering_PositionUpdate(void)
              (PS2_Pad.RX >= (128U - STEER_POS_RX_NEUTRAL_DELTA)) &&
              (PS2_Pad.RX <= (128U + STEER_POS_RX_NEUTRAL_DELTA)) &&
              (steer_pos_enable == 1U) &&
+             (steer_manual_active == 0U) &&
              (debug_as5600_poll_enable == 0U) &&
              (steer_test_running == 0U) && (steer_test_request == 0U) &&
              (steer_test_arm == 0U) &&
@@ -2009,7 +2066,7 @@ static void Steering_PositionUpdate(void)
 
   if (steer_pos_active == 0U)
   {
-    if (steer_test_running == 0U)
+    if ((steer_test_running == 0U) && (steer_manual_active == 0U))
     {
       Steering_PositionLeftOff();
       Steering_PositionRightOff();
@@ -2844,6 +2901,8 @@ static uint8_t PS2_IsManualControlActive(void)
       (PS2_Pad.R1 != 0U) ||
       (PS2_Pad.R2 != 0U) ||
       (steer_pos_active != 0U) ||
+      (steer_manual_active != 0U) ||
+      (Steering_ManualRequestDirection() != 0) ||
       (WheelControl_SpinIsActive() != 0U))
   {
     return 1U;
@@ -2916,7 +2975,13 @@ static void PS2_ApplyManualControl(void)
   }
 
   WheelControl_SetTargetPWM(pwm_duty);
-  Turn_Motors_Stop();
+  /* The steering service below owns TIM12/TIM14 during direct steering.
+   * Stopping them here on each ~20ms PS2 loop formerly defeated RX/D-pad.
+   * Neutral/release is cut in Steering_ManualUpdate(), not here.
+   */
+  if ((steer_manual_active == 0U) &&
+      (Steering_ManualRequestDirection() == 0))
+    Turn_Motors_Stop();
 }
 
 
@@ -2958,7 +3023,8 @@ static void Control_Arbitrate(void)
    * This does not modify the pre-existing Voice/STOP latch behavior.
    */
   if (((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U)) &&
-      (WheelControl_SpinIsActive() != 0U))
+      ((WheelControl_SpinIsActive() != 0U) ||
+       (steer_pos_active != 0U) || (steer_manual_active != 0U)))
     ps2_spin_rf_latched = 1U;
 
   if (ps2_spin_rf_latched != 0U)
@@ -3603,7 +3669,8 @@ int main(void)
      * a NEW manual request after verified switch release.
      */
     Steering_TestPulseUpdate();
-    Steering_PositionUpdate(); /* default DISABLED; needs explicit opt-in */
+    Steering_PositionUpdate(); /* R1/R2 independent closed-loop */
+    Steering_ManualUpdate();   /* D-pad LEFT/RIGHT and joystick RX */
     Steering_PositionTelemetryIdleUpdate(); /* AS5600 live without poll flag */
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
@@ -4627,24 +4694,28 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     debug_limit_r_max.exti_rise_count++;
     Steering_TestOnLimitInterrupt(0x01U);
     Steering_PositionOnLimitInterrupt(0x01U);
+    Steering_ManualOnLimitInterrupt(0x01U);
   }
   else if (GPIO_Pin == LIMIT_R_MIN_Pin)
   {
     debug_limit_r_min.exti_rise_count++;
     Steering_TestOnLimitInterrupt(0x02U);
     Steering_PositionOnLimitInterrupt(0x02U);
+    Steering_ManualOnLimitInterrupt(0x02U);
   }
   else if (GPIO_Pin == LIMIT_L_MIN_Pin)
   {
     debug_limit_l_min.exti_rise_count++;
     Steering_TestOnLimitInterrupt(0x04U);
     Steering_PositionOnLimitInterrupt(0x04U);
+    Steering_ManualOnLimitInterrupt(0x04U);
   }
   else if (GPIO_Pin == LIMIT_L_MAX_Pin)
   {
     debug_limit_l_max.exti_rise_count++;
     Steering_TestOnLimitInterrupt(0x08U);
     Steering_PositionOnLimitInterrupt(0x08U);
+    Steering_ManualOnLimitInterrupt(0x08U);
   }
 }
 
