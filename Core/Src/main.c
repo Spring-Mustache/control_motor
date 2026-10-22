@@ -1538,6 +1538,17 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
  * even when disarmed. Timer ARR=999; these are CCR ticks, not percentages.
  * LEFT has distinct measured breakaway torque from RIGHT.
  */
+/* S11 incident quarantine. Does not replace physical driver E-stop.
+ * OFF by default: neither PS2 steering nor automatic steering PWM
+ * service will run until bench hardware is checked independently.
+ */
+volatile uint8_t steer_safety_motion_permit = 0U;
+volatile uint8_t steer_safety_trip_latched = 0U;
+volatile uint8_t steer_safety_trip_mask = 0U;   /* NC bits 1,2,4,8 */
+volatile uint8_t steer_safety_trip_reason = 0U; /* 1 EXTI, 2 level */
+volatile uint32_t steer_safety_blocked_cycles = 0U;
+/* RX steering disabled until pad cross-talk/axis noise is investigated. */
+volatile uint8_t steer_manual_rx_enable = 0U;
 volatile uint8_t steer_manual_enable = 0U;
 /* Declared early for arbitration/PWM ownership. Initialized in the
  * select-calibration section below and defaults DISARMED on reset.
@@ -1620,8 +1631,17 @@ static int8_t Steering_ManualRequestDirection(void)
     return 0;
   if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
     return 0; /* contradiction; require neutral to rearm */
+  /* A 4-wheel LY/Up/Down command must NEVER authorize steering.
+   * Previously an unrelated RX deflection >10 selected steering
+   * even while LY was actively driving all four wheels.
+   */
+  if ((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
+      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
+      (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U))
+    return 0;
   if (PS2_Pad.Left != 0U) return -1;
   if (PS2_Pad.Right != 0U) return 1;
+  if (steer_manual_rx_enable != 1U) return 0;
   rx = (int16_t)PS2_Pad.RX - 128;
   if (rx < -10) return -1;
   if (rx > 10) return 1;
@@ -1634,6 +1654,9 @@ static uint8_t Steering_ManualInputsNeutral(void)
   return ((PS2_Pad.Connected == 1U) &&
           (PS2_Pad.Mode == 0x73U) &&
           (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
+          (PS2_Pad.Up == 0U) && (PS2_Pad.Down == 0U) &&
+          (PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT) &&
+          (PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT) &&
           (rx >= -10) && (rx <= 10)) ? 1U : 0U;
 }
 
@@ -3287,7 +3310,9 @@ static void Steering_ManualUpdate(void)
    * Live Expressions steer_manual_enable from 0 to 1 cannot start a motor
    * until a NEW neutral->direction stroke has been observed.
    */
-  if (steer_manual_enable != 1U)
+  if ((steer_manual_enable != 1U) ||
+      (steer_safety_motion_permit != 1U) ||
+      (steer_safety_trip_latched != 0U))
   {
     steer_manual_block_reason = 1U;
     steer_manual_neutral_required = 1U;
@@ -3307,8 +3332,11 @@ static void Steering_ManualUpdate(void)
       (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
       (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
       (WheelControl_SpinIsActive() != 0U) ||
-      ((steer_manual_allow_wheel_motion == 0U) &&
-       (Steering_PositionWheelsStopped() == 0U)) ||
+      (PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
+      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
+      (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U) ||
+      /* The old wheel-motion bypass must NOT override this safety gate. */
+      (Steering_PositionWheelsStopped() == 0U) ||
       (debug_as5600_poll_enable != 0U) ||
       (steer_test_running != 0U) ||
       (steer_test_arm != 0U) || (steer_test_request != 0U) ||
@@ -3318,8 +3346,7 @@ static void Steering_ManualUpdate(void)
      * condition (e.g., wheel deceleration or Voice cancel) clears.
      */
     steer_manual_block_reason =
-        ((steer_manual_allow_wheel_motion == 0U) &&
-         (Steering_PositionWheelsStopped() == 0U)) ? 4U : 2U;
+        (Steering_PositionWheelsStopped() == 0U) ? 4U : 2U;
     steer_manual_neutral_required = 1U;
     Steering_ManualStop();
     return;
