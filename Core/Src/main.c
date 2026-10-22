@@ -1698,6 +1698,7 @@ typedef struct
   uint16_t best_abs_error;
   uint32_t progress_ms;
   uint32_t escape_start_ms;
+  uint16_t escape_start_raw;
   uint8_t escape_origin;  /* own MIN or MAX NC mask at start */
   uint8_t stable_count;
 } SteeringPositionAxis_t;
@@ -1915,6 +1916,36 @@ static void Steering_PositionAxisFault(uint8_t left, uint8_t result)
   }
 }
 
+/* R1 CENTER (or R2 MIN departing MAX) may continue after own NC
+ * physically releases only when AS5600 confirms >=3 counts of movement
+ * in the known AWAY direction. Stops PWM for one entire control cycle
+ * during transition; stall, magnet, and total timeout checks still apply.
+ * If the switch opens/closes without measured motion, STOP this axis with
+ * result=7 rather than treating contact bounce as a valid release.
+ */
+static void Steering_PositionEscapeReleased(uint8_t left, uint32_t now)
+{
+  SteeringPositionAxis_t *axis = left ? &steer_left_axis : &steer_right_axis;
+  uint8_t min_switch = left ? STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_R_MIN_MASK;
+  int16_t traveled = AS5600_ShortestDeltaCounts(axis->escape_start_raw,
+                                                axis->last_raw);
+  uint8_t must_increase =
+      ((left != 0U) && (axis->escape_origin != min_switch)) ||
+      ((left == 0U) && (axis->escape_origin == min_switch));
+  if (((must_increase != 0U) && (traveled < 3)) ||
+      ((must_increase == 0U) && (traveled > -3)))
+  {
+    Steering_PositionAxisDone(left, 7U);
+    return;
+  }
+
+  axis->progress_ms = now;
+  axis->best_abs_error = 32767U;
+  axis->stable_count = 0U;
+  if (left != 0U) steer_pos_left_state = STEER_AXIS_MOVING;
+  else steer_pos_right_state = STEER_AXIS_MOVING;
+}
+
 /* Independent axis servo. No checks on the other side's limit inputs.
  * Uses actual observed progress, not only encoder noise / timeout.
  */
@@ -1954,15 +1985,11 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   }
   if (state == STEER_AXIS_ESCAPING)
   {
-    if ((limit_mask & (own_min | own_max)) == 0U)
-    {
-      /* The originating NC has closed: cut this PWM immediately.
-       * Release is a STOP, not authorization for full onward travel.
-       */
-      Steering_PositionAxisDone(left, 7U);
-      return;
-    }
-    if ((limit_mask & axis->escape_origin) == 0U)
+    /* Do not mistake an unexpected opposite endstop for a safe release.
+     * When both bits are zero, validate AS5600 movement after reading.
+     */
+    if (((limit_mask & (own_min | own_max)) != 0U) &&
+        ((limit_mask & axis->escape_origin) == 0U))
     {
       Steering_PositionAxisFault(left, 9U);
       return;
@@ -2002,8 +2029,14 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     uint8_t from_max = (axis->escape_origin == own_max) ? 1U : 0U;
     /* LEFT RAW: leaving MIN decreases, leaving MAX increases.
      * RIGHT RAW: leaving MIN increases, leaving MAX decreases.
-     * Never proceed to CENTER/MIN automatically after releasing NC.
+     * After verified switch release, transition through one zero-PWM
+     * cycle and then continue the requested R1/R2 target.
      */
+    if ((limit_mask & axis->escape_origin) == 0U)
+    {
+      Steering_PositionEscapeReleased(left, now);
+      return;
+    }
     if ((uint32_t)(now - axis->escape_start_ms) >= STEER_POS_ESCAPE_MS)
     {
       Steering_PositionAxisFault(left, 5U);
@@ -2261,7 +2294,10 @@ static void Steering_PositionUpdate(void)
           (Steering_PositionRawInRange(1U, v) == 0U))
         Steering_PositionAxisFault(1U, 4U);
       else
+      {
         steer_left_axis.last_raw = v;
+        steer_left_axis.escape_start_raw = v;
+      }
     }
     if (steer_pos_right_state != STEER_AXIS_DONE)
     {
@@ -2270,7 +2306,10 @@ static void Steering_PositionUpdate(void)
           (Steering_PositionRawInRange(0U, v) == 0U))
         Steering_PositionAxisFault(0U, 4U);
       else
+      {
         steer_right_axis.last_raw = v;
+        steer_right_axis.escape_start_raw = v;
+      }
     }
   }
   else
@@ -2378,7 +2417,11 @@ static void Steering_PositionUpdate(void)
   {
     uint8_t own_limits = (uint8_t)
         (raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK));
-    if (own_limits == 0U) Steering_PositionAxisDone(1U, 7U);
+    if (own_limits == 0U)
+    {
+      left_cmd = 0U;
+      Steering_PositionEscapeReleased(1U, now);
+    }
     else if (own_limits != steer_left_axis.escape_origin)
       Steering_PositionAxisFault(1U, 9U);
   }
@@ -2386,7 +2429,11 @@ static void Steering_PositionUpdate(void)
   {
     uint8_t own_limits = (uint8_t)
         (raw_mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK));
-    if (own_limits == 0U) Steering_PositionAxisDone(0U, 7U);
+    if (own_limits == 0U)
+    {
+      right_cmd = 0U;
+      Steering_PositionEscapeReleased(0U, now);
+    }
     else if (own_limits != steer_right_axis.escape_origin)
       Steering_PositionAxisFault(0U, 9U);
   }
