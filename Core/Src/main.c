@@ -1546,6 +1546,12 @@ volatile uint8_t steer_manual_neutral_required = 0U;
  * 5 neutral required, 6 limits not initialized, 7 contradictory D-pad.
  */
 volatile uint8_t steer_manual_block_reason = 0U;
+volatile uint16_t steer_manual_left_soft_target = 0U;
+volatile uint16_t steer_manual_right_soft_target = 0U;
+volatile int16_t steer_manual_left_soft_remaining = 0;
+volatile int16_t steer_manual_right_soft_remaining = 0;
+volatile uint32_t steer_manual_left_soft_stop_count = 0U;
+volatile uint32_t steer_manual_right_soft_stop_count = 0U;
 volatile uint8_t steer_manual_left_state = 0U;
 volatile uint8_t steer_manual_right_state = 0U;
 volatile uint8_t steer_manual_left_result = 0U;
@@ -1613,14 +1619,14 @@ static uint8_t Steering_ManualInputsNeutral(void)
  * one of the two sensors is polled per bounded service interval, without
  * requiring debug_as5600_poll_enable or the heavyweight debug probe.
  */
-#define STEER_POS_LEFT_MIN_RAW     2314U
+#define STEER_POS_LEFT_MIN_RAW     2319U
 #define STEER_POS_LEFT_CENTER_RAW  1857U
-#define STEER_POS_LEFT_MAX_RAW     1429U
-#define STEER_POS_RIGHT_MIN_RAW    2929U
+#define STEER_POS_LEFT_MAX_RAW     1391U
+#define STEER_POS_RIGHT_MIN_RAW    2934U
 #define STEER_POS_RIGHT_CENTER_RAW 3398U
-#define STEER_POS_RIGHT_MAX_RAW    3694U
+#define STEER_POS_RIGHT_MAX_RAW    3680U
 #define STEER_POS_TOL_RAW             5
-#define STEER_POS_RANGE_MARGIN      12
+#define STEER_POS_RANGE_MARGIN      64 /* limited overshoot recovery envelope */
 #define STEER_POS_MAX_JUMP_RAW      90
 #define STEER_POS_TIMEOUT_MS      5000U
 #define STEER_POS_ESCAPE_MS       1000U
@@ -1795,16 +1801,28 @@ static uint8_t Steering_PositionReadOne(uint8_t left, uint16_t *raw)
 
 static uint8_t Steering_PositionRawInRange(uint8_t left, uint16_t raw)
 {
-  int16_t d;
+  int16_t d, lower, upper;
+  /* Envelope derives from observed endstop RAW, including limited
+   * overshoot behind the switch so an away-only escape remains possible.
+   */
   if (left != 0U)
   {
     d = AS5600_ShortestDeltaCounts(STEER_POS_LEFT_CENTER_RAW, raw);
-    return ((d >= (-428 - STEER_POS_RANGE_MARGIN)) &&
-            (d <= (457 + STEER_POS_RANGE_MARGIN))) ? 1U : 0U;
+    lower = AS5600_ShortestDeltaCounts(STEER_POS_LEFT_CENTER_RAW,
+                                       STEER_POS_LEFT_MAX_RAW);
+    upper = AS5600_ShortestDeltaCounts(STEER_POS_LEFT_CENTER_RAW,
+                                       STEER_POS_LEFT_MIN_RAW);
   }
-  d = AS5600_ShortestDeltaCounts(STEER_POS_RIGHT_CENTER_RAW, raw);
-  return ((d >= (-469 - STEER_POS_RANGE_MARGIN)) &&
-          (d <= (296 + STEER_POS_RANGE_MARGIN))) ? 1U : 0U;
+  else
+  {
+    d = AS5600_ShortestDeltaCounts(STEER_POS_RIGHT_CENTER_RAW, raw);
+    lower = AS5600_ShortestDeltaCounts(STEER_POS_RIGHT_CENTER_RAW,
+                                       STEER_POS_RIGHT_MIN_RAW);
+    upper = AS5600_ShortestDeltaCounts(STEER_POS_RIGHT_CENTER_RAW,
+                                       STEER_POS_RIGHT_MAX_RAW);
+  }
+  return ((d >= (lower - STEER_POS_RANGE_MARGIN)) &&
+          (d <= (upper + STEER_POS_RANGE_MARGIN))) ? 1U : 0U;
 }
 
 static uint8_t Steering_PositionWheelsStopped(void)
@@ -2448,6 +2466,12 @@ static void Steering_PositionUpdate(void)
  * values. Neutral cuts PWM in the same control iteration.
  * Turning around from a touched limit requires short escape and NEW press.
  */
+#define STEER_MANUAL_SOFT_MARGIN_RAW   20U
+#define STEER_MANUAL_LEFT_SOFT_MIN  (STEER_POS_LEFT_MIN_RAW - STEER_MANUAL_SOFT_MARGIN_RAW)
+#define STEER_MANUAL_LEFT_SOFT_MAX  (STEER_POS_LEFT_MAX_RAW + STEER_MANUAL_SOFT_MARGIN_RAW)
+#define STEER_MANUAL_RIGHT_SOFT_MIN (STEER_POS_RIGHT_MIN_RAW + STEER_MANUAL_SOFT_MARGIN_RAW)
+#define STEER_MANUAL_RIGHT_SOFT_MAX (STEER_POS_RIGHT_MAX_RAW - STEER_MANUAL_SOFT_MARGIN_RAW)
+#define STEER_MANUAL_RESULT_SOFT    11U
 #define STEER_MANUAL_RUN_MAX_MS       5000U
 #define STEER_MANUAL_ESCAPE_MAX_MS    1000U
 #define STEER_MANUAL_STALL_MS          650U
