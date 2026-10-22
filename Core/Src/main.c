@@ -3200,6 +3200,19 @@ volatile uint16_t steer_cal_right_stall_timeout_ms = 850U;
  */
 volatile uint8_t steer_cal_arm = 0U;
 volatile uint8_t steer_cal_result = 0U;
+/* These diagnostics distinguish an actual completed scan from a later
+ * SELECT press with no arm, which previously overwrote cal_result = 3.
+ * A new run clears reject_reason; last_run_result remains sticky.
+ */
+volatile uint8_t steer_cal_last_run_result = 0U;
+volatile uint8_t steer_cal_reject_reason = 0U;
+/* 1 unarmed SELECT; 2 PS2 inputs not neutral; 3 STOP/Voice/priority;
+ * 4 other steering mode active; 5 wheel motion; 6 debug/pulse conflict;
+ * 7 NC initialization incomplete.
+ */
+volatile uint32_t steer_cal_unarmed_select_count = 0U;
+volatile uint32_t steer_cal_rejected_start_count = 0U;
+volatile uint32_t steer_cal_start_count = 0U;
 volatile uint8_t steer_cal_left_stage = 0U;
 volatile uint8_t steer_cal_right_stage = 0U;
 volatile uint8_t steer_cal_left_fault = 0U;
@@ -3272,6 +3285,8 @@ static void Steering_CalStop(uint8_t result)
   Steering_CalRightOff();
   if ((steer_cal_active != 0U) && (result != 2U))
     steer_cal_failed_count++;
+  if (steer_cal_active != 0U)
+    steer_cal_last_run_result = result;
   steer_cal_active = 0U;
   steer_cal_result = result;
 }
@@ -3680,7 +3695,11 @@ static void Steering_CalUpdate(void)
     if (new_press == 0U) return;
     if (steer_cal_arm != 1U)
     {
-      steer_cal_result = 3U;
+      /* Do not erase the outcome of the preceding real scan merely
+       * because SELECT is pressed again without an explicit re-arm.
+       */
+      steer_cal_reject_reason = 1U;
+      steer_cal_unarmed_select_count++;
       return;
     }
     /* Select consumes the arm whether it succeeds or fails. */
@@ -3703,6 +3722,27 @@ static void Steering_CalUpdate(void)
         (debug_limit_r_min.initialized == 0U) ||
         (debug_limit_r_max.initialized == 0U))
     {
+      if (Steering_CalInputsNeutral() == 0U)
+        steer_cal_reject_reason = 2U;
+      else if ((control_mode != CONTROL_MODE_PS2) ||
+               (control_stop_latched != 0U) ||
+               (ps2_cancel_hold != 0U) ||
+               (ps2_spin_rf_latched != 0U) ||
+               (voice_execution_active != 0U) ||
+               (voice_command_ready != 0U))
+        steer_cal_reject_reason = 3U;
+      else if ((steer_manual_active != 0U) ||
+               (steer_pos_active != 0U))
+        steer_cal_reject_reason = 4U;
+      else if (Steering_PositionWheelsStopped() == 0U)
+        steer_cal_reject_reason = 5U;
+      else if ((steer_test_running != 0U) ||
+               (steer_test_arm != 0U) ||
+               (steer_test_request != 0U) ||
+               (debug_as5600_poll_enable != 0U))
+        steer_cal_reject_reason = 6U;
+      else steer_cal_reject_reason = 7U;
+      steer_cal_rejected_start_count++;
       steer_cal_result = 3U;
       return;
     }
@@ -3750,8 +3790,10 @@ static void Steering_CalUpdate(void)
     steer_cal_limit_fault_side = 0U;
     steer_cal_last_irq_snapshot = 0U;
     steer_cal_last_gpio_snapshot = 0U;
+    steer_cal_reject_reason = 0U;
     steer_cal_result = 1U;
     steer_cal_active = 1U;
+    steer_cal_start_count++;
   }
 
   /* A radio fault never authorizes calibration to continue from a
