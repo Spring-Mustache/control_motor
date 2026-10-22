@@ -3978,7 +3978,8 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
 static uint8_t Steering_CalCommitAxisSafe(uint8_t left,
                                           uint8_t raw_mask,
                                           uint8_t late_edge,
-                                          uint16_t *pwm)
+                                          uint16_t *pwm,
+                                          GPIO_PinState requested_dir)
 {
   SteeringCalAxis_t *axis = left ? &steer_cal_left_axis :
                                     &steer_cal_right_axis;
@@ -3995,12 +3996,16 @@ static uint8_t Steering_CalCommitAxisSafe(uint8_t left,
 
   if (stage == STEER_CAL_SEEK_MIN)
   {
-    if (limit == max_bit) return Steering_CalLimitFault(left, 3U);
+    if ((limit == max_bit) ||
+        ((*pwm != 0U) && (requested_dir != GPIO_PIN_RESET)))
+      return Steering_CalLimitFault(left, 3U);
     if (limit == min_bit) *pwm = 0U;
   }
   else if (stage == STEER_CAL_SEEK_MAX)
   {
-    if (limit == min_bit) return Steering_CalLimitFault(left, 3U);
+    if ((limit == min_bit) ||
+        ((*pwm != 0U) && (requested_dir != GPIO_PIN_SET)))
+      return Steering_CalLimitFault(left, 3U);
     if (limit == max_bit) *pwm = 0U;
   }
   else if ((stage == STEER_CAL_EXIT_MIN) ||
@@ -4010,6 +4015,14 @@ static uint8_t Steering_CalCommitAxisSafe(uint8_t left,
     uint8_t origin = (stage == STEER_CAL_EXIT_MIN) ?
                        min_bit : max_bit;
     if ((limit != 0U) && (limit != origin))
+      return Steering_CalLimitFault(left, 3U);
+    /* Extra atomic direction interlock when retrying near a physically
+     * asserted switch: EXIT_MAX may ONLY drive DIR0; EXIT_MIN DIR1.
+     * The GPIO mode/polarity does not depend on AS5600 noise here.
+     */
+    if ((*pwm != 0U) &&
+        (requested_dir != ((origin == max_bit) ?
+                            GPIO_PIN_RESET : GPIO_PIN_SET)))
       return Steering_CalLimitFault(left, 3U);
     if (limit == 0U) *pwm = 0U; /* release: next frame transitions */
   }
@@ -4273,8 +4286,10 @@ static void Steering_CalUpdate(void)
   steer_cal_eval_gpio_mask = raw_limits;
   steer_cal_last_irq_snapshot = pending;
   steer_cal_last_gpio_snapshot = raw_limits;
-  lerr = Steering_CalCommitAxisSafe(1U, raw_limits, pending, &lpwm);
-  rerr = Steering_CalCommitAxisSafe(0U, raw_limits, pending, &rpwm);
+  lerr = Steering_CalCommitAxisSafe(1U, raw_limits, pending, &lpwm,
+                                    ldir);
+  rerr = Steering_CalCommitAxisSafe(0U, raw_limits, pending, &rpwm,
+                                    rdir);
   if ((lerr != 0U) || (rerr != 0U))
   {
     if (lerr != 0U) steer_cal_left_fault = lerr;
