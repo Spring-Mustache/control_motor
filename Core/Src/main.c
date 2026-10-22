@@ -2604,7 +2604,10 @@ static void Steering_ManualUpdate(void)
       (steer_test_arm != 0U) || (steer_test_request != 0U) ||
       (voice_execution_active != 0U) || (voice_command_ready != 0U))
   {
-    if (steer_manual_active != 0U) steer_manual_neutral_required = 1U;
+    /* A blocked held command must not auto-start after a transient
+     * condition (e.g., wheel deceleration or Voice cancel) clears.
+     */
+    steer_manual_neutral_required = 1U;
     Steering_ManualStop();
     return;
   }
