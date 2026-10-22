@@ -2519,6 +2519,7 @@ static void Steering_PositionUpdate(void)
  * Turning around from a touched limit requires short escape and NEW press.
  */
 #define STEER_MANUAL_SOFT_MARGIN_RAW   20U
+#define STEER_MANUAL_APPROACH_WINDOW_RAW 80U
 #define STEER_MANUAL_LEFT_SOFT_MIN  (STEER_POS_LEFT_MIN_RAW - STEER_MANUAL_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_LEFT_SOFT_MAX  (STEER_POS_LEFT_MAX_RAW + STEER_MANUAL_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_RIGHT_SOFT_MIN (STEER_POS_RIGHT_MIN_RAW + STEER_MANUAL_SOFT_MARGIN_RAW)
@@ -2791,7 +2792,25 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
     Steering_ManualAxisFault(left, STEER_MANUAL_RESULT_STALL);
     return;
   }
-  *apply = Steering_ManualClampPWM(pwm);
+  /* Lower PWM during the last 80 RAW before the 20-count soft stop to
+   * reduce coasting beyond the boundary. No active motor brake exists:
+   * verify physical stopping distance; increase the soft margin if needed.
+   * Never raise a low joystick PWM to the configured approach floor.
+   */
+  pwm = Steering_ManualClampPWM(pwm);
+  if (distance < STEER_MANUAL_APPROACH_WINDOW_RAW)
+  {
+    uint16_t floor_pwm = left ? steer_manual_left_rx_min_pwm :
+                                 steer_manual_right_rx_min_pwm;
+    floor_pwm = Steering_ManualClampPWM(floor_pwm);
+    if (pwm > floor_pwm)
+    {
+      pwm = (uint16_t)((uint32_t)floor_pwm +
+          ((uint32_t)(pwm - floor_pwm) * distance) /
+          STEER_MANUAL_APPROACH_WINDOW_RAW);
+    }
+  }
+  *apply = pwm;
 }
 
 static void Steering_ManualUpdate(void)
