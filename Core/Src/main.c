@@ -3221,10 +3221,22 @@ volatile uint32_t steer_cal_right_center_reverse_elapsed_ms = 0U;
  * Otherwise fail closed; never disable true wrong-way protection.
  */
 #define STEER_CAL_NOISE_HOLD_MAX_MS 220U
+/* Hold PWM OFF until raw has genuinely settled. A stationary rotor
+ * cannot spontaneously move AWAY while PWM is zero, so do NOT require
+ * progress in the commanded direction just to unlock this guard.
+ * One bounded re-drive is allowed only in the phase's SAFE direction.
+ */
+#define STEER_CAL_NOISE_HOLD_MIN_MS 80U
+#define STEER_CAL_NOISE_QUIET_MS 60U
 volatile uint8_t steer_cal_left_noise_hold = 0U;
 volatile uint8_t steer_cal_right_noise_hold = 0U;
 volatile uint32_t steer_cal_left_noise_hold_count = 0U;
 volatile uint32_t steer_cal_right_noise_hold_count = 0U;
+volatile uint32_t steer_cal_left_noise_unlock_count = 0U;
+volatile uint32_t steer_cal_right_noise_unlock_count = 0U;
+/* Subreason=3 means sensor did not settle during the powered-OFF
+ * verification hold. Unlike reason1 it does not prove wrong-way drive.
+ */
 #define STEER_CAL_JUMP_MAX_RAW     90
 #define STEER_CAL_STABLE_REQUIRED  3U
 
@@ -3352,6 +3364,7 @@ typedef struct
   uint32_t center_reverse_start_ms;
   uint32_t center_quiet_since_ms;
   uint32_t noise_hold_start_ms;
+  uint32_t noise_quiet_since_ms;
 } SteeringCalAxis_t;
 
 static SteeringCalAxis_t steer_cal_left_axis = {0};
@@ -3428,6 +3441,7 @@ static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
   axis->center_reverse_wait = 0U;
   axis->noise_hold = 0U;
   axis->noise_hold_count = 0U;
+  axis->noise_quiet_since_ms = now;
   /* Preserve the last physically applied direction for the transition
    * from EXIT_MAX to CENTER; otherwise a center overshoot could
    * reverse PWM immediately and trip the wrong-way guard.
@@ -3814,28 +3828,52 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
    */
   if (axis->noise_hold != 0U)
   {
-    /* A solitary 6-8-count wrong-sign spike was observed around
-     * RIGHT R_MAX. Cut PWM IMMEDIATELY (the prior cycle did so)
-     * rather than driving into the NC, and require real movement
-     * back AWAY before permitting any further power. A second
-     * strong wrong-sign sample or missing recovery fails closed.
+    /* Before S07G this branch required >=2 AS5600 counts of AWAY
+     * motion with PWM=0. A motor at an asserted NC switch cannot
+     * satisfy that condition while stationary: result7 after 220ms
+     * was an unavoidable state-machine deadlock (delta=0, PWM=0).
+     *
+     * Instead, hold both the relevant CCR and last_drive_valid at zero
+     * until a fresh measured quiet interval. Then permit ONE bounded
+     * re-drive in the already validated stage direction. No movement
+     * toward an asserted own NC is EVER authorized here.
      */
-    uint8_t good = ((axis->noise_expected_increase != 0U) ?
-                     (movement >= 2) : (movement <= -2)) ? 1U : 0U;
     uint8_t bad = ((axis->noise_expected_increase != 0U) ?
                     (movement < -5) : (movement > 5)) ? 1U : 0U;
-    if ((bad != 0U) ||
-        ((uint32_t)(now - axis->noise_hold_start_ms) >=
-         STEER_CAL_NOISE_HOLD_MAX_MS))
+    if (bad != 0U)
       return Steering_CalMotionFault(left, 1U, stage, raw,
                                       movement, now);
-    if (good == 0U) return 0U;
+    if ((movement > 1) || (movement < -1))
+      axis->noise_quiet_since_ms = now;
+    if ((uint32_t)(now - axis->noise_hold_start_ms) >=
+        STEER_CAL_NOISE_HOLD_MAX_MS)
+      return Steering_CalMotionFault(left, 3U, stage, raw,
+                                      movement, now);
+    if (((uint32_t)(now - axis->noise_hold_start_ms) <
+         STEER_CAL_NOISE_HOLD_MIN_MS) ||
+        ((uint32_t)(now - axis->noise_quiet_since_ms) <
+         STEER_CAL_NOISE_QUIET_MS))
+      return 0U; /* still PWM=0 */
+
+    /* The output remains zero this entire frame; the NEXT cycle
+     * may re-energize only after full NC/AS5600/stage and atomic
+     * IRQ checks. The existing per-stage noise_hold_count=1
+     * makes a second reverse-sign event a hard fault (not a loop).
+     */
     axis->noise_hold = 0U;
     axis->last_drive_valid = 0U;
     axis->last_progress_ms = now;
-    if (left != 0U) steer_cal_left_noise_hold = 0U;
-    else steer_cal_right_noise_hold = 0U;
-    return 0U; /* preserve zero-PWM separation before retry */
+    if (left != 0U)
+    {
+      steer_cal_left_noise_hold = 0U;
+      steer_cal_left_noise_unlock_count++;
+    }
+    else
+    {
+      steer_cal_right_noise_hold = 0U;
+      steer_cal_right_noise_unlock_count++;
+    }
+    return 0U;
   }
   if (axis->last_drive_valid != 0U)
   {
@@ -3859,6 +3897,7 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
       axis->noise_hold = 1U;
       axis->noise_expected_increase = should_increase;
       axis->noise_hold_start_ms = now;
+      axis->noise_quiet_since_ms = now;
       if (left != 0U)
       {
         steer_cal_left_noise_hold = 1U;
@@ -4161,6 +4200,8 @@ static void Steering_CalUpdate(void)
     steer_cal_right_noise_hold = 0U;
     steer_cal_left_noise_hold_count = 0U;
     steer_cal_right_noise_hold_count = 0U;
+    steer_cal_left_noise_unlock_count = 0U;
+    steer_cal_right_noise_unlock_count = 0U;
     steer_cal_last_irq_snapshot = 0U;
     steer_cal_last_gpio_snapshot = 0U;
     steer_cal_reject_reason = 0U;
