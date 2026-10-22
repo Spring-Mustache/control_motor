@@ -2299,6 +2299,524 @@ static void Steering_PositionUpdate(void)
   }
 }
 
+
+/*
+ * M7-S05: direct steering on D-pad L/R or right-stick RX.
+ * Follows independent L/R limits, AS5600 safety and conservative PWM
+ * values. Neutral cuts PWM in the same control iteration.
+ * Turning around from a touched limit requires short escape and NEW press.
+ */
+#define STEER_MANUAL_RUN_MAX_MS       5000U
+#define STEER_MANUAL_ESCAPE_MAX_MS    1000U
+#define STEER_MANUAL_STALL_MS          650U
+#define STEER_MANUAL_PROGRESS_DELTA     2U
+#define STEER_MANUAL_PWM_HARD_MAX     400U
+
+#define STEER_MANUAL_IDLE       0U
+#define STEER_MANUAL_MOVING     1U
+#define STEER_MANUAL_ESCAPE     2U
+#define STEER_MANUAL_DONE       3U
+#define STEER_MANUAL_FAULT      4U
+
+typedef struct
+{
+  uint16_t previous_raw;
+  uint16_t best_distance;
+  uint32_t progress_ms;
+  uint32_t escape_start_ms;
+} SteeringManualAxis_t;
+
+static SteeringManualAxis_t steer_manual_left_axis = {0};
+static SteeringManualAxis_t steer_manual_right_axis = {0};
+static uint32_t steer_manual_begin_ms = 0U;
+
+static uint16_t Steering_ManualClampPWM(uint16_t pwm)
+{
+  return (pwm > STEER_MANUAL_PWM_HARD_MAX) ?
+      STEER_MANUAL_PWM_HARD_MAX : pwm;
+}
+
+static uint16_t Steering_ManualRXDuty(uint16_t minimum, uint16_t maximum,
+                                      uint16_t amount)
+{
+  uint32_t scaled;
+  minimum = Steering_ManualClampPWM(minimum);
+  maximum = Steering_ManualClampPWM(maximum);
+  if (maximum < minimum) maximum = minimum;
+  if (amount > 117U) amount = 117U;
+  scaled = (uint32_t)minimum +
+      ((uint32_t)(maximum - minimum) * amount) / 117U;
+  return (uint16_t)scaled;
+}
+
+static void Steering_ManualLeftOff(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+  steer_manual_left_pwm = 0U;
+}
+
+static void Steering_ManualRightOff(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+  steer_manual_right_pwm = 0U;
+}
+
+static void Steering_ManualStop(void)
+{
+  Steering_ManualLeftOff();
+  Steering_ManualRightOff();
+  if (steer_manual_active != 0U) steer_manual_stop_count++;
+  steer_manual_active = 0U;
+  steer_manual_direction = 0;
+}
+
+/* An NC opening always kills the corresponding motor's PWM in EXTI,
+ * then main-loop logic decides arrival versus fault.
+ */
+static void Steering_ManualOnLimitInterrupt(uint8_t bit)
+{
+  if (steer_manual_active == 0U) return;
+  steer_manual_irq_pending_mask |= bit;
+  steer_manual_irq_trip_mask |= bit;
+  steer_manual_irq_count++;
+  if ((bit & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
+    Steering_ManualLeftOff();
+  if ((bit & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
+    Steering_ManualRightOff();
+}
+
+static void Steering_ManualAxisDone(uint8_t left, uint8_t reason)
+{
+  if (left != 0U)
+  {
+    Steering_ManualLeftOff();
+    steer_manual_left_state = STEER_MANUAL_DONE;
+    steer_manual_left_result = reason;
+  }
+  else
+  {
+    Steering_ManualRightOff();
+    steer_manual_right_state = STEER_MANUAL_DONE;
+    steer_manual_right_result = reason;
+  }
+}
+
+static void Steering_ManualAxisFault(uint8_t left, uint8_t reason)
+{
+  if (left != 0U)
+  {
+    Steering_ManualLeftOff();
+    steer_manual_left_state = STEER_MANUAL_FAULT;
+    steer_manual_left_result = reason;
+  }
+  else
+  {
+    Steering_ManualRightOff();
+    steer_manual_right_state = STEER_MANUAL_FAULT;
+    steer_manual_right_result = reason;
+  }
+}
+
+/* Execute one side independently. Direction is toward MIN (-1) or MAX (+1).
+ * Own expected endstop is an arrival; unrelated side's switch is ignored.
+ * If opposite endstop is active, depart for at most 1s and stop when its
+ * NC line closes; require full input neutral before further travel.
+ */
+static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
+                                      uint8_t limits, uint32_t now,
+                                      uint16_t pwm, uint16_t *apply)
+{
+  uint8_t state = left ? steer_manual_left_state : steer_manual_right_state;
+  uint8_t minbit = left ? STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_R_MIN_MASK;
+  uint8_t maxbit = left ? STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_R_MAX_MASK;
+  uint8_t ownbit = (direction < 0) ? minbit : maxbit;
+  uint8_t opposite = (direction < 0) ? maxbit : minbit;
+  SteeringManualAxis_t *axis = left ? &steer_manual_left_axis : &steer_manual_right_axis;
+  uint16_t raw = 0U, goal, distance;
+  int16_t delta, error;
+  uint8_t correct_sign;
+
+  *apply = 0U;
+  if ((state != STEER_MANUAL_MOVING) && (state != STEER_MANUAL_ESCAPE))
+  {
+    /* Keep RAW/STATUS live even after a partner motor reaches the limit. */
+    (void)Steering_PositionReadOne(left, &raw);
+    return;
+  }
+
+  if ((limits & (minbit | maxbit)) == (minbit | maxbit))
+  {
+    Steering_ManualAxisFault(left, 9U);
+    return;
+  }
+  if ((limits & ownbit) != 0U)
+  {
+    Steering_ManualAxisDone(left, 3U);
+    return;
+  }
+  if (((limits & opposite) != 0U) && (state != STEER_MANUAL_ESCAPE))
+  {
+    Steering_ManualAxisFault(left, 9U);
+    return;
+  }
+
+  if ((Steering_PositionReadOne(left, &raw) == 0U) ||
+      (Steering_PositionRawInRange(left, raw) == 0U))
+  {
+    Steering_ManualAxisFault(left, 4U);
+    return;
+  }
+  delta = AS5600_ShortestDeltaCounts(axis->previous_raw, raw);
+  if ((delta > STEER_POS_MAX_JUMP_RAW) || (delta < -STEER_POS_MAX_JUMP_RAW))
+  {
+    Steering_ManualAxisFault(left, 4U);
+    return;
+  }
+  axis->previous_raw = raw;
+
+  /* LEFT raw increases when going MIN; RIGHT raw decreases going MIN. */
+  correct_sign = (uint8_t)(((left != 0U) && (direction < 0)) ||
+                           ((left == 0U) && (direction > 0)));
+  if (((correct_sign != 0U) && (delta < -5)) ||
+      ((correct_sign == 0U) && (delta > 5)))
+  {
+    Steering_ManualAxisFault(left, 8U);
+    return;
+  }
+
+  if (state == STEER_MANUAL_ESCAPE)
+  {
+    if ((limits & opposite) == 0U)
+    {
+      Steering_ManualAxisDone(left, 7U);
+      return;
+    }
+    if ((uint32_t)(now - axis->escape_start_ms) >= STEER_MANUAL_ESCAPE_MAX_MS)
+    {
+      Steering_ManualAxisFault(left, 5U);
+      return;
+    }
+    if ((delta >= (int16_t)STEER_MANUAL_PROGRESS_DELTA) ||
+        (delta <= -(int16_t)STEER_MANUAL_PROGRESS_DELTA))
+      axis->progress_ms = now;
+    if ((uint32_t)(now - axis->progress_ms) > STEER_MANUAL_STALL_MS)
+    {
+      Steering_ManualAxisFault(left, 8U);
+      return;
+    }
+    *apply = Steering_ManualClampPWM(pwm);
+    return;
+  }
+
+  goal = (direction < 0) ?
+      ((left != 0U) ? STEER_POS_LEFT_MIN_RAW : STEER_POS_RIGHT_MIN_RAW) :
+      ((left != 0U) ? STEER_POS_LEFT_MAX_RAW : STEER_POS_RIGHT_MAX_RAW);
+  error = AS5600_ShortestDeltaCounts(raw, goal);
+  distance = (uint16_t)((error < 0) ? -error : error);
+  if (distance <= STEER_POS_TOL_RAW)
+  {
+    Steering_ManualAxisDone(left, 2U);
+    return;
+  }
+  /* If we already passed the calibrated end position, do not
+   * keep driving toward the physical hard stop just to get NC open.
+   */
+  if (((correct_sign != 0U) && (error < -STEER_POS_TOL_RAW)) ||
+      ((correct_sign == 0U) && (error > STEER_POS_TOL_RAW)))
+  {
+    Steering_ManualAxisFault(left, 8U);
+    return;
+  }
+  if (distance + 2U <= axis->best_distance)
+  {
+    axis->best_distance = distance;
+    axis->progress_ms = now;
+  }
+  if (((uint32_t)distance > ((uint32_t)axis->best_distance + 20U)) ||
+      ((uint32_t)(now - axis->progress_ms) > STEER_MANUAL_STALL_MS))
+  {
+    Steering_ManualAxisFault(left, 8U);
+    return;
+  }
+  *apply = Steering_ManualClampPWM(pwm);
+}
+
+static void Steering_ManualUpdate(void)
+{
+  int8_t command = Steering_ManualRequestDirection();
+  uint16_t lpwm, rpwm, la = 0U, ra = 0U;
+  uint16_t magnitude = 0U;
+  uint8_t lstate, rstate, mask, pending;
+  uint32_t now = HAL_GetTick();
+  uint32_t primask;
+
+  if (command == 0)
+  {
+    Steering_ManualStop();
+    /* Contradictory D-pad left+right is NOT considered neutral. */
+    if (Steering_ManualInputsNeutral() != 0U)
+      steer_manual_neutral_required = 0U;
+    else if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
+      steer_manual_neutral_required = 1U;
+    return;
+  }
+
+  /* An unexpected mode/priority conflict cannot authorize actuator PWM. */
+  if ((steer_manual_enable != 1U) ||
+      (control_mode != CONTROL_MODE_PS2) ||
+      (control_stop_latched != 0U) ||
+      (ps2_cancel_hold != 0U) ||
+      (ps2_spin_rf_latched != 0U) ||
+      (steer_pos_active != 0U) ||
+      (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
+      (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
+      (WheelControl_SpinIsActive() != 0U) ||
+      (debug_as5600_poll_enable != 0U) ||
+      (steer_test_running != 0U) ||
+      (steer_test_arm != 0U) || (steer_test_request != 0U) ||
+      (voice_execution_active != 0U) || (voice_command_ready != 0U))
+  {
+    if (steer_manual_active != 0U) steer_manual_neutral_required = 1U;
+    Steering_ManualStop();
+    return;
+  }
+  if (steer_manual_neutral_required != 0U)
+  {
+    Steering_ManualStop();
+    return;
+  }
+  /* Changing steering direction without first releasing requires neutral.
+   * This prevents a hard reverse on a 20-ms joystick frame boundary.
+   */
+  if ((steer_manual_active != 0U) &&
+      (command != steer_manual_direction))
+  {
+    steer_manual_neutral_required = 1U;
+    Steering_ManualStop();
+    return;
+  }
+
+  if ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U))
+  {
+    lpwm = Steering_ManualClampPWM(steer_manual_left_dpad_pwm);
+    rpwm = Steering_ManualClampPWM(steer_manual_right_dpad_pwm);
+  }
+  else
+  {
+    int16_t offset = (int16_t)PS2_Pad.RX - 128;
+    magnitude = (uint16_t)((offset < 0) ? -offset : offset);
+    if (magnitude <= 10U)
+    {
+      Steering_ManualStop();
+      return;
+    }
+    magnitude -= 10U;
+    if (magnitude > 117U) magnitude = 117U;
+    lpwm = Steering_ManualRXDuty(steer_manual_left_rx_min_pwm,
+                                 steer_manual_left_rx_max_pwm, magnitude);
+    rpwm = Steering_ManualRXDuty(steer_manual_right_rx_min_pwm,
+                                 steer_manual_right_rx_max_pwm, magnitude);
+  }
+
+  if (steer_manual_active == 0U)
+  {
+    uint16_t raw = 0U;
+    if ((debug_limit_r_max.initialized == 0U) ||
+        (debug_limit_r_min.initialized == 0U) ||
+        (debug_limit_l_min.initialized == 0U) ||
+        (debug_limit_l_max.initialized == 0U))
+    {
+      steer_manual_reject_count++;
+      steer_manual_neutral_required = 1U;
+      return;
+    }
+
+    steer_manual_begin_ms = now;
+    steer_manual_direction = command;
+    steer_manual_active = 1U;
+    steer_manual_irq_pending_mask = 0U;
+    steer_manual_irq_trip_mask = 0U;
+    steer_manual_left_state = STEER_MANUAL_MOVING;
+    steer_manual_right_state = STEER_MANUAL_MOVING;
+    steer_manual_left_result = 0U;
+    steer_manual_right_result = 0U;
+    steer_manual_left_axis.progress_ms = now;
+    steer_manual_right_axis.progress_ms = now;
+    steer_manual_left_axis.best_distance = 32767U;
+    steer_manual_right_axis.best_distance = 32767U;
+    steer_manual_start_count++;
+
+    mask = Steering_TestRawLimitMask();
+    if ((mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
+          (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK))
+      Steering_ManualAxisFault(1U, 9U);
+    else if ((mask & ((command < 0) ? STEER_LIMIT_L_MIN_MASK :
+                        STEER_LIMIT_L_MAX_MASK)) != 0U)
+      Steering_ManualAxisDone(1U, 3U);
+    else if ((mask & ((command < 0) ? STEER_LIMIT_L_MAX_MASK :
+                        STEER_LIMIT_L_MIN_MASK)) != 0U)
+    {
+      steer_manual_left_state = STEER_MANUAL_ESCAPE;
+      steer_manual_left_axis.escape_start_ms = now;
+    }
+    if ((mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) ==
+          (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK))
+      Steering_ManualAxisFault(0U, 9U);
+    else if ((mask & ((command < 0) ? STEER_LIMIT_R_MIN_MASK :
+                        STEER_LIMIT_R_MAX_MASK)) != 0U)
+      Steering_ManualAxisDone(0U, 3U);
+    else if ((mask & ((command < 0) ? STEER_LIMIT_R_MAX_MASK :
+                        STEER_LIMIT_R_MIN_MASK)) != 0U)
+    {
+      /* R_MAX departure had not passed a separate DIR0 limit-escape
+       * bench test. Keep it opt-in; never assume pressing D-pad is enough.
+       */
+      if ((command < 0) &&
+          (steer_manual_allow_right_max_escape == 0U))
+        Steering_ManualAxisFault(0U, 10U);
+      else
+      {
+        steer_manual_right_state = STEER_MANUAL_ESCAPE;
+        steer_manual_right_axis.escape_start_ms = now;
+      }
+    }
+
+    /* Baseline current AS5600 per axis before energizing its channel. */
+    if ((steer_manual_left_state == STEER_MANUAL_MOVING) ||
+        (steer_manual_left_state == STEER_MANUAL_ESCAPE))
+    {
+      if ((Steering_PositionReadOne(1U, &raw) == 0U) ||
+          (Steering_PositionRawInRange(1U, raw) == 0U))
+        Steering_ManualAxisFault(1U, 4U);
+      else
+        steer_manual_left_axis.previous_raw = raw;
+    }
+    if ((steer_manual_right_state == STEER_MANUAL_MOVING) ||
+        (steer_manual_right_state == STEER_MANUAL_ESCAPE))
+    {
+      if ((Steering_PositionReadOne(0U, &raw) == 0U) ||
+          (Steering_PositionRawInRange(0U, raw) == 0U))
+        Steering_ManualAxisFault(0U, 4U);
+      else
+        steer_manual_right_axis.previous_raw = raw;
+    }
+  }
+
+  /* Consume rising limit EXTI and preserve own-side isolation. */
+  primask = __get_PRIMASK();
+  __disable_irq();
+  pending = steer_manual_irq_pending_mask;
+  steer_manual_irq_pending_mask = 0U;
+  if (primask == 0U) __enable_irq();
+
+  if ((pending & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
+  {
+    uint8_t expect = (command < 0) ? STEER_LIMIT_L_MIN_MASK :
+                      STEER_LIMIT_L_MAX_MASK;
+    if ((pending & expect) != 0U &&
+        (pending & (uint8_t)~expect &
+         (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) == 0U)
+      Steering_ManualAxisDone(1U, 3U);
+    else
+      Steering_ManualAxisFault(1U, 9U);
+  }
+  if ((pending & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
+  {
+    uint8_t expect = (command < 0) ? STEER_LIMIT_R_MIN_MASK :
+                      STEER_LIMIT_R_MAX_MASK;
+    if ((pending & expect) != 0U &&
+        (pending & (uint8_t)~expect &
+         (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) == 0U)
+      Steering_ManualAxisDone(0U, 3U);
+    else
+      Steering_ManualAxisFault(0U, 9U);
+  }
+
+  if ((uint32_t)(now - steer_manual_begin_ms) > STEER_MANUAL_RUN_MAX_MS)
+  {
+    if ((steer_manual_left_state == STEER_MANUAL_MOVING) ||
+        (steer_manual_left_state == STEER_MANUAL_ESCAPE))
+      Steering_ManualAxisFault(1U, 5U);
+    if ((steer_manual_right_state == STEER_MANUAL_MOVING) ||
+        (steer_manual_right_state == STEER_MANUAL_ESCAPE))
+      Steering_ManualAxisFault(0U, 5U);
+  }
+
+  mask = Steering_TestRawLimitMask();
+  Steering_ManualAxisUpdate(1U, command, mask, now, lpwm, &la);
+  Steering_ManualAxisUpdate(0U, command, mask, now, rpwm, &ra);
+
+  primask = __get_PRIMASK();
+  __disable_irq();
+  mask = Steering_TestRawLimitMask();
+  lstate = steer_manual_left_state;
+  rstate = steer_manual_right_state;
+
+  /* Stop if a limit rose during the AS5600 reads, and never reenergize
+   * a channel until a NEW neutral->direction manual request.
+   */
+  if (((lstate == STEER_MANUAL_MOVING) ||
+       (lstate == STEER_MANUAL_ESCAPE)) &&
+      ((mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U))
+  {
+    uint8_t expected = (command < 0) ? STEER_LIMIT_L_MIN_MASK :
+                        STEER_LIMIT_L_MAX_MASK;
+    uint8_t opposite = (command < 0) ? STEER_LIMIT_L_MAX_MASK :
+                        STEER_LIMIT_L_MIN_MASK;
+    if (((mask & expected) != 0U) && ((mask & opposite) == 0U))
+      Steering_ManualAxisDone(1U, 3U);
+    else if ((lstate != STEER_MANUAL_ESCAPE) ||
+             ((mask & opposite) == 0U))
+      Steering_ManualAxisFault(1U, 9U);
+  }
+  if (((rstate == STEER_MANUAL_MOVING) ||
+       (rstate == STEER_MANUAL_ESCAPE)) &&
+      ((mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U))
+  {
+    uint8_t expected = (command < 0) ? STEER_LIMIT_R_MIN_MASK :
+                        STEER_LIMIT_R_MAX_MASK;
+    uint8_t opposite = (command < 0) ? STEER_LIMIT_R_MAX_MASK :
+                        STEER_LIMIT_R_MIN_MASK;
+    if (((mask & expected) != 0U) && ((mask & opposite) == 0U))
+      Steering_ManualAxisDone(0U, 3U);
+    else if ((rstate != STEER_MANUAL_ESCAPE) ||
+             ((mask & opposite) == 0U))
+      Steering_ManualAxisFault(0U, 9U);
+  }
+
+  if ((steer_manual_left_state == STEER_MANUAL_MOVING) ||
+      (steer_manual_left_state == STEER_MANUAL_ESCAPE))
+  {
+    HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port, MOTOR_DIR_TURN_left_Pin,
+                      (command < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
+    __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, la);
+    steer_manual_left_pwm = la;
+  }
+  else Steering_ManualLeftOff();
+
+  if ((steer_manual_right_state == STEER_MANUAL_MOVING) ||
+      (steer_manual_right_state == STEER_MANUAL_ESCAPE))
+  {
+    HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port, MOTOR_DIR_TURN_right_Pin,
+                      (command < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
+    __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, ra);
+    steer_manual_right_pwm = ra;
+  }
+  else Steering_ManualRightOff();
+
+  if (primask == 0U) __enable_irq();
+
+  /* Do not re-arm automatically if held against a stop or stalled.
+   * Preserve per-axis result for Live Expressions until next command.
+   */
+  if ((steer_manual_left_state >= STEER_MANUAL_DONE) &&
+      (steer_manual_right_state >= STEER_MANUAL_DONE))
+  {
+    steer_manual_neutral_required = 1U;
+    Steering_ManualStop();
+  }
+}
+
 static int16_t PS2_Convert_LY_To_PWM(uint8_t ly)
 {
   if (ly < PS2_LY_FORWARD_LIMIT)
