@@ -5077,6 +5077,51 @@ volatile uint16_t steer_diag_left_timer_ccr = 0U;
 volatile uint32_t steer_diag_park_samples = 0U;
 volatile uint32_t steer_diag_park_violation_count = 0U;
 
+/*
+ * M7-S14: passive incident recorder. The S13 steering lockdown stays ON.
+ * Read-only RAM ring: no GPIO writes, PWM changes, I2C transactions or UART.
+ * A software snapshot is NOT a measurement of voltage at CC-SHBR12 IN1.
+ * Do not reproduce an uncontrolled motor fault merely to populate this log.
+ */
+#define STEER_INCIDENT_TRACE_CAPACITY 128U
+typedef struct
+{
+  uint32_t time_ms;
+  uint32_t as5600_right_age_ms;
+  int16_t wheel_target_pwm;
+  int16_t wheel_current_pwm;
+  int16_t lu_pwm;
+  int16_t ld_pwm;
+  int16_t ru_pwm;
+  int16_t rd_pwm;
+  uint16_t tim14_ccr;
+  uint16_t as5600_right_raw;
+  uint8_t ps2_ly;
+  uint8_t ps2_rx;
+  uint8_t dpad_up;
+  uint8_t wheel_profile;
+  uint8_t control_mode;
+  uint8_t right_pf9_high;
+  uint8_t right_pf10_dir_high;
+  uint8_t tim14_cc_enabled;
+  uint8_t nc_raw_mask;
+  uint8_t trip_mask;
+  uint8_t trip_reason;
+  uint8_t steer_shadow_action;
+} SteeringIncidentTraceSample_t;
+
+/* Live Expressions: [0..count-1] are valid before wrap; once full, oldest
+ * entry is at next_index. If frozen, trip_index identifies final snapshot.
+ * Data are ordinary BSS RAM and are NOT preserved across MCU reset/flash.
+ */
+volatile SteeringIncidentTraceSample_t steer_incident_trace[STEER_INCIDENT_TRACE_CAPACITY];
+volatile uint16_t steer_incident_trace_count = 0U;
+volatile uint16_t steer_incident_trace_next_index = 0U;
+volatile uint16_t steer_incident_trace_trip_index = 0U;
+volatile uint8_t steer_incident_trace_frozen = 0U;
+volatile uint8_t steer_incident_trace_seen_forward = 0U;
+volatile uint32_t steer_incident_trace_trip_time_ms = 0U;
+
 #if STEER_SAFETY_INCIDENT_LOCKOUT != 0U
 static void Steering_QuarantineParkPins(void)
 {
@@ -5147,6 +5192,76 @@ static void Steering_QuarantineAuditPins(void)
   HAL_GPIO_WritePin(PWM_turn_right_GPIO_Port, PWM_turn_right_Pin, GPIO_PIN_RESET);
 }
 #endif
+
+/* M7-S14: once per main-loop interval (~20-25 ms). Capture the most recent
+ * software values; a limit/safety trip after a preceding forward wheel command
+ * freezes the ring. It does not keep GPIO history between samples and cannot
+ * prove absence of short pulses or power-stage noise.
+ */
+static void Steering_IncidentTraceUpdate(void)
+{
+  static uint32_t last_ms = 0U;
+  uint32_t now = HAL_GetTick();
+  uint16_t index;
+  volatile SteeringIncidentTraceSample_t *sample;
+
+  if (steer_incident_trace_frozen != 0U) return;
+  if ((steer_safety_trip_latched == 0U) &&
+      ((uint32_t)(now - last_ms) < 20U))
+    return;
+  last_ms = now;
+
+  if ((steer_safety_trip_latched == 0U) &&
+      (debug_limit_raw_mask == 0U) &&
+      ((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) || (PS2_Pad.Up != 0U)) &&
+      ((wheel_target_pwm > 0) || (wheel_current_pwm > 0)))
+    steer_incident_trace_seen_forward = 1U;
+
+  index = steer_incident_trace_next_index;
+  sample = &steer_incident_trace[index];
+  sample->time_ms = now;
+  sample->as5600_right_age_ms =
+      (uint32_t)(now - steer_pos_right_last_sample_ms);
+  sample->wheel_target_pwm = wheel_target_pwm;
+  sample->wheel_current_pwm = wheel_current_pwm;
+  sample->lu_pwm = wheel_pwm_lu;
+  sample->ld_pwm = wheel_pwm_ld;
+  sample->ru_pwm = wheel_pwm_ru;
+  sample->rd_pwm = wheel_pwm_rd;
+  sample->tim14_ccr = (uint16_t)TIM14->CCR1;
+  sample->as5600_right_raw = debug_as5600_right_raw;
+  sample->ps2_ly = PS2_Pad.LY;
+  sample->ps2_rx = PS2_Pad.RX;
+  sample->dpad_up = PS2_Pad.Up;
+  sample->wheel_profile = (uint8_t)wheel_command_profile;
+  sample->control_mode = (uint8_t)control_mode;
+  sample->right_pf9_high =
+      (HAL_GPIO_ReadPin(PWM_turn_right_GPIO_Port, PWM_turn_right_Pin) ==
+       GPIO_PIN_SET) ? 1U : 0U;
+  sample->right_pf10_dir_high =
+      (HAL_GPIO_ReadPin(MOTOR_DIR_TURN_right_GPIO_Port,
+                        MOTOR_DIR_TURN_right_Pin) ==
+       GPIO_PIN_SET) ? 1U : 0U;
+  sample->tim14_cc_enabled =
+      ((TIM14->CCER & TIM_CCER_CC1E) != 0U) ? 1U : 0U;
+  sample->nc_raw_mask = Steering_TestRawLimitMask();
+  sample->trip_mask = steer_safety_trip_mask;
+  sample->trip_reason = steer_safety_trip_reason;
+  sample->steer_shadow_action = debug_steer_shadow_action;
+
+  steer_incident_trace_next_index =
+      (uint16_t)((index + 1U) % STEER_INCIDENT_TRACE_CAPACITY);
+  if (steer_incident_trace_count < STEER_INCIDENT_TRACE_CAPACITY)
+    steer_incident_trace_count++;
+
+  if ((steer_safety_trip_latched != 0U) &&
+      (steer_incident_trace_seen_forward != 0U))
+  {
+    steer_incident_trace_trip_index = index;
+    steer_incident_trace_trip_time_ms = now;
+    steer_incident_trace_frozen = 1U;
+  }
+}
 
 /*
  * STOP khẩn cấp cấp xe: wheel_control cắt 4 motor bánh và reset
@@ -7239,6 +7354,7 @@ int main(void)
     PS2_DebugObserveRightOutput(); /* after all PWM owners have run */
 #if STEER_SAFETY_INCIDENT_LOCKOUT != 0U
     Steering_QuarantineAuditPins(); /* pin state only; no motor test */
+    Steering_IncidentTraceUpdate(); /* S14: read-only, no I2C/serial */
 #endif
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
