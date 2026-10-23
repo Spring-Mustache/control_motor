@@ -1538,20 +1538,26 @@ static void Steering_TestOnLimitInterrupt(uint8_t switch_mask)
  * even when disarmed. Timer ARR=999; these are CCR ticks, not percentages.
  * LEFT has distinct measured breakaway torque from RIGHT.
  */
-/* S11 incident quarantine. Does not replace physical driver E-stop.
- * OFF by default: neither PS2 steering nor automatic steering PWM
- * service will run until bench hardware is checked independently.
+/* M7-S15: restore the legacy TIM12/TIM14 steering control paths.
+ * The source-level incident quarantine is no longer compiled in, but all
+ * steering remains deliberately DISARMED at boot. Normal motion requires
+ * a separate deliberate software permit + the original manual/position
+ * arm flags; firmware is NOT a hardware-rated emergency stop.
+ * The RIGHT driver can still physically move at zero requested PWM.
+ * Never commission powered steering without independent supply cutoff.
  */
-/* Incident quarantine is COMPILE-TIME LOCKED until an engineering
- * review of hardware limit integrity/driver enable wiring. Changing a
- * Live Expressions variable must NOT re-enable motion during the
- * investigation. Leave this at 1 for this diagnostic firmware.
- */
-#define STEER_SAFETY_INCIDENT_LOCKOUT 1U
+#define STEER_SAFETY_INCIDENT_LOCKOUT 0U
 volatile uint8_t steer_safety_motion_permit = 0U;
 volatile uint8_t steer_safety_trip_latched = 0U;
 static volatile uint8_t steer_safety_pwm_initialized = 0U;
 volatile uint8_t steer_safety_trip_mask = 0U;   /* NC bits 1,2,4,8 */
+/* Successful own-axis R2/SELECT NC arrivals must not immediately render
+ * the legacy recovery/calibration unusable. This mask only tracks contacts
+ * seen as expected by an active owner and stays set until physically open.
+ * Unexpected NC interrupts still latch whole-vehicle STOP.
+ */
+volatile uint8_t steer_safety_expected_nc_mask = 0U;
+volatile uint32_t steer_safety_expected_nc_edges = 0U;
 volatile uint8_t steer_safety_trip_reason = 0U; /* 1 EXTI, 2 level, 3 sensor, 4 RAW overshoot */
 volatile uint16_t steer_safety_trip_left_raw = 0U;
 volatile uint16_t steer_safety_trip_right_raw = 0U;
@@ -1568,10 +1574,10 @@ volatile uint32_t steer_safety_blocked_cycles = 0U;
  */
 volatile uint8_t steer_safety_neutral_required = 1U;
 volatile uint32_t steer_safety_neutral_pass_count = 0U;
-/* RX steering stays disabled until physical investigation. Diagnostics
- * do not grant motor power when compile-time incident lockout is active.
+/* Restore the RX intent path; physical output remains behind the global
+ * deliberate steering permit, per-owner arm, NC and sensor checks.
  */
-volatile uint8_t steer_manual_rx_enable = 0U;
+volatile uint8_t steer_manual_rx_enable = 1U;
 volatile uint16_t steer_manual_rx_deadzone_raw = 48U;
 volatile uint32_t steer_manual_rx_rejected_wheel_count = 0U;
 #define STEER_MANUAL_RX_DEBOUNCE_MS 150U
@@ -3055,15 +3061,31 @@ static void Steering_ManualStop(void)
   steer_manual_direction = 0;
 }
 
-/* Global S11 incident lockout: any NC EXTI cuts BOTH steering
- * CCRs, regardless of which software motion service owns them.
- * An NC that opens on a runaway motor must NOT be cleared just
- * because a subsequent held PS2 command asks to move again.
- * Power-cycle remains required before another deliberate bench arm.
- * Software CCR=0 is not an independent power disconnect.
+/* S15: the old R2 and SELECT algorithms legitimately seek an own-axis NC
+ * endstop. Their individual EXTI callbacks cut the affected motor output.
+ * The global latch continues to catch unexpected NC interrupts including
+ * all NC edges while driving four wheels. Expected contacts are recorded
+ * separately so R1/SELECT can perform legacy bounded leave-limit steps.
+ * This exception cannot detect an external driver ignoring PWM=0.
  */
+static uint8_t Steering_SafetyExpectedNcMask(void);
 static void Steering_SafetyOnLimitInterrupt(uint8_t bit)
 {
+  if ((STEER_SAFETY_INCIDENT_LOCKOUT == 0U) &&
+      ((Steering_SafetyExpectedNcMask() & bit) != 0U))
+  {
+    steer_safety_expected_nc_mask |= bit;
+    steer_safety_expected_nc_edges++;
+    /* Always cut the axis on an expected NC edge as well. */
+    if (steer_safety_pwm_initialized != 0U)
+    {
+      if ((bit & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
+        __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+      if ((bit & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
+        __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+    }
+    return;
+  }
   steer_safety_trip_mask |= bit;
   steer_safety_trip_latched = 1U;
   if (steer_safety_trip_reason == 0U)
@@ -3844,6 +3866,42 @@ volatile uint32_t steer_cal_rejected_start_count = 0U;
 volatile uint32_t steer_cal_start_count = 0U;
 volatile uint8_t steer_cal_left_stage = 0U;
 volatile uint8_t steer_cal_right_stage = 0U;
+/* Return ONLY the NC endpoints that the current R2 or SELECT phase is
+ * explicitly moving to/withdrawing from. Called from EXTI and main loop:
+ * inspect volatile owner/stage only, no blocking HAL or I2C.
+ */
+static uint8_t Steering_SafetyExpectedNcMask(void)
+{
+  uint8_t mask = 0U;
+  if ((steer_pos_active != 0U) && (steer_pos_command == 2U))
+  {
+    if ((steer_pos_left_state == STEER_AXIS_MOVING) ||
+        (steer_pos_left_state == STEER_AXIS_DONE))
+      mask |= STEER_LIMIT_L_MIN_MASK;
+    if ((steer_pos_right_state == STEER_AXIS_MOVING) ||
+        (steer_pos_right_state == STEER_AXIS_DONE))
+      mask |= STEER_LIMIT_R_MIN_MASK;
+  }
+  if (steer_cal_active != 0U)
+  {
+    if ((steer_cal_left_stage == STEER_CAL_SEEK_MIN) ||
+        (steer_cal_left_stage == STEER_CAL_EXIT_MIN))
+      mask |= STEER_LIMIT_L_MIN_MASK;
+    if ((steer_cal_right_stage == STEER_CAL_SEEK_MIN) ||
+        (steer_cal_right_stage == STEER_CAL_EXIT_MIN))
+      mask |= STEER_LIMIT_R_MIN_MASK;
+    if ((steer_cal_left_stage == STEER_CAL_SEEK_MAX) ||
+        (steer_cal_left_stage == STEER_CAL_EXIT_MAX) ||
+        (steer_cal_left_stage == STEER_CAL_PRE_EXIT_MAX))
+      mask |= STEER_LIMIT_L_MAX_MASK;
+    if ((steer_cal_right_stage == STEER_CAL_SEEK_MAX) ||
+        (steer_cal_right_stage == STEER_CAL_EXIT_MAX) ||
+        (steer_cal_right_stage == STEER_CAL_PRE_EXIT_MAX))
+      mask |= STEER_LIMIT_R_MAX_MASK;
+  }
+  return mask;
+}
+
 volatile uint8_t steer_cal_left_fault = 0U;
 volatile uint8_t steer_cal_right_fault = 0U;
 volatile uint16_t steer_cal_left_min_found = 0U;
@@ -7426,12 +7484,24 @@ int main(void)
      */
     {
       uint8_t nc = Steering_TestRawLimitMask();
+      /* In the restored legacy path, the expected own-axis NC contact for
+       * R2/SELECT is handled by its owner (and continues to cut own PWM).
+       * Preserve it only while physically asserted; a fresh unrelated
+       * contact remains a global STOP even during calibration.
+       */
+      if (STEER_SAFETY_INCIDENT_LOCKOUT == 0U)
+      {
+        steer_safety_expected_nc_mask &= nc;
+        steer_safety_expected_nc_mask |=
+            (uint8_t)(nc & Steering_SafetyExpectedNcMask());
+        nc &= (uint8_t)~steer_safety_expected_nc_mask;
+      }
       if (nc != 0U)
       {
         steer_safety_trip_mask |= nc;
         steer_safety_trip_latched = 1U;
         if (steer_safety_trip_reason == 0U)
-          steer_safety_trip_reason = 2U; /* asserted NC GPIO */
+          steer_safety_trip_reason = 2U; /* unexpected NC GPIO */
       }
       if ((STEER_SAFETY_INCIDENT_LOCKOUT == 0U) &&
           (steer_safety_motion_permit == 1U) &&
@@ -7503,7 +7573,7 @@ int main(void)
       else
       {
         Steering_TestPulseUpdate();
-        Steering_ManualUpdate();   /* D-pad only by default; RX disabled */
+        Steering_ManualUpdate();   /* D-pad and RX, both explicitly gated */
         Steering_PositionUpdate(); /* R1/R2 */
         Steering_CalUpdate();      /* SELECT - any NC trip latches */
       }
