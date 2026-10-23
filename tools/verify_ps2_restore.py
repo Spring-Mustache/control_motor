@@ -40,7 +40,7 @@ fail = [label for label, pattern in must_have.items()
         if re.search(pattern, src) is None]
 for removed_gate in ("steer_manual_rx_enable", "steer_manual_rx_deadzone_raw",
                      "STEER_MANUAL_RX_DEBOUNCE_MS"):
-    if re.search(r"\\b" + removed_gate + r"\\b", src):
+    if re.search(r"\b" + removed_gate + r"\b", src):
         fail.append(f"old RX gate remains: {removed_gate}")
 if not re.search(r"if\s*\(rx\s*<\s*-PS2_RX_DEADZONE_COUNTS\)\s*return\s*-1;", src):
     fail.append("immediate RX LEFT path")
