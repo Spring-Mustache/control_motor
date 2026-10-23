@@ -16,7 +16,8 @@ must_have = {
     "explicit steering permit off at boot": r"steer_safety_motion_permit\s*=\s*0U",
     "manual position arms off at boot": r"steer_pos_enable\s*=\s*0U",
     "manual direction arms off at boot": r"steer_manual_enable\s*=\s*0U",
-    "RX mapping enabled but owner gated": r"steer_manual_rx_enable\s*=\s*1U",
+    "M7-S10 RX deadzone restored": r"#define\s+PS2_RX_DEADZONE_COUNTS\s+10\b",
+    "LY+RX independent request observation": r"ps2_restore_rx_wheel_combined_frames",
     "per-axis NC expected classifier": r"Steering_SafetyExpectedNcMask\(void\)",
     "expected NC mask": r"steer_safety_expected_nc_mask",
     "source PWM enable gating": r"#if\s+STEER_SAFETY_INCIDENT_LOCKOUT\s*==\s*0U",
@@ -37,6 +38,15 @@ must_have = {
 }
 fail = [label for label, pattern in must_have.items()
         if re.search(pattern, src) is None]
+for removed_gate in ("steer_manual_rx_enable", "steer_manual_rx_deadzone_raw",
+                     "STEER_MANUAL_RX_DEBOUNCE_MS"):
+    if re.search(r"\\b" + removed_gate + r"\\b", src):
+        fail.append(f"old RX gate remains: {removed_gate}")
+if not re.search(r"if\s*\(rx\s*<\s*-PS2_RX_DEADZONE_COUNTS\)\s*return\s*-1;", src):
+    fail.append("immediate RX LEFT path")
+if not re.search(r"if\s*\(rx\s*>\s*PS2_RX_DEADZONE_COUNTS\)\s*return\s*1;", src):
+    fail.append("immediate RX RIGHT path")
+
 route = src.split("static void PS2_RestoreRouteUpdate(void)", 1)
 if len(route) != 2:
     fail.append("PS2 route function")
