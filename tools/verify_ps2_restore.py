@@ -11,8 +11,15 @@ root = Path(__file__).resolve().parents[1]
 src = (root / "Core" / "Src" / "main.c").read_text(encoding="utf-8")
 
 must_have = {
-    "incident power lockdown": r"#define\s+STEER_SAFETY_INCIDENT_LOCKOUT\s+1U",
-    "right pin quarantine": r"Steering_QuarantineParkPins\(\)",
+    "steering control path compiled": r"#define\s+STEER_SAFETY_INCIDENT_LOCKOUT\s+0U",
+    "right pin quarantine still present": r"Steering_QuarantineParkPins\(\)",
+    "explicit steering permit off at boot": r"steer_safety_motion_permit\s*=\s*0U",
+    "manual position arms off at boot": r"steer_pos_enable\s*=\s*0U",
+    "manual direction arms off at boot": r"steer_manual_enable\s*=\s*0U",
+    "RX mapping enabled but owner gated": r"steer_manual_rx_enable\s*=\s*1U",
+    "per-axis NC expected classifier": r"Steering_SafetyExpectedNcMask\(void\)",
+    "expected NC mask": r"steer_safety_expected_nc_mask",
+    "source PWM enable gating": r"#if\s+STEER_SAFETY_INCIDENT_LOCKOUT\s*==\s*0U",
     "wheel PI+FF execution": r"WheelControl_Update\(\)",
     "wheel target command": r"WheelControl_SetTargetPWM\(pwm_duty\)",
     "voice receive": r"VC02_GetEvent\(&vc02_event\)",
@@ -57,5 +64,5 @@ else:
 if fail:
     print("FAIL: " + ", ".join(fail))
     raise SystemExit(1)
-print("PASS static PS2 route/legacy feature preservation checks.")
+print("PASS static PS2 restored source control paths/legacy feature checks.")
 print("NOT verified: STM32CubeIDE build, real key actuation, hardware safety.")
