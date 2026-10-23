@@ -42,7 +42,11 @@ else:
         13: "SELECT calibration",
     }
     for number, label in actions.items():
-        if re.search(r"action\s*=\s*" + str(number) + r"U", body) is None:
+        if number in (9, 10):
+            # RX is chosen by a ternary expression, not separate assignments.
+            if "? 9U : 10U" not in body:
+                fail.append(f"RX action {number} ({label})")
+        elif re.search(r"action\s*=\s*" + str(number) + r"U", body) is None:
             fail.append(f"action {number} ({label})")
     for forbidden in ("HAL_GPIO_WritePin", "__HAL_TIM_SET_COMPARE",
                       "HAL_TIM_PWM_Start", "WheelControl_SetTargetPWM",
