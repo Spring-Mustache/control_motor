@@ -1574,13 +1574,10 @@ volatile uint32_t steer_safety_blocked_cycles = 0U;
  */
 volatile uint8_t steer_safety_neutral_required = 1U;
 volatile uint32_t steer_safety_neutral_pass_count = 0U;
-/* Restore the RX intent path; physical output remains behind the global
- * deliberate steering permit, per-owner arm, NC and sensor checks.
+/* M7-S10 original RX command deadzone: centered at 128, +/-10.
+ * No extra RX enable bit or hold-to-activate timer. Actual steering power
+ * is still subject to the motion permit and hardware-related safeguards.
  */
-volatile uint8_t steer_manual_rx_enable = 1U;
-volatile uint16_t steer_manual_rx_deadzone_raw = 48U;
-volatile uint32_t steer_manual_rx_rejected_wheel_count = 0U;
-#define STEER_MANUAL_RX_DEBOUNCE_MS 150U
 volatile uint8_t steer_manual_enable = 0U;
 /* Declared early for arbitration/PWM ownership. Initialized in the
  * select-calibration section below and defaults DISARMED on reset.
@@ -1658,70 +1655,18 @@ static volatile uint8_t steer_manual_irq_pending_mask = 0U;
  */
 static int8_t Steering_ManualRequestDirection(void)
 {
-  static int8_t rx_candidate = 0;
-  static uint32_t rx_candidate_since_ms = 0U;
   int16_t rx;
-  uint16_t threshold;
-  int8_t requested;
-  uint32_t now = HAL_GetTick();
-
   if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U) ||
       (steer_safety_trip_latched != 0U))
-  {
-    rx_candidate = 0;
     return 0;
-  }
-  /* Wheel requests are mutually exclusive with steering. Reject noisy
-   * RX data while LY/D-pad Up/Down are in use; count for diagnostics.
-   */
-  if ((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
-      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
-      (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U))
-  {
-    if ((PS2_Pad.RX < 118U) || (PS2_Pad.RX > 138U))
-      steer_manual_rx_rejected_wheel_count++;
-    rx_candidate = 0;
-    return 0;
-  }
   if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
-  {
-    rx_candidate = 0;
-    return 0;
-  }
-  if (PS2_Pad.Left != 0U)
-  {
-    rx_candidate = 0;
-    return -1;
-  }
-  if (PS2_Pad.Right != 0U)
-  {
-    rx_candidate = 0;
-    return 1;
-  }
-  if (steer_manual_rx_enable != 1U)
-  {
-    rx_candidate = 0;
-    return 0;
-  }
-  threshold = steer_manual_rx_deadzone_raw;
-  if (threshold < 35U) threshold = 35U;
-  if (threshold > 90U) threshold = 90U;
+    return 0; /* contradictory commands require neutral */
+  if (PS2_Pad.Left != 0U) return -1;
+  if (PS2_Pad.Right != 0U) return 1;
   rx = (int16_t)PS2_Pad.RX - 128;
-  requested = (rx < -(int16_t)threshold) ? -1 :
-              ((rx > (int16_t)threshold) ? 1 : 0);
-  if (requested == 0)
-  {
-    rx_candidate = 0;
-    return 0;
-  }
-  if (rx_candidate != requested)
-  {
-    rx_candidate = requested;
-    rx_candidate_since_ms = now;
-    return 0;
-  }
-  return ((uint32_t)(now - rx_candidate_since_ms) >=
-          STEER_MANUAL_RX_DEBOUNCE_MS) ? requested : 0;
+  if (rx < -PS2_RX_DEADZONE_COUNTS) return -1;
+  if (rx > PS2_RX_DEADZONE_COUNTS) return 1;
+  return 0;
 }
 
 static uint8_t Steering_ManualInputsNeutral(void)
@@ -5915,19 +5860,16 @@ volatile uint32_t debug_steer_shadow_seen_r2 = 0U;
 volatile uint32_t debug_steer_shadow_seen_select = 0U;
 volatile uint32_t debug_steer_shadow_blocked_ly_frames = 0U;
 volatile uint32_t debug_steer_shadow_unblocked_frames = 0U;
-/* For RX simulation the same default 48 count, 150ms rule as S11
- * is used. This does NOT enable RX motor actuation.
+/* M7-S15: immediate original S10 RX +/-10 mapping in shadow view.
+ * A decoded request while wheel drive is active is still NOT authorization
+ * to energize steering hardware.
  */
 static void PS2_DebugShadowSteeringCommands(void)
 {
-  static int8_t rx_candidate = 0;
-  static uint32_t rx_candidate_since_ms = 0U;
   uint8_t action = 0U, block = 0U;
   uint8_t button_group_count = 0U;
   int16_t offset;
   int8_t rx_request = 0;
-  uint16_t threshold;
-  uint32_t now = HAL_GetTick();
 
   if (debug_steer_shadow_enable == 0U) return;
   debug_steer_shadow_action = 0U;
@@ -5939,7 +5881,6 @@ static void PS2_DebugShadowSteeringCommands(void)
 
   if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
   {
-    rx_candidate = 0;
     debug_steer_shadow_block_reason = 1U;
     return;
   }
@@ -5962,20 +5903,9 @@ static void PS2_DebugShadowSteeringCommands(void)
   else
   {
     offset = (int16_t)PS2_Pad.RX - 128;
-    threshold = steer_manual_rx_deadzone_raw;
-    if (threshold < 35U) threshold = 35U;
-    if (threshold > 90U) threshold = 90U;
-    rx_request = (offset < -(int16_t)threshold) ? -1 :
-                 ((offset > (int16_t)threshold) ? 1 : 0);
-    if (rx_request == 0)
-      rx_candidate = 0;
-    else if (rx_candidate != rx_request)
-    {
-      rx_candidate = rx_request;
-      rx_candidate_since_ms = now;
-    }
-    else if ((uint32_t)(now - rx_candidate_since_ms) >=
-             STEER_MANUAL_RX_DEBOUNCE_MS)
+    rx_request = (offset < -PS2_RX_DEADZONE_COUNTS) ? -1 :
+                 ((offset > PS2_RX_DEADZONE_COUNTS) ? 1 : 0);
+    if (rx_request != 0)
       action = (rx_request < 0) ? 3U : 4U;
   }
 
@@ -5995,9 +5925,7 @@ static void PS2_DebugShadowSteeringCommands(void)
   else if ((PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
            (WheelControl_SpinIsActive() != 0U))
     block = 6U;
-  else if ((rx_request != 0) &&
-           ((action == 0U) || (steer_manual_rx_enable != 1U)))
-    block = 7U;
+
 
   debug_steer_shadow_action = action;
   debug_steer_shadow_block_reason = block;
@@ -6067,18 +5995,19 @@ volatile uint16_t ps2_restore_route_seen_mask = 0U;
 volatile uint32_t ps2_restore_route_samples = 0U;
 volatile uint32_t ps2_restore_route_blocked_samples = 0U;
 volatile uint8_t ps2_restore_steering_actuation_locked = 1U;
+/* Non-actuating observations of simultaneous wheel + RX input.
+ * These do not remove the actual motor command interlock.
+ */
+volatile int8_t ps2_restore_rx_request_direction = 0;
+volatile uint32_t ps2_restore_rx_wheel_combined_frames = 0U;
 
 static void PS2_RestoreRouteUpdate(void)
 {
-  static int8_t rx_candidate = 0;
-  static uint32_t rx_candidate_since_ms = 0U;
   uint8_t action = 0U;
   uint8_t steering_button, wheel_button;
   uint16_t block = 0U;
-  uint16_t rx_deadzone = steer_manual_rx_deadzone_raw;
   int16_t rx_offset = (int16_t)PS2_Pad.RX - 128;
   int8_t rx_direction = 0;
-  uint32_t now = HAL_GetTick();
 
   ps2_restore_route_samples++;
   ps2_restore_steering_actuation_locked =
@@ -6090,7 +6019,7 @@ static void PS2_RestoreRouteUpdate(void)
     ps2_restore_route_action = 0U;
     ps2_restore_route_ready = 0U;
     ps2_restore_route_block_mask = 1U;
-    rx_candidate = 0;
+    ps2_restore_rx_request_direction = 0;
     ps2_restore_route_blocked_samples++;
     return;
   }
@@ -6118,10 +6047,14 @@ static void PS2_RestoreRouteUpdate(void)
   if ((steering_button != 0U) && (wheel_button != 0U))
     block |= (1U << 2);
 
-  if (rx_deadzone < 35U) rx_deadzone = 35U;
-  if (rx_deadzone > 90U) rx_deadzone = 90U;
-  if (rx_offset < -(int16_t)rx_deadzone) rx_direction = -1;
-  else if (rx_offset > (int16_t)rx_deadzone) rx_direction = 1;
+  if (rx_offset < -PS2_RX_DEADZONE_COUNTS) rx_direction = -1;
+  else if (rx_offset > PS2_RX_DEADZONE_COUNTS) rx_direction = 1;
+  /* Independent of route_action: LY and RX may be decoded together.
+   * Real steering actuation stays subject to the motor-side interlock.
+   */
+  ps2_restore_rx_request_direction = rx_direction;
+  if ((wheel_button != 0U) && (rx_direction != 0))
+    ps2_restore_rx_wheel_combined_frames++;
 
   if (PS2_Pad.Select != 0U) action = 13U;
   else if (PS2_Pad.R1 != 0U) action = 11U;
@@ -6135,23 +6068,7 @@ static void PS2_RestoreRouteUpdate(void)
   else if (PS2_Pad.Left != 0U) action = 7U;
   else if (PS2_Pad.Right != 0U) action = 8U;
   else if (rx_direction != 0)
-  {
-    if (rx_candidate != rx_direction)
-    {
-      rx_candidate = rx_direction;
-      rx_candidate_since_ms = now;
-      block |= (1U << 10);
-    }
-    else if ((uint32_t)(now - rx_candidate_since_ms) <
-             STEER_MANUAL_RX_DEBOUNCE_MS)
-      block |= (1U << 10);
-    else
-      action = (rx_direction < 0) ? 9U : 10U;
-  }
-
-  if ((steering_button != 0U) || (wheel_button != 0U) ||
-      (rx_direction == 0))
-    rx_candidate = 0;
+    action = (rx_direction < 0) ? 9U : 10U;
 
   if ((control_stop_latched != 0U) || (ps2_cancel_hold != 0U) ||
       (ps2_spin_rf_latched != 0U) ||
@@ -6174,10 +6091,6 @@ static void PS2_RestoreRouteUpdate(void)
         ((rx_direction != 0) && (action == 0U)))
     {
       if (steer_manual_enable != 1U) block |= (1U << 5);
-      if ((rx_direction != 0) &&
-          (steering_button == 0U) &&
-          (steer_manual_rx_enable != 1U))
-        block |= (1U << 6);
       if (steer_manual_neutral_required != 0U) block |= (1U << 11);
     }
     else if ((action == 11U) || (action == 12U))
@@ -6294,14 +6207,9 @@ static void PS2_ObserveNewMapping(void)
     return;
   }
 
-  /* Input-only diagnostics must not report an actionable steering
-   * request during a LY/Up/Down wheel command. The buttons themselves
-   * remain visible in debug_ps2_button_mask.
+  /* Decode steering intent independently of LY/Up/Down for debugging.
+   * Actual concurrent motor actuation is still gated by safety checks.
    */
-  if ((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
-      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
-      (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U))
-    return;
 
   /* D-pad has priority over RX when one direction is held. */
   if (PS2_Pad.Left != 0U)
@@ -6868,9 +6776,6 @@ static void Steering_DebugRetainWatchSymbols(void)
   nonzero += (uint32_t)(steer_safety_blocked_cycles != 0);
   nonzero += (uint32_t)(steer_safety_neutral_required != 0);
   nonzero += (uint32_t)(steer_safety_neutral_pass_count != 0);
-  nonzero += (uint32_t)(steer_manual_rx_enable != 0);
-  nonzero += (uint32_t)(steer_manual_rx_deadzone_raw != 0);
-  nonzero += (uint32_t)(steer_manual_rx_rejected_wheel_count != 0);
   nonzero += (uint32_t)(steer_manual_enable != 0);
   nonzero += (uint32_t)(steer_cal_active != 0);
   nonzero += (uint32_t)(steer_manual_active != 0);
