@@ -166,6 +166,7 @@ typedef struct
 
 #define PS2_LY_FORWARD_LIMIT              125
 #define PS2_LY_REVERSE_LIMIT              130
+#define PS2_RX_DEADZONE_COUNTS              10  /* M7-S10 RX neutral +/-10 */
 
 /*
  * Encoder bánh xe.
@@ -5717,7 +5718,6 @@ static void Voice_ExecuteMotorControl(void)
  * D-pad RIGHT / RX>128 => both towards MAX.
  * PWM units are timer compare counts (ARR=999).
  */
-#define PS2_RX_DEADZONE_COUNTS 10
 volatile uint8_t debug_ps2_new_mapping_valid = 0U;
 volatile uint8_t debug_ps2_request_center = 0U;
 volatile uint8_t debug_ps2_request_min = 0U;
