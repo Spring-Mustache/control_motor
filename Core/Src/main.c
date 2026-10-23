@@ -5994,7 +5994,7 @@ static void PS2_DebugShadowSteeringCommands(void)
  * 11 R1 CENTER; 12 R2 MIN; 13 SELECT auto-calibration.
  *
  * Block mask: b0 PS2 disconnected/not analog; b1 contradictory buttons;
- * b2 wheel/steering pressed simultaneously; b3 steering incident lockdown;
+ * b2 wheel/steering pressed simultaneously; b3 steering power gate closed;
  * b4 latched steering safety; b5 respective steering mode disarmed;
  * b6 RX actuation disabled; b7 four wheels not stopped;
  * b8 STOP/voice handover pending; b9 SELECT not individually armed;
@@ -6024,7 +6024,8 @@ static void PS2_RestoreRouteUpdate(void)
 
   ps2_restore_route_samples++;
   ps2_restore_steering_actuation_locked =
-      (STEER_SAFETY_INCIDENT_LOCKOUT != 0U) ? 1U : 0U;
+      ((STEER_SAFETY_INCIDENT_LOCKOUT != 0U) ||
+       (steer_safety_motion_permit != 1U)) ? 1U : 0U;
 
   if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
   {
@@ -6103,7 +6104,7 @@ static void PS2_RestoreRouteUpdate(void)
   if ((action >= 7U) || ((rx_direction != 0) && (wheel_button == 0U) &&
                         (steering_button == 0U)))
   {
-    if (STEER_SAFETY_INCIDENT_LOCKOUT != 0U)
+    if (ps2_restore_steering_actuation_locked != 0U)
       block |= (1U << 3);
     if (steer_safety_trip_latched != 0U)
       block |= (1U << 4);
