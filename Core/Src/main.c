@@ -5981,6 +5981,164 @@ static void PS2_DebugShadowSteeringCommands(void)
   if (action == 7U) debug_steer_shadow_seen_select++;
 }
 
+/*
+ * M7-S15: controller functional-route preflight. Reconstruct the configured
+ * PS2 command map in one place, including rejection reasons. This function is
+ * deliberately READ-ONLY. Existing control owners retain their actuating
+ * algorithms and existing S13 incident lockdown remains compile-time ON.
+ * A decoded/ready route is not proof of PWM or physical motor movement.
+ *
+ * Action 0 none; 1 LY forward; 2 LY reverse; 3 D-pad UP; 4 D-pad DOWN;
+ * 5 L1 clockwise spin; 6 L2 opposite spin; 7 D-pad LEFT steering;
+ * 8 D-pad RIGHT steering; 9 RX LEFT; 10 RX RIGHT;
+ * 11 R1 CENTER; 12 R2 MIN; 13 SELECT auto-calibration.
+ *
+ * Block mask: b0 PS2 disconnected/not analog; b1 contradictory buttons;
+ * b2 wheel/steering pressed simultaneously; b3 steering incident lockdown;
+ * b4 latched steering safety; b5 respective steering mode disarmed;
+ * b6 RX actuation disabled; b7 four wheels not stopped;
+ * b8 STOP/voice handover pending; b9 SELECT not individually armed;
+ * b10 RX debounce pending; b11 neutral rearm required.
+ * START/L3/R3/face buttons are observed by debug_ps2_button_mask but have
+ * no motor command assigned by the legacy firmware.
+ */
+volatile uint8_t ps2_restore_route_action = 0U;
+volatile uint8_t ps2_restore_route_ready = 0U;
+volatile uint16_t ps2_restore_route_block_mask = 0U;
+volatile uint16_t ps2_restore_route_seen_mask = 0U;
+volatile uint32_t ps2_restore_route_samples = 0U;
+volatile uint32_t ps2_restore_route_blocked_samples = 0U;
+volatile uint8_t ps2_restore_steering_actuation_locked = 1U;
+
+static void PS2_RestoreRouteUpdate(void)
+{
+  static int8_t rx_candidate = 0;
+  static uint32_t rx_candidate_since_ms = 0U;
+  uint8_t action = 0U;
+  uint8_t steering_button, wheel_button;
+  uint16_t block = 0U;
+  uint16_t rx_deadzone = steer_manual_rx_deadzone_raw;
+  int16_t rx_offset = (int16_t)PS2_Pad.RX - 128;
+  int8_t rx_direction = 0;
+  uint32_t now = HAL_GetTick();
+
+  ps2_restore_route_samples++;
+  ps2_restore_steering_actuation_locked =
+      (STEER_SAFETY_INCIDENT_LOCKOUT != 0U) ? 1U : 0U;
+
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
+  {
+    ps2_restore_route_action = 0U;
+    ps2_restore_route_ready = 0U;
+    ps2_restore_route_block_mask = 1U;
+    rx_candidate = 0;
+    ps2_restore_route_blocked_samples++;
+    return;
+  }
+
+  steering_button =
+      (uint8_t)((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U) ||
+                (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
+                (PS2_Pad.Select != 0U));
+  wheel_button =
+      (uint8_t)((PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
+                (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
+                (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U) ||
+                (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U));
+
+  if (((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U)) ||
+      ((PS2_Pad.Up != 0U) && (PS2_Pad.Down != 0U)) ||
+      ((PS2_Pad.L1 != 0U) && (PS2_Pad.L2 != 0U)) ||
+      ((PS2_Pad.R1 != 0U) && (PS2_Pad.R2 != 0U)) ||
+      (((PS2_Pad.Select != 0U) || (PS2_Pad.R1 != 0U) ||
+        (PS2_Pad.R2 != 0U)) &&
+       ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U) ||
+        (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U))))
+    block |= (1U << 1);
+
+  if ((steering_button != 0U) && (wheel_button != 0U))
+    block |= (1U << 2);
+
+  if (rx_deadzone < 35U) rx_deadzone = 35U;
+  if (rx_deadzone > 90U) rx_deadzone = 90U;
+  if (rx_offset < -(int16_t)rx_deadzone) rx_direction = -1;
+  else if (rx_offset > (int16_t)rx_deadzone) rx_direction = 1;
+
+  if (PS2_Pad.Select != 0U) action = 13U;
+  else if (PS2_Pad.R1 != 0U) action = 11U;
+  else if (PS2_Pad.R2 != 0U) action = 12U;
+  else if (PS2_Pad.L1 != 0U) action = 5U;
+  else if (PS2_Pad.L2 != 0U) action = 6U;
+  else if (PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) action = 1U;
+  else if (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) action = 2U;
+  else if (PS2_Pad.Up != 0U) action = 3U;
+  else if (PS2_Pad.Down != 0U) action = 4U;
+  else if (PS2_Pad.Left != 0U) action = 7U;
+  else if (PS2_Pad.Right != 0U) action = 8U;
+  else if (rx_direction != 0)
+  {
+    if (rx_candidate != rx_direction)
+    {
+      rx_candidate = rx_direction;
+      rx_candidate_since_ms = now;
+      block |= (1U << 10);
+    }
+    else if ((uint32_t)(now - rx_candidate_since_ms) <
+             STEER_MANUAL_RX_DEBOUNCE_MS)
+      block |= (1U << 10);
+    else
+      action = (rx_direction < 0) ? 9U : 10U;
+  }
+
+  if ((steering_button != 0U) || (wheel_button != 0U) ||
+      (rx_direction == 0))
+    rx_candidate = 0;
+
+  if ((control_stop_latched != 0U) || (ps2_cancel_hold != 0U) ||
+      (ps2_spin_rf_latched != 0U) ||
+      (voice_execution_active != 0U) || (voice_command_ready != 0U) ||
+      (control_mode == CONTROL_MODE_STOP))
+    block |= (1U << 8);
+
+  if ((action >= 7U) || ((rx_direction != 0) && (wheel_button == 0U) &&
+                        (steering_button == 0U)))
+  {
+    if (STEER_SAFETY_INCIDENT_LOCKOUT != 0U)
+      block |= (1U << 3);
+    if (steer_safety_trip_latched != 0U)
+      block |= (1U << 4);
+    if ((action == 7U) || (action == 8U) ||
+        (action == 9U) || (action == 10U) ||
+        ((rx_direction != 0) && (action == 0U)))
+    {
+      if (steer_manual_enable != 1U) block |= (1U << 5);
+      if ((rx_direction != 0) &&
+          (steering_button == 0U) &&
+          (steer_manual_rx_enable != 1U))
+        block |= (1U << 6);
+      if (steer_manual_neutral_required != 0U) block |= (1U << 11);
+    }
+    else if ((action == 11U) || (action == 12U))
+    {
+      if (steer_pos_enable != 1U) block |= (1U << 5);
+    }
+    else if ((action == 13U) && (steer_cal_arm != 1U))
+      block |= (1U << 9);
+
+    if (Steering_PositionWheelsStopped() == 0U)
+      block |= (1U << 7);
+    if (steer_safety_neutral_required != 0U)
+      block |= (1U << 11);
+  }
+
+  ps2_restore_route_action = action;
+  if (action != 0U)
+    ps2_restore_route_seen_mask |= (uint16_t)(1U << action);
+  ps2_restore_route_block_mask = block;
+  ps2_restore_route_ready = ((action != 0U) && (block == 0U)) ? 1U : 0U;
+  if (block != 0U) ps2_restore_route_blocked_samples++;
+}
+
 static void PS2_DebugObserveRightOutput(void)
 {
   static uint8_t previous_source = 0U;
@@ -7194,6 +7352,7 @@ int main(void)
     PS2_Read_Data();
     PS2_DebugObserveAllInputs();  /* All 16 PS2 buttons; input only */
     PS2_DebugShadowSteeringCommands(); /* Dpad/RX/R1/R2/Select, NO PWM */
+    PS2_RestoreRouteUpdate(); /* S15 all mapped PS2 commands, read-only */
     PS2_ObserveNewMapping(); /* decoded requests; output gating is separate */
 
     Control_Arbitrate();
