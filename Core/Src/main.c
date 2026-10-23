@@ -3433,7 +3433,7 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
                                uint16_t right_pwm, uint16_t *left_apply)
 {
   uint32_t dt;
-  int32_t error, term, trim, candidate;
+  int32_t error, term, trim, candidate, previous_integral;
   uint16_t ceiling, step;
   uint16_t remaining, approach_floor;
 
@@ -3490,6 +3490,7 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
     return;
   }
 
+  previous_integral = steer_sync_integral;
   dt = (steer_sync_last_update_ms == 0U) ? 20U :
        (uint32_t)(now - steer_sync_last_update_ms);
   if (dt < 10U) dt = 10U;
@@ -3536,6 +3537,24 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
   }
 
   candidate = (int32_t)left_base + trim;
+  /* Antiwindup: do not continue integrating into a saturated output.
+   * Re-evaluate the command with the previous I-state. This cannot
+   * increase the independent 300-PWM / soft-limit ceiling.
+   */
+  if (((candidate > (int32_t)ceiling) && (error > 0)) ||
+      ((candidate < 0) && (error < 0)))
+  {
+    uint16_t ki_div = steer_sync_ki_div;
+    if (ki_div < 20U) ki_div = 20U;
+    if (ki_div > 200U) ki_div = 200U;
+    steer_sync_integral = previous_integral;
+    trim = term + steer_sync_integral / (int32_t)ki_div;
+    if (trim > (int32_t)steer_sync_max_trim_pwm)
+      trim = (int32_t)steer_sync_max_trim_pwm;
+    if (trim < -(int32_t)steer_sync_max_trim_pwm)
+      trim = -(int32_t)steer_sync_max_trim_pwm;
+    candidate = (int32_t)left_base + trim;
+  }
   if (candidate < 0) candidate = 0;
   if (candidate > (int32_t)ceiling)
   {
