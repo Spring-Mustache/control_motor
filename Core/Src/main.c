@@ -7586,9 +7586,9 @@ int main(void)
       Steering_PositionTelemetryIdleUpdate();
     PS2_DebugObserveRightOutput(); /* after all PWM owners have run */
 #if STEER_SAFETY_INCIDENT_LOCKOUT != 0U
-    Steering_QuarantineAuditPins(); /* pin state only; no motor test */
-    Steering_IncidentTraceUpdate(); /* S14: read-only, no I2C/serial */
+    Steering_QuarantineAuditPins(); /* parked pin audit in diagnostic mode */
 #endif
+    Steering_IncidentTraceUpdate(); /* S14 retained for both operation modes */
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
     RamLogger_DumpCsvUpdate();
