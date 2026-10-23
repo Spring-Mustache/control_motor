@@ -5837,10 +5837,11 @@ static void PS2_DebugObserveAllInputs(void)
  *
  * shadow_action: 0 none, 1 Dpad L, 2 Dpad R, 3 RX L, 4 RX R,
  *                5 R1 CENTER, 6 R2 MIN, 7 SELECT scan.
- * shadow_block: 0 unblocked command, 1 invalid PS2, 2 LY/UP/DOWN,
+ * shadow_block: 0 unblocked intent, 1 invalid PS2, 2 LY/UP/DOWN
+ *               active (motor arbitration remains separate),
  *               3 conflicting controls, 4 STOP/RF fault,
- *               5 steering NC latch, 6 L1/L2 spin,
- *               7 RX not armed / debounce pending.
+ *               5 steering NC latch, 6 L1/L2 spin.
+ * RX decoding uses the original M7-S10 +/-10 neutral deadzone.
  * shadow_action is a DECODED request, not permission to energize.
  * blocked requests retain action and block reason for diagnosis.
  */
@@ -5973,6 +5974,9 @@ static void PS2_DebugShadowSteeringCommands(void)
  * deliberately READ-ONLY. Existing control owners retain their actuating
  * algorithms and existing S13 incident lockdown remains compile-time ON.
  * A decoded/ready route is not proof of PWM or physical motor movement.
+ * In restored S10 mapping, RX intent is decoded independently of LY;
+ * `ps2_restore_rx_request_direction` exposes combined wheel+RX requests.
+ * The actual motor interlock is deliberately still separate.
  *
  * Action 0 none; 1 LY forward; 2 LY reverse; 3 D-pad UP; 4 D-pad DOWN;
  * 5 L1 clockwise spin; 6 L2 opposite spin; 7 D-pad LEFT steering;
@@ -5982,9 +5986,9 @@ static void PS2_DebugShadowSteeringCommands(void)
  * Block mask: b0 PS2 disconnected/not analog; b1 contradictory buttons;
  * b2 wheel/steering pressed simultaneously; b3 steering power gate closed;
  * b4 latched steering safety; b5 respective steering mode disarmed;
- * b6 RX actuation disabled; b7 four wheels not stopped;
+ * b6 reserved (removed RX-enable gate); b7 four wheels not stopped;
  * b8 STOP/voice handover pending; b9 SELECT not individually armed;
- * b10 RX debounce pending; b11 neutral rearm required.
+ * b10 reserved (removed RX debounce); b11 neutral rearm required.
  * START/L3/R3/face buttons are observed by debug_ps2_button_mask but have
  * no motor command assigned by the legacy firmware.
  */
