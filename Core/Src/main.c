@@ -6100,14 +6100,17 @@ static void PS2_RestoreRouteUpdate(void)
       (voice_execution_active != 0U) || (voice_command_ready != 0U) ||
       (control_mode == CONTROL_MODE_STOP))
     block |= (1U << 8);
+  /* A latched steering incident cuts the wheel path as well. Report this
+   * for every mapped PS2 action, not steering actions only.
+   */
+  if (steer_safety_trip_latched != 0U)
+    block |= (1U << 4);
 
   if ((action >= 7U) || ((rx_direction != 0) && (wheel_button == 0U) &&
                         (steering_button == 0U)))
   {
     if (ps2_restore_steering_actuation_locked != 0U)
       block |= (1U << 3);
-    if (steer_safety_trip_latched != 0U)
-      block |= (1U << 4);
     if ((action == 7U) || (action == 8U) ||
         (action == 9U) || (action == 10U) ||
         ((rx_direction != 0) && (action == 0U)))
