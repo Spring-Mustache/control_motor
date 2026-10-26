@@ -5409,6 +5409,12 @@ volatile uint16_t steer_diag_left_timer_ccr = 0U;
 volatile uint32_t steer_diag_park_samples = 0U;
 volatile uint32_t steer_diag_park_violation_count = 0U;
 
+/* S12 shadow action is also read by the earlier S14 trace recorder.
+ * Define it before that consumer; the S12 decoder below updates it.
+ * Moving the definition does not affect PWM or command arbitration.
+ */
+volatile uint8_t debug_steer_shadow_action = 0U;
+
 /*
  * M7-S14: passive incident recorder. The S13 steering lockdown stays ON.
  * Read-only RAM ring: no GPIO writes, PWM changes, I2C transactions or UART.
@@ -6174,7 +6180,6 @@ static void PS2_DebugObserveAllInputs(void)
  * blocked requests retain action and block reason for diagnosis.
  */
 volatile uint8_t debug_steer_shadow_enable = 1U;
-volatile uint8_t debug_steer_shadow_action = 0U;
 volatile uint8_t debug_steer_shadow_block_reason = 0U;
 volatile int8_t debug_steer_shadow_left_direction = 0;
 volatile int8_t debug_steer_shadow_right_direction = 0;
