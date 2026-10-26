@@ -3124,45 +3124,30 @@ static void Steering_ManualStop(void)
   steer_manual_direction = 0;
 }
 
-/* S15: the old R2 and SELECT algorithms legitimately seek an own-axis NC
- * endstop. Their individual EXTI callbacks cut the affected motor output.
- * The global latch continues to catch unexpected NC interrupts including
- * all NC edges while driving four wheels. Expected contacts are recorded
- * separately so R1/SELECT can perform legacy bounded leave-limit steps.
- * This exception cannot detect an external driver ignoring PWM=0.
+/* Every endstop is a LOCAL steering stop. Whether an NC edge was
+ * expected or not, the EXTI callback cuts only the affected axis's CCR.
+ * Ownership-specific callbacks below classify arrival or a local fault.
+ * Unexpected sensor/geometry faults still use the separate safety latch.
  */
 static uint8_t Steering_SafetyExpectedNcMask(void);
+volatile uint32_t steer_nc_local_stop_count = 0U;
+volatile uint8_t steer_nc_local_stop_last_mask = 0U;
 static void Steering_SafetyOnLimitInterrupt(uint8_t bit)
 {
-  if ((STEER_SAFETY_INCIDENT_LOCKOUT == 0U) &&
-      ((Steering_SafetyExpectedNcMask() & bit) != 0U))
+  steer_nc_local_stop_last_mask = bit;
+  steer_nc_local_stop_count++;
+  if ((Steering_SafetyExpectedNcMask() & bit) != 0U)
   {
     steer_safety_expected_nc_mask |= bit;
     steer_safety_expected_nc_edges++;
-    /* Always cut the axis on an expected NC edge as well. */
-    if (steer_safety_pwm_initialized != 0U)
-    {
-      if ((bit & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
-        __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
-      if ((bit & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
-        __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
-    }
-    return;
   }
-  /* NC contact: immediate local PWM stop, not a vehicle-wide trip.
-   * The owner-specific IRQ callbacks below handle arrival/escape.
-   * Preserve sticky contact history for diagnosis.
-   */
-  steer_safety_expected_nc_mask |= bit;
-  steer_safety_expected_nc_edges++;
-  /* MX_GPIO_Init configures EXTI before TIM12/TIM14 exist. During
-   * early startup a rising NC may occur: retain the fault latch but
-   * never dereference an uninitialized TIMx register handle.
-   */
+  /* GPIO IRQs are configured before the steering timers exist. */
   if (steer_safety_pwm_initialized != 0U)
   {
-    __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
-    __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
+    if ((bit & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
+      __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
+    if ((bit & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
+      __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
   }
 }
 
