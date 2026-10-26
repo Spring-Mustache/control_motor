@@ -3206,10 +3206,41 @@ static void Steering_ManualAxisFault(uint8_t left, uint8_t reason)
   }
 }
 
+/* After a bounded departure from an already-pressed opposite limit,
+ * cut PWM on the first observed NC release and let the held command
+ * continue ONLY after a new quiet/settling interval. This preserves the
+ * single LEFT/RIGHT D-pad stroke without forcing another button press.
+ */
+static void Steering_ManualEscapeReleased(uint8_t left, uint16_t raw,
+                                          uint32_t now)
+{
+  SteeringManualAxis_t *axis = left ? &steer_manual_left_axis :
+                                      &steer_manual_right_axis;
+  if (left != 0U)
+  {
+    Steering_ManualLeftOff();
+    steer_manual_left_state = STEER_MANUAL_SETTLING;
+    steer_manual_left_settle_raw = raw;
+  }
+  else
+  {
+    Steering_ManualRightOff();
+    steer_manual_right_state = STEER_MANUAL_SETTLING;
+    steer_manual_right_settle_raw = raw;
+  }
+  axis->previous_raw = raw;
+  axis->settle_begin_ms = now;
+  axis->settle_quiet_since_ms = now;
+  axis->settle_quiet_raw = raw;
+  axis->progress_ms = now;
+  axis->best_distance = 32767U;
+  axis->speed_valid = 0U;
+  axis->speed_filtered_raw_s = 0U;
+}
+
 /* Execute one side independently. Direction is toward MIN (-1) or MAX (+1).
- * Own expected endstop is an arrival; unrelated side's switch is ignored.
- * If opposite endstop is active, depart for at most 1s and stop when its
- * NC line closes; require full input neutral before further travel.
+ * Own expected endstop is an arrival; the partner motor is independent.
+ * Escaping the opposite endstop is bounded to <=1s, then re-settles.
  */
 static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
                                       uint8_t limits, uint32_t now,
@@ -3386,7 +3417,7 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
   {
     if ((limits & opposite) == 0U)
     {
-      Steering_ManualAxisDone(left, 7U);
+      Steering_ManualEscapeReleased(left, raw, now);
       return;
     }
     if ((uint32_t)(now - axis->escape_start_ms) >= STEER_MANUAL_ESCAPE_MAX_MS)
@@ -3963,7 +3994,11 @@ static void Steering_ManualUpdate(void)
         STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_L_MIN_MASK;
     if (lstate == STEER_MANUAL_ESCAPE)
     {
-      if (own == 0U) Steering_ManualAxisDone(1U, 7U);
+      if (own == 0U)
+      {
+        Steering_ManualEscapeReleased(1U, debug_as5600_left_raw, now);
+        la = 0U;
+      }
       else if (own != opposite) Steering_ManualAxisFault(1U, 9U);
     }
     else
@@ -3983,7 +4018,11 @@ static void Steering_ManualUpdate(void)
         STEER_LIMIT_R_MAX_MASK : STEER_LIMIT_R_MIN_MASK;
     if (rstate == STEER_MANUAL_ESCAPE)
     {
-      if (own == 0U) Steering_ManualAxisDone(0U, 7U);
+      if (own == 0U)
+      {
+        Steering_ManualEscapeReleased(0U, debug_as5600_right_raw, now);
+        ra = 0U;
+      }
       else if (own != opposite) Steering_ManualAxisFault(0U, 9U);
     }
     else
