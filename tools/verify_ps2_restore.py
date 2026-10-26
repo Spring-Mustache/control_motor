@@ -47,6 +47,16 @@ if not re.search(r"if\s*\(rx\s*<\s*-PS2_RX_DEADZONE_COUNTS\)\s*return\s*-1;", sr
 if not re.search(r"if\s*\(rx\s*>\s*PS2_RX_DEADZONE_COUNTS\)\s*return\s*1;", src):
     fail.append("immediate RX RIGHT path")
 
+# Regression: S14 trace runs before the S12 PS2 shadow decoder is defined.
+# A C global must be declared before the first function referencing it.
+# Previously the compiler failed in Steering_IncidentTraceUpdate() at
+# 'debug_steer_shadow_action' undeclared despite its later definition.
+shadow_def = "volatile uint8_t debug_steer_shadow_action = 0U;"
+shadow_trace = "sample->steer_shadow_action = debug_steer_shadow_action;"
+if (src.count(shadow_def) != 1 or src.count(shadow_trace) != 1 or
+        src.index(shadow_def) > src.index(shadow_trace)):
+    fail.append("PS2 shadow action must be defined before incident trace use")
+
 route = src.split("static void PS2_RestoreRouteUpdate(void)", 1)
 if len(route) != 2:
     fail.append("PS2 route function")
