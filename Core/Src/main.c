@@ -6616,6 +6616,23 @@ volatile uint32_t steer_ps2_manual_arm_hold_elapsed_ms = 0U;
 volatile uint32_t steer_ps2_manual_arm_success_count = 0U;
 volatile uint32_t steer_ps2_manual_disarm_count = 0U;
 volatile uint32_t steer_ps2_manual_arm_reject_count = 0U;
+/* Diagnoses START status 9 without disabling I2C/magnet/angle guards.
+ * bit0 LEFT transport failure; bit1 LEFT magnet MD/ML/MH invalid;
+ * bit2 LEFT calibrated hard envelope rejected;
+ * bit3 RIGHT transport failure; bit4 RIGHT magnet invalid;
+ * bit5 RIGHT calibrated hard envelope rejected;
+ * bit6/7 LEFT/RIGHT reader rejected for another reason.
+ * Snapshot *_status is AS5600 register STATUS; *_raw is the most
+ * recent telemetry (may be stale if the arm read itself failed).
+ */
+volatile uint8_t steer_ps2_arm_sensor_fail_mask = 0U;
+volatile uint8_t steer_ps2_arm_left_magnet_status = 0U;
+volatile uint8_t steer_ps2_arm_right_magnet_status = 0U;
+volatile uint8_t steer_ps2_arm_left_read_status = 0U;
+volatile uint8_t steer_ps2_arm_right_read_status = 0U;
+volatile uint16_t steer_ps2_arm_left_raw = 0U;
+volatile uint16_t steer_ps2_arm_right_raw = 0U;
+volatile uint32_t steer_ps2_arm_sensor_fail_count = 0U;
 
 static void Steering_PS2ManualDisarm(uint8_t status)
 {
@@ -6730,11 +6747,45 @@ static void Steering_PS2ManualArmUpdate(void)
       STEER_PS2_MANUAL_ARM_HOLD_MS)
   {
     uint16_t left_raw = 0U, right_raw = 0U;
-    if ((Steering_PositionReadOne(1U, &left_raw) == 0U) ||
-        (Steering_PositionReadOne(0U, &right_raw) == 0U) ||
-        (Steering_SafetyHardEnvelopeValid(1U, left_raw) == 0U) ||
-        (Steering_SafetyHardEnvelopeValid(0U, right_raw) == 0U))
+    uint8_t left_ok, right_ok, left_envelope = 0U, right_envelope = 0U;
+    uint8_t fail = 0U;
+    /* Run BOTH sensor reads even when the first rejects. Only one
+     * START-held attempt is made; no repeated motor authorization.
+     */
+    left_ok = Steering_PositionReadOne(1U, &left_raw);
+    right_ok = Steering_PositionReadOne(0U, &right_raw);
+    steer_ps2_arm_left_read_status = debug_as5600_left_read_status;
+    steer_ps2_arm_right_read_status = debug_as5600_right_read_status;
+    steer_ps2_arm_left_magnet_status = debug_as5600_left_status;
+    steer_ps2_arm_right_magnet_status = debug_as5600_right_status;
+    steer_ps2_arm_left_raw = debug_as5600_left_raw;
+    steer_ps2_arm_right_raw = debug_as5600_right_raw;
+
+    if (debug_as5600_left_comm_ok == 0U) fail |= 0x01U;
+    else if (AS5600_DebugReadingValid(1U, debug_as5600_left_status) == 0U)
+      fail |= 0x02U;
+    if (debug_as5600_right_comm_ok == 0U) fail |= 0x08U;
+    else if (AS5600_DebugReadingValid(1U, debug_as5600_right_status) == 0U)
+      fail |= 0x10U;
+
+    if (left_ok != 0U)
     {
+      left_envelope = Steering_SafetyHardEnvelopeValid(1U, left_raw);
+      if (left_envelope == 0U) fail |= 0x04U;
+    }
+    else if ((fail & 0x03U) == 0U) fail |= 0x40U;
+    if (right_ok != 0U)
+    {
+      right_envelope = Steering_SafetyHardEnvelopeValid(0U, right_raw);
+      if (right_envelope == 0U) fail |= 0x20U;
+    }
+    else if ((fail & 0x18U) == 0U) fail |= 0x80U;
+
+    steer_ps2_arm_sensor_fail_mask = fail;
+    if ((left_ok == 0U) || (right_ok == 0U) ||
+        (left_envelope == 0U) || (right_envelope == 0U))
+    {
+      steer_ps2_arm_sensor_fail_count++;
       steer_ps2_manual_arm_status = 9U;
       steer_ps2_manual_arm_reject_count++;
       require_release = 1U;
@@ -7486,6 +7537,14 @@ static void Steering_DebugRetainWatchSymbols(void)
   nonzero += (uint32_t)(steer_ps2_manual_arm_success_count != 0);
   nonzero += (uint32_t)(steer_ps2_manual_disarm_count != 0);
   nonzero += (uint32_t)(steer_ps2_manual_arm_reject_count != 0);
+  nonzero += (uint32_t)(steer_ps2_arm_sensor_fail_mask != 0);
+  nonzero += (uint32_t)(steer_ps2_arm_left_magnet_status != 0);
+  nonzero += (uint32_t)(steer_ps2_arm_right_magnet_status != 0);
+  nonzero += (uint32_t)(steer_ps2_arm_left_read_status != 0);
+  nonzero += (uint32_t)(steer_ps2_arm_right_read_status != 0);
+  nonzero += (uint32_t)(steer_ps2_arm_left_raw != 0);
+  nonzero += (uint32_t)(steer_ps2_arm_right_raw != 0);
+  nonzero += (uint32_t)(steer_ps2_arm_sensor_fail_count != 0);
   steer_debug_watch_boot_nonzero_count = nonzero;
 }
 #endif
