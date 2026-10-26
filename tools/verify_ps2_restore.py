@@ -30,12 +30,12 @@ must_have = {
     "live control route": r"PS2_RestoreRouteUpdate\(\);",
     "wheel spin L1/L2": r"WheelControl_SetSpinDirection\(",
     "D-pad/RX motion owner": r"Steering_ManualUpdate\(\)",
-    "PS2 manual steering arm gesture": r"Steering_PS2ManualArmUpdate\\(\\);",
-    "PS2 arm via START hold": r"STEER_PS2_MANUAL_ARM_HOLD_MS\\s+1500U",
+    "PS2 manual steering arm gesture": r"Steering_PS2ManualArmUpdate\(\);",
+    "PS2 arm via START hold": r"STEER_PS2_MANUAL_ARM_HOLD_MS\s+1500U",
     "PS2 arm state observable": r"steer_ps2_manual_arm_status",
-    "PS2 arm needs neutral": r"Steering_ManualInputsNeutral\\(\\)\\s*==\\s*0U",
-    "PS2 arm needs no NC": r"Steering_TestRawLimitMask\\(\\)\\s*!=\\s*0U",
-    "PS2 arm validates AS5600 hard envelope": r"Steering_SafetyHardEnvelopeValid\\(0U, right_raw\\)",
+    "PS2 arm needs neutral": r"Steering_ManualInputsNeutral\(\)\s*==\s*0U",
+    "PS2 arm needs no NC": r"Steering_TestRawLimitMask\(\)\s*!=\s*0U",
+    "PS2 arm validates AS5600 hard envelope": r"Steering_SafetyHardEnvelopeValid\(0U, right_raw\)",
 
     "R1/R2 position owner": r"Steering_PositionUpdate\(\)",
     "SELECT calibration owner": r"Steering_CalUpdate\(\)",
@@ -90,7 +90,7 @@ else:
 
 # Manual PS2 arming must happen immediately after an actual PS2 sample,
 # never before it; no START hold can secretly clear a latched safety trip.
-if "PS2_Read_Data();\\n    Steering_PS2ManualArmUpdate();" not in src:
+if "PS2_Read_Data();\n    Steering_PS2ManualArmUpdate();" not in src:
     fail.append("PS2 arm service order")
 if "steer_safety_trip_latched = 0U;" in src[
         src.index("static void Steering_PS2ManualArmUpdate(void)"):
