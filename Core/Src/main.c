@@ -7296,6 +7296,31 @@ static void Steering_DebugRetainWatchSymbols(void)
   nonzero += (uint32_t)(steer_cal_completed_count != 0);
   nonzero += (uint32_t)(steer_cal_failed_count != 0);
   nonzero += (uint32_t)(steer_cal_irq_trip_mask != 0);
+  /* M7-S15/S16: retain all new input routing and AS5600 PI watch
+   * symbols in Debug ELF, even when link-time dead stripping is enabled.
+   * Read-only telemetry; zero PWM and motor permission remain unchanged.
+   */
+  nonzero += (uint32_t)(ps2_restore_route_action != 0);
+  nonzero += (uint32_t)(ps2_restore_route_ready != 0);
+  nonzero += (uint32_t)(ps2_restore_route_block_mask != 0);
+  nonzero += (uint32_t)(ps2_restore_route_seen_mask != 0);
+  nonzero += (uint32_t)(ps2_restore_route_samples != 0);
+  nonzero += (uint32_t)(ps2_restore_route_blocked_samples != 0);
+  nonzero += (uint32_t)(ps2_restore_steering_actuation_locked != 0);
+  nonzero += (uint32_t)(ps2_restore_rx_request_direction != 0);
+  nonzero += (uint32_t)(ps2_restore_rx_wheel_combined_frames != 0);
+  nonzero += (uint32_t)(steer_sync_enable != 0);
+  nonzero += (uint32_t)(steer_sync_active != 0);
+  nonzero += (uint32_t)(steer_sync_left_speed_raw_s != 0);
+  nonzero += (uint32_t)(steer_sync_right_speed_raw_s != 0);
+  nonzero += (uint32_t)(steer_sync_error_raw_s != 0);
+  nonzero += (uint32_t)(steer_sync_integral != 0);
+  nonzero += (uint32_t)(steer_sync_left_pwm_command != 0);
+  nonzero += (uint32_t)(steer_sync_right_pwm_reference != 0);
+  nonzero += (uint32_t)(steer_sync_update_count != 0);
+  nonzero += (uint32_t)(steer_sync_limit_count != 0);
+  nonzero += (uint32_t)(steer_sync_reference_hold_count != 0);
+  nonzero += (uint32_t)(steer_sync_reference_unavailable_count != 0);
   steer_debug_watch_boot_nonzero_count = nonzero;
 }
 #endif
