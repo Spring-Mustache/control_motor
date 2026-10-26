@@ -2999,12 +2999,15 @@ static void Steering_PositionUpdate(void)
  * values. Neutral cuts PWM in the same control iteration.
  * Turning around from a touched limit requires short escape and NEW press.
  */
-/* M7-S10: Each gearbox has its own inertia and stopping clearance.
- * LEFT overran the earlier shared 40-count threshold; start at 100 RAW.
- * RIGHT retains the 40 RAW margin measured in prior controller tests.
- * Adjustable independently: LEFT 60..180, RIGHT 30..120 counts.
- * These thresholds do not provide active braking; verify coasting
- * separately and increase per-axis margin if hardware still contacts NC.
+/* M7-S16 staged directional stopping clearances:
+ * LEFT MIN formerly 100 RAW stopped around 2211 vs measured ~2300;
+ * move the software trigger closer but keep its tested >=60 RAW floor.
+ * LEFT MAX now has an independent 80 RAW default (formerly shared 100).
+ * RIGHT MIN conservatively changes 40->30 RAW only; requesting a full
+ * 20-RAW decrease would leave too little verified coast clearance.
+ * RIGHT MAX remains at 100 RAW after physical NC contact at 40.
+ * PWM=0 is NOT active braking; none of these defaults prove endstop
+ * clearance until a suspended chassis test confirms the final RAW.
  */
 /* LEFT MIN observed at RAW 2211 with a 100-RAW margin (calibrated 2297).
  * Stage closer, but keep the previously established >=60 RAW safety
