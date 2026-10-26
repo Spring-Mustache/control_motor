@@ -3006,8 +3006,18 @@ static void Steering_PositionUpdate(void)
  * These thresholds do not provide active braking; verify coasting
  * separately and increase per-axis margin if hardware still contacts NC.
  */
-volatile uint16_t steer_manual_left_soft_margin_raw = 100U;
-volatile uint16_t steer_manual_right_soft_margin_raw = 40U;
+/* LEFT MIN observed at RAW 2211 with a 100-RAW margin (calibrated 2297).
+ * Stage closer, but keep the previously established >=60 RAW safety
+ * floor until measured coast/NC clearance proves another adjustment safe.
+ */
+volatile uint16_t steer_manual_left_soft_margin_raw = 60U;
+/* LEFT MAX is independently adjustable: reduce its threshold by 20 RAW
+ * in the direction toward the measured 1374 MAX endpoint. */
+volatile uint16_t steer_manual_left_max_soft_margin_raw = 80U;
+/* RIGHT MIN: only reduce 40->30 for first bench iteration. A full
+ * 20-RAW reduction would leave only 20 RAW before NC with unknown
+ * coasting distance; that is NOT yet verified safe. */
+volatile uint16_t steer_manual_right_soft_margin_raw = 30U;
 /* R_MAX has now physically contacted NC after the former 40 RAW
  * clearance. Give its approach a separate conservative 100 RAW margin;
  * R_MIN stays on the existing 40 RAW setting. Verify coasting on stand.
@@ -3017,6 +3027,10 @@ volatile uint16_t steer_manual_right_max_soft_margin_raw = 100U;
     ((steer_manual_left_soft_margin_raw < 60U) ? 60U : \
      ((steer_manual_left_soft_margin_raw > 180U) ? 180U : \
       steer_manual_left_soft_margin_raw))
+#define STEER_MANUAL_LEFT_MAX_SOFT_MARGIN_RAW \
+    ((steer_manual_left_max_soft_margin_raw < 60U) ? 60U : \
+     ((steer_manual_left_max_soft_margin_raw > 180U) ? 180U : \
+      steer_manual_left_max_soft_margin_raw))
 #define STEER_MANUAL_RIGHT_SOFT_MARGIN_RAW \
     ((steer_manual_right_soft_margin_raw < 30U) ? 30U : \
      ((steer_manual_right_soft_margin_raw > 120U) ? 120U : \
@@ -3027,7 +3041,7 @@ volatile uint16_t steer_manual_right_max_soft_margin_raw = 100U;
       steer_manual_right_max_soft_margin_raw))
 #define STEER_MANUAL_APPROACH_WINDOW_RAW 100U
 #define STEER_MANUAL_LEFT_SOFT_MIN  (STEER_POS_LEFT_MIN_RAW - STEER_MANUAL_LEFT_SOFT_MARGIN_RAW)
-#define STEER_MANUAL_LEFT_SOFT_MAX  (STEER_POS_LEFT_MAX_RAW + STEER_MANUAL_LEFT_SOFT_MARGIN_RAW)
+#define STEER_MANUAL_LEFT_SOFT_MAX  (STEER_POS_LEFT_MAX_RAW + STEER_MANUAL_LEFT_MAX_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_RIGHT_SOFT_MIN (STEER_POS_RIGHT_MIN_RAW + STEER_MANUAL_RIGHT_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_RIGHT_SOFT_MAX (STEER_POS_RIGHT_MAX_RAW - STEER_MANUAL_RIGHT_MAX_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_RESULT_SOFT    11U
@@ -3042,8 +3056,12 @@ volatile uint16_t steer_manual_right_max_soft_margin_raw = 100U;
  */
 #define STEER_MANUAL_START_QUIET_MS       100U
 #define STEER_MANUAL_START_SETTLE_MAX_MS 850U
-#define STEER_MANUAL_START_LEFT_MIN_MS   170U
-#define STEER_MANUAL_START_RIGHT_MIN_MS  260U
+/* Reduce button-to-motion latency while retaining the full 100-ms
+ * measured-quiet gate (and 850-ms fail-closed unsettled timeout).
+ * These are only minimum PWM-OFF waits, NOT permission to move when
+ * AS5600 is still drifting after a reversal. */
+#define STEER_MANUAL_START_LEFT_MIN_MS   100U
+#define STEER_MANUAL_START_RIGHT_MIN_MS  160U
 #define STEER_MANUAL_RESULT_UNSETTLED    14U
 #define STEER_MANUAL_PROGRESS_DELTA     2U
 #define STEER_MANUAL_PWM_HARD_MAX     400U
