@@ -1641,7 +1641,7 @@ volatile int8_t steer_manual_right_requested_direction = 0;
  * short, AS5600-verified departure from R_MAX; NEVER a full stroke from
  * an active NC limit. This remains an observable runtime safety gate.
  */
-volatile uint8_t steer_manual_allow_right_max_escape = 0U; /* S11: fail closed */
+volatile uint8_t steer_manual_allow_right_max_escape = 1U; /* bounded RIGHT MAX departure in safe opposite direction */
 /* Combined LY wheel drive + RX steering is a later bench validation gate. */
 volatile uint8_t steer_manual_allow_wheel_motion = 0U;
 volatile uint32_t steer_manual_start_count = 0U;
@@ -6708,9 +6708,16 @@ static void Steering_PS2ManualArmUpdate(void)
            (debug_limit_r_min.initialized == 0U) ||
            (debug_limit_l_max.initialized == 0U) ||
            (debug_limit_l_min.initialized == 0U) ||
-           (debug_limit_active_mask != 0U) ||
-           (debug_limit_raw_mask != 0U) ||
-           (Steering_TestRawLimitMask() != 0U))
+           /* An already-asserted single MIN/MAX on each side is
+            * allowed for a NEW command that moves away from that end.
+            * Reject contradictory MIN+MAX on the same axis.
+            */
+           ((debug_limit_active_mask & 0x03U) == 0x03U) ||
+           ((debug_limit_active_mask & 0x0CU) == 0x0CU) ||
+           ((debug_limit_raw_mask & 0x03U) == 0x03U) ||
+           ((debug_limit_raw_mask & 0x0CU) == 0x0CU) ||
+           ((Steering_TestRawLimitMask() & 0x03U) == 0x03U) ||
+           ((Steering_TestRawLimitMask() & 0x0CU) == 0x0CU))
     reject = 6U;
   else if (Steering_PositionWheelsStopped() == 0U)
     reject = 8U;
