@@ -1769,6 +1769,7 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
 #define STEER_POS_TIMEOUT_MS      5000U /* R2 MIN unchanged */
 #define STEER_POS_R1_TIMEOUT_MS   9000U /* coarse + short-pulse trim */
 #define STEER_POS_ESCAPE_MS       1000U
+#define STEER_POS_ESCAPE_RELEASE_QUIET_MS 120U
 #define STEER_POS_STALL_MS         650U
 #define STEER_POS_IDLE_POLL_MS      50U
 #define STEER_POS_RX_NEUTRAL_DELTA  10U
@@ -1868,6 +1869,8 @@ typedef struct
   uint32_t escape_start_ms;
   uint16_t escape_start_raw;
   uint8_t escape_origin;  /* own MIN or MAX NC mask at start */
+  uint8_t escape_release_pending; /* NC no longer asserted, PWM held zero */
+  uint32_t escape_release_since_ms;
   uint8_t stable_count;
   uint8_t fine_phase;
   uint8_t fine_pulses;
@@ -2140,13 +2143,28 @@ static void Steering_PositionEscapeReleased(uint8_t left, uint32_t now)
   uint8_t must_increase =
       ((left != 0U) && (axis->escape_origin != min_switch)) ||
       ((left == 0U) && (axis->escape_origin == min_switch));
-  if (((must_increase != 0U) && (traveled < 3)) ||
-      ((must_increase == 0U) && (traveled > -3)))
-  {
-    Steering_PositionAxisDone(left, 7U);
-    return;
-  }
+  uint8_t progress_ok =
+      (((must_increase != 0U) && (traveled >= 3)) ||
+       ((must_increase == 0U) && (traveled <= -3))) ? 1U : 0U;
 
+  /* A switch can open before the AS5600 reports three RAW counts.
+   * Old behavior stopped with result=7, requiring a second R1 press.
+   * Hold PWM OFF until NC has stayed physically released for 120 ms.
+   * The ordinary sensor, geometry, late-IRQ and NC rechecks are still
+   * mandatory before the next cycle can drive TOWARD CENTER.
+   * If RAW confirmed >=3 counts, allow the existing direct transition.
+   */
+  if (axis->escape_release_pending == 0U)
+  {
+    axis->escape_release_pending = 1U;
+    axis->escape_release_since_ms = now;
+  }
+  if ((progress_ok == 0U) &&
+      ((uint32_t)(now - axis->escape_release_since_ms) <
+       STEER_POS_ESCAPE_RELEASE_QUIET_MS))
+    return;
+
+  axis->escape_release_pending = 0U;
   axis->progress_ms = now;
   axis->best_abs_error = 32767U;
   axis->stable_count = 0U;
@@ -2404,6 +2422,8 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
       Steering_PositionAxisFault(left, 9U);
       return;
     }
+    if ((limit_mask & axis->escape_origin) != 0U)
+      axis->escape_release_pending = 0U; /* NC bounced/reasserted */
   }
   else
   {
@@ -2665,6 +2685,8 @@ static void Steering_PositionUpdate(void)
     steer_right_axis.escape_start_ms = now;
     steer_left_axis.escape_origin = 0U;
     steer_right_axis.escape_origin = 0U;
+    steer_left_axis.escape_release_pending = 0U;
+    steer_right_axis.escape_release_pending = 0U;
     steer_left_axis.best_abs_error = 32767U;
     steer_right_axis.best_abs_error = 32767U;
     steer_left_axis.stable_count = 0U;
@@ -2917,7 +2939,11 @@ static void Steering_PositionUpdate(void)
       steer_pos_left_pwm = left_cmd;
     }
     else
-      Steering_PositionAxisDone(1U, 7U);
+    {
+      /* Released NC is being confirmed: stay in ESCAPING with PWM zero,
+       * not DONE=7, until the safe CENTER transition is authorized. */
+      Steering_PositionLeftOff();
+    }
   }
   else
     Steering_PositionLeftOff();
@@ -2935,7 +2961,9 @@ static void Steering_PositionUpdate(void)
       steer_pos_right_pwm = right_cmd;
     }
     else
-      Steering_PositionAxisDone(0U, 7U);
+    {
+      Steering_PositionRightOff();
+    }
   }
   else
     Steering_PositionRightOff();
@@ -2972,6 +3000,11 @@ static void Steering_PositionUpdate(void)
  */
 volatile uint16_t steer_manual_left_soft_margin_raw = 100U;
 volatile uint16_t steer_manual_right_soft_margin_raw = 40U;
+/* R_MAX has now physically contacted NC after the former 40 RAW
+ * clearance. Give its approach a separate conservative 100 RAW margin;
+ * R_MIN stays on the existing 40 RAW setting. Verify coasting on stand.
+ */
+volatile uint16_t steer_manual_right_max_soft_margin_raw = 100U;
 #define STEER_MANUAL_LEFT_SOFT_MARGIN_RAW \
     ((steer_manual_left_soft_margin_raw < 60U) ? 60U : \
      ((steer_manual_left_soft_margin_raw > 180U) ? 180U : \
@@ -2980,11 +3013,15 @@ volatile uint16_t steer_manual_right_soft_margin_raw = 40U;
     ((steer_manual_right_soft_margin_raw < 30U) ? 30U : \
      ((steer_manual_right_soft_margin_raw > 120U) ? 120U : \
       steer_manual_right_soft_margin_raw))
+#define STEER_MANUAL_RIGHT_MAX_SOFT_MARGIN_RAW \
+    ((steer_manual_right_max_soft_margin_raw < 60U) ? 60U : \
+     ((steer_manual_right_max_soft_margin_raw > 160U) ? 160U : \
+      steer_manual_right_max_soft_margin_raw))
 #define STEER_MANUAL_APPROACH_WINDOW_RAW 100U
 #define STEER_MANUAL_LEFT_SOFT_MIN  (STEER_POS_LEFT_MIN_RAW - STEER_MANUAL_LEFT_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_LEFT_SOFT_MAX  (STEER_POS_LEFT_MAX_RAW + STEER_MANUAL_LEFT_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_RIGHT_SOFT_MIN (STEER_POS_RIGHT_MIN_RAW + STEER_MANUAL_RIGHT_SOFT_MARGIN_RAW)
-#define STEER_MANUAL_RIGHT_SOFT_MAX (STEER_POS_RIGHT_MAX_RAW - STEER_MANUAL_RIGHT_SOFT_MARGIN_RAW)
+#define STEER_MANUAL_RIGHT_SOFT_MAX (STEER_POS_RIGHT_MAX_RAW - STEER_MANUAL_RIGHT_MAX_SOFT_MARGIN_RAW)
 #define STEER_MANUAL_RESULT_SOFT    11U
 #define STEER_MANUAL_RESULT_WRONG_DIRECTION 12U
 #define STEER_MANUAL_RESULT_STALL   13U
@@ -3043,6 +3080,8 @@ volatile uint8_t steer_sync_enable = 1U;
 volatile uint16_t steer_sync_left_speed_raw_s = 0U;
 volatile uint16_t steer_sync_right_speed_raw_s = 0U;
 volatile int32_t steer_sync_error_raw_s = 0;
+/* LEFT raw/s target normalized for unequal measured LEFT/RIGHT strokes. */
+volatile uint16_t steer_sync_left_target_raw_s = 0U;
 volatile int32_t steer_sync_integral = 0;
 volatile uint16_t steer_sync_left_pwm_command = 0U;
 volatile uint16_t steer_sync_right_pwm_reference = 0U;
@@ -3066,6 +3105,7 @@ static void Steering_SyncReset(void)
 {
   steer_sync_active = 0U;
   steer_sync_error_raw_s = 0;
+  steer_sync_left_target_raw_s = 0U;
   steer_sync_integral = 0;
   steer_sync_left_pwm_command = 0U;
   steer_sync_right_pwm_reference = 0U;
@@ -3522,6 +3562,7 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
   uint16_t remaining, approach_floor;
 
   steer_sync_right_pwm_reference = right_pwm;
+  steer_sync_left_target_raw_s = 0U;
   if ((steer_sync_enable != 1U) ||
       (steer_manual_left_state != STEER_MANUAL_MOVING) ||
       (steer_manual_right_state != STEER_MANUAL_MOVING) ||
@@ -3607,7 +3648,24 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
   if (dt < 10U) dt = 10U;
   if (dt > 100U) dt = 100U;
   steer_sync_last_update_ms = now;
-  error = (int32_t)steer_sync_right_speed_raw_s -
+  /* Equal raw counts/s do NOT mean synchronized travel: the measured
+   * LEFT stroke is 923 RAW while RIGHT is 791 RAW. Match percentage
+   * of each calibrated stroke per second instead. Validated geometry
+   * is required by the steering safety gate; retain zero-divisor guard.
+   */
+  {
+    uint32_t left_span = (uint32_t)STEER_POS_LEFT_MIN_RAW -
+                         (uint32_t)STEER_POS_LEFT_MAX_RAW;
+    uint32_t right_span = (uint32_t)STEER_POS_RIGHT_MAX_RAW -
+                          (uint32_t)STEER_POS_RIGHT_MIN_RAW;
+    uint32_t target = 0U;
+    if (right_span != 0U)
+      target = ((uint32_t)steer_sync_right_speed_raw_s * left_span +
+                right_span / 2U) / right_span;
+    if (target > 10000U) target = 10000U;
+    steer_sync_left_target_raw_s = (uint16_t)target;
+  }
+  error = (int32_t)steer_sync_left_target_raw_s -
           (int32_t)steer_sync_left_speed_raw_s;
   steer_sync_error_raw_s = error;
   term = (error * (int32_t)(steer_sync_kp_q4 > 8U ? 8U :
@@ -4185,6 +4243,13 @@ volatile uint32_t steer_cal_right_noise_unlock_count = 0U;
  */
 volatile uint8_t steer_cal_arm = 0U;
 volatile uint8_t steer_cal_result = 0U;
+/* SELECT has an independent, deliberate 1.5 s gesture, only after START
+ * has armed steering; START does not itself grant SELECT calibration.
+ */
+#define STEER_CAL_PS2_SELECT_HOLD_MS 1500U
+volatile uint32_t steer_cal_select_hold_elapsed_ms = 0U;
+volatile uint32_t steer_cal_select_hold_grant_count = 0U;
+volatile uint32_t steer_cal_select_hold_reject_count = 0U;
 /* These diagnostics distinguish an actual completed scan from a later
  * SELECT press with no arm, which previously overwrote cal_result = 3.
  * A new run clears reject_reason; last_run_result remains sticky.
@@ -5126,8 +5191,50 @@ static void Steering_CalUpdate(void)
   GPIO_PinState ldir = GPIO_PIN_RESET, rdir = GPIO_PIN_RESET;
   uint32_t primask;
   uint32_t now = HAL_GetTick();
+  static uint32_t select_hold_begin_ms = 0U;
+  static uint8_t select_hold_consumed = 0U;
 
   steer_cal_select_previous = select_now;
+  if (select_now == 0U)
+  {
+    select_hold_begin_ms = 0U;
+    select_hold_consumed = 0U;
+    steer_cal_select_hold_elapsed_ms = 0U;
+  }
+  else
+  {
+    if (new_press != 0U)
+      select_hold_begin_ms = now;
+    steer_cal_select_hold_elapsed_ms =
+        (uint32_t)(now - select_hold_begin_ms);
+    /* External explicit steer_cal_arm remains supported. The PS2-only
+     * path waits for a continuous SELECT hold, then grants exactly ONE
+     * scan. Never retry automatically when conditions later clear. */
+    if ((steer_cal_arm == 0U) && (steer_cal_active == 0U))
+    {
+      new_press = 0U;
+      if ((select_hold_consumed == 0U) &&
+          (steer_cal_select_hold_elapsed_ms >=
+           STEER_CAL_PS2_SELECT_HOLD_MS))
+      {
+        select_hold_consumed = 1U;
+        if ((steer_ps2_manual_armed == 1U) &&
+            (steer_safety_motion_permit == 1U) &&
+            (steer_safety_trip_latched == 0U) &&
+            (Steering_CalInputsNeutral() != 0U))
+        {
+          steer_cal_arm = 1U;
+          steer_cal_select_hold_grant_count++;
+          new_press = 1U;
+        }
+        else
+        {
+          steer_cal_select_hold_reject_count++;
+          steer_cal_reject_reason = 2U;
+        }
+      }
+    }
+  }
   if (steer_cal_active == 0U)
   {
     if (new_press == 0U) return;
