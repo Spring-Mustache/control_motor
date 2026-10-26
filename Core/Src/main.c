@@ -3527,9 +3527,36 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
       (steer_manual_right_state != STEER_MANUAL_MOVING) ||
       (right_pwm == 0U))
   {
-    /* The RIGHT reference has reached a limit, faulted, or has not
-     * begun moving. Do NOT allow an unsupervised LEFT acceleration.
+    /* A normal RIGHT endstop/soft stop must not stop the LEFT axis.
+     * Switch from speed sync to bounded independent LEFT output.
+     * The LEFT axis has already checked its own AS5600, NC and soft
+     * envelope. Ramp up gently, never exceed its tapered base duty.
+     * A RIGHT fault or unavailable reference still forces PWM zero.
      */
+    if ((steer_sync_enable == 1U) &&
+        (steer_manual_left_state == STEER_MANUAL_MOVING) &&
+        (steer_manual_right_state == STEER_MANUAL_DONE) &&
+        ((steer_manual_right_result == 3U) ||
+         (steer_manual_right_result == STEER_MANUAL_RESULT_SOFT)))
+    {
+      uint16_t bounded = left_base;
+      uint16_t rise = steer_sync_pwm_step;
+      if (rise < 4U) rise = 4U;
+      if (rise > 60U) rise = 60U;
+      if (bounded > steer_sync_left_pwm_ceiling)
+        bounded = steer_sync_left_pwm_ceiling;
+      if (bounded > 300U) bounded = 300U;
+      if ((uint32_t)bounded >
+          (uint32_t)steer_sync_previous_left_pwm + rise)
+        bounded = (uint16_t)(steer_sync_previous_left_pwm + rise);
+      *left_apply = bounded;
+      steer_sync_left_pwm_command = bounded;
+      steer_sync_previous_left_pwm = bounded;
+      steer_sync_active = 0U;
+      steer_sync_integral = 0;
+      steer_sync_last_update_ms = 0U;
+      return;
+    }
     if ((steer_sync_enable == 1U) &&
         (steer_manual_left_state == STEER_MANUAL_MOVING))
     {
@@ -3950,15 +3977,15 @@ static void Steering_ManualUpdate(void)
   mask = Steering_TestRawLimitMask();
   Steering_ManualAxisUpdate(1U, left_direction, mask, now, lpwm, &la);
   Steering_ManualAxisUpdate(0U, right_direction, mask, now, rpwm, &ra);
-  /* If the reference axis finishes early, do not drive the follower
-   * independently with stale speed. Make the early stop observable.
+  /* A genuine RIGHT fault halts LEFT rather than trusting stale
+   * reference feedback. Normal RIGHT NC/soft arrival is handled by
+   * bounded independent LEFT completion in Steering_SyncApply().
    */
   if ((steer_sync_enable == 1U) &&
       (steer_manual_left_state == STEER_MANUAL_MOVING) &&
-      ((steer_manual_right_state == STEER_MANUAL_DONE) ||
-       (steer_manual_right_state == STEER_MANUAL_FAULT)))
+      (steer_manual_right_state == STEER_MANUAL_FAULT))
   {
-    Steering_ManualAxisFault(1U, 15U); /* master no longer moving */
+    Steering_ManualAxisFault(1U, 15U); /* master fault */
     la = 0U;
   }
   Steering_SyncApply(HAL_GetTick(), la, ra, &la);
