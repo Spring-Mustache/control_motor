@@ -34,13 +34,14 @@ must_have = {
     "PS2 arm via START hold": r"STEER_PS2_MANUAL_ARM_HOLD_MS\s+1500U",
     "PS2 arm state observable": r"steer_ps2_manual_arm_status",
     "PS2 arm needs neutral": r"Steering_ManualInputsNeutral\(\)\s*==\s*0U",
-    "PS2 arm needs no NC": r"Steering_TestRawLimitMask\(\)\s*!=\s*0U",
+    "PS2 arm denies dual NC on RIGHT": r"\(Steering_TestRawLimitMask\(\)\s*&\s*0x03U\)\s*==\s*0x03U",
+    "PS2 arm denies dual NC on LEFT": r"\(Steering_TestRawLimitMask\(\)\s*&\s*0x0CU\)\s*==\s*0x0CU",
     "PS2 arm validates AS5600 hard envelope": r"Steering_SafetyHardEnvelopeValid\(0U, right_raw\)",
 
     "R1/R2 position owner": r"Steering_PositionUpdate\(\)",
     "SELECT calibration owner": r"Steering_CalUpdate\(\)",
     "safety actuator gate": r"steer_safety_motion_permit\s*!=\s*1U",
-    "NC safety latch": r"steer_safety_trip_latched\s*=\s*1U",
+    "independent sensor safety latch": r"steer_safety_trip_latched\s*=\s*1U",
     "S14 incident trace": r"Steering_IncidentTraceUpdate\(\);",
 }
 fail = [label for label, pattern in must_have.items()
@@ -87,6 +88,44 @@ else:
                       "HAL_UART_Transmit"):
         if forbidden in body:
             fail.append(f"output side effect in read-only route: {forbidden}")
+
+# Restored M7-S10 endstop policy: IRQ affects the owning motor only.
+# No NC level may latch a vehicle-wide fault. Hard-angle and AS5600
+# failures still use their independent global safety latch.
+irq = src.split("static void Steering_SafetyOnLimitInterrupt(uint8_t bit)", 1)
+if len(irq) != 2:
+    fail.append("NC EXTI ownership function")
+else:
+    local_irq = irq[1].split(
+        "static void Steering_ManualOnLimitInterrupt(uint8_t bit)", 1)[0]
+    for required in ("STEER_LIMIT_L_MIN_MASK", "STEER_LIMIT_R_MAX_MASK",
+                     "__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);",
+                     "__HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);"):
+        if required not in local_irq:
+            fail.append(f"own-axis interrupt stop: {required}")
+    if "steer_safety_trip_latched = 1U;" in local_irq:
+        fail.append("NC IRQ still latches the whole vehicle")
+loop = src.split("uint8_t nc = Steering_TestRawLimitMask();", 1)
+if len(loop) != 2:
+    fail.append("NC main-loop sampling")
+else:
+    level_block = loop[1].split(
+        "if ((STEER_SAFETY_INCIDENT_LOCKOUT == 0U)", 1)[0]
+    if "steer_safety_trip_latched = 1U;" in level_block:
+        fail.append("NC GPIO level still latches all four drive wheels")
+if "volatile uint8_t steer_manual_allow_right_max_escape = 1U;" not in src:
+    fail.append("bounded RIGHT MAX reverse escape disabled")
+if src.count("Steering_ManualEscapeReleased(") < 4:
+    fail.append("NC escape must settle then continue held command")
+if "steer_pos_enable = 1U;" not in src.split(
+        "static void Steering_PS2ManualArmUpdate(void)", 1)[-1].split(
+        "static uint8_t PS2_IsManualControlActive(void)", 1)[0]:
+    fail.append("START did not enable R1/R2")
+if not all(term in src for term in (
+        "steer_pos_left_center_tol_raw = 5U;",
+        "steer_pos_right_center_tol_raw = 5U;",
+        "STEER_POS_TOL_RAW             5")):
+    fail.append("legacy R1 +/-5 / R2 MIN tolerance changed")
 
 # START status 9 diagnosis must NOT bypass bad I2C frames, magnet status
 # or the calibrated hard-angle guard. Both buses must be sampled so a
