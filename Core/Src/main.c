@@ -7985,20 +7985,14 @@ int main(void)
        * Preserve it only while physically asserted; a fresh unrelated
        * contact remains a global STOP even during calibration.
        */
-      if (STEER_SAFETY_INCIDENT_LOCKOUT == 0U)
-      {
-        steer_safety_expected_nc_mask &= nc;
-        steer_safety_expected_nc_mask |=
-            (uint8_t)(nc & Steering_SafetyExpectedNcMask());
-        nc &= (uint8_t)~steer_safety_expected_nc_mask;
-      }
-      if (nc != 0U)
-      {
-        steer_safety_trip_mask |= nc;
-        steer_safety_trip_latched = 1U;
-        if (steer_safety_trip_reason == 0U)
-          steer_safety_trip_reason = 2U; /* unexpected NC GPIO */
-      }
+      /* All four NC inputs stop their own steering output in EXTI.
+       * A released contact does not need a reset of the four-wheel
+       * controller. Existing per-axis owners still check live NC
+       * level and prohibit PWM driving INTO an asserted endstop.
+       */
+      steer_safety_expected_nc_mask &= nc;
+      steer_safety_expected_nc_mask |=
+          (uint8_t)(nc & Steering_SafetyExpectedNcMask());
       if ((STEER_SAFETY_INCIDENT_LOCKOUT == 0U) &&
           (steer_safety_motion_permit == 1U) &&
           (steer_safety_trip_latched == 0U))
