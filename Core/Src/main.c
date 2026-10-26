@@ -2159,6 +2159,14 @@ static void Steering_PositionEscapeReleased(uint8_t left, uint32_t now)
     axis->escape_release_pending = 1U;
     axis->escape_release_since_ms = now;
   }
+  /* A release with clear encoder travel in the WRONG direction is
+   * not a safe continuation, even if the NC has stayed released. */
+  if (((must_increase != 0U) && (traveled < -2)) ||
+      ((must_increase == 0U) && (traveled > 2)))
+  {
+    Steering_PositionAxisFault(left, 8U);
+    return;
+  }
   if ((progress_ok == 0U) &&
       ((uint32_t)(now - axis->escape_release_since_ms) <
        STEER_POS_ESCAPE_RELEASE_QUIET_MS))
@@ -5209,6 +5217,10 @@ static void Steering_CalUpdate(void)
       select_hold_begin_ms = now;
     steer_cal_select_hold_elapsed_ms =
         (uint32_t)(now - select_hold_begin_ms);
+    /* Preserve the legacy externally armed short SELECT press, but
+     * consume this physical press so it cannot auto-retry at 1.5s. */
+    if ((new_press != 0U) && (steer_cal_arm != 0U))
+      select_hold_consumed = 1U;
     /* External explicit steer_cal_arm remains supported. The PS2-only
      * path waits for a continuous SELECT hold, then grants exactly ONE
      * scan. Never retry automatically when conditions later clear. */
