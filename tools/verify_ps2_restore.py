@@ -108,10 +108,10 @@ else:
 # LEFT toward MIN grows; toward MAX falls. RIGHT toward MIN falls.
 # These static checks cannot certify actual coast distance on the chassis.
 m = {
-    "lmin": re.search(r"steer_manual_left_soft_margin_raw\\s*=\\s*(\\d+)U", src),
-    "lmax": re.search(r"steer_manual_left_max_soft_margin_raw\\s*=\\s*(\\d+)U", src),
-    "rmin": re.search(r"steer_manual_right_soft_margin_raw\\s*=\\s*(\\d+)U", src),
-    "rmax": re.search(r"steer_manual_right_max_soft_margin_raw\\s*=\\s*(\\d+)U", src),
+    "lmin": re.search(r"steer_manual_left_soft_margin_raw\s*=\s*(\d+)U", src),
+    "lmax": re.search(r"steer_manual_left_max_soft_margin_raw\s*=\s*(\d+)U", src),
+    "rmin": re.search(r"steer_manual_right_soft_margin_raw\s*=\s*(\d+)U", src),
+    "rmax": re.search(r"steer_manual_right_max_soft_margin_raw\s*=\s*(\d+)U", src),
 }
 if all(m.values()):
     stop = {"lmin": 2297 - int(m["lmin"].group(1)),
