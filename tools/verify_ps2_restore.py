@@ -88,6 +88,29 @@ else:
         if forbidden in body:
             fail.append(f"output side effect in read-only route: {forbidden}")
 
+# START status 9 diagnosis must NOT bypass bad I2C frames, magnet status
+# or the calibrated hard-angle guard. Both buses must be sampled so a
+# failed LEFT reading does not conceal the RIGHT condition.
+arm_diagnostics = src.split("static void Steering_PS2ManualArmUpdate(void)", 1)
+if len(arm_diagnostics) != 2:
+    fail.append("START steering arm update")
+else:
+    arm_body = arm_diagnostics[1].split(
+        "static uint8_t PS2_IsManualControlActive(void)", 1)[0]
+    for token in (
+        "left_ok = Steering_PositionReadOne(1U, &left_raw);",
+        "right_ok = Steering_PositionReadOne(0U, &right_raw);",
+        "AS5600_DebugReadingValid(1U, debug_as5600_left_status)",
+        "AS5600_DebugReadingValid(1U, debug_as5600_right_status)",
+        "Steering_SafetyHardEnvelopeValid(1U, left_raw)",
+        "Steering_SafetyHardEnvelopeValid(0U, right_raw)",
+        "steer_ps2_arm_sensor_fail_mask = fail;",
+        "steer_ps2_manual_arm_status = 9U;",
+        "(left_envelope == 0U) || (right_envelope == 0U)",
+    ):
+        if token not in arm_body:
+            fail.append(f"START sensor diagnostic invariant: {token}")
+
 # Manual PS2 arming must happen immediately after an actual PS2 sample,
 # never before it; no START hold can secretly clear a latched safety trip.
 if "PS2_Read_Data();\n    Steering_PS2ManualArmUpdate();" not in src:
