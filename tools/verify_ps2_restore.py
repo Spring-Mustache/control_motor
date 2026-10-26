@@ -35,6 +35,15 @@ must_have = {
     "separate SELECT 1.5s hold-to-calibrate": r"STEER_CAL_PS2_SELECT_HOLD_MS\s+1500U",
     "SELECT PS2 hold diagnostics": r"steer_cal_select_hold_grant_count",
     "R_MAX own earlier soft margin": r"steer_manual_right_max_soft_margin_raw\s*=\s*100U",
+    "LEFT MIN guarded closer default": r"steer_manual_left_soft_margin_raw\s*=\s*60U",
+    "LEFT MAX independently trimmed 20": r"steer_manual_left_max_soft_margin_raw\s*=\s*80U",
+    "LEFT MAX separate limit": r"STEER_MANUAL_LEFT_SOFT_MAX\s+\(STEER_POS_LEFT_MAX_RAW\s*\+\s*STEER_MANUAL_LEFT_MAX_SOFT_MARGIN_RAW\)",
+    "RIGHT MIN staged bounded closer": r"steer_manual_right_soft_margin_raw\s*=\s*30U",
+    "RIGHT MAX retained": r"STEER_MANUAL_RIGHT_SOFT_MAX\s+\(STEER_POS_RIGHT_MAX_RAW\s*-\s*STEER_MANUAL_RIGHT_MAX_SOFT_MARGIN_RAW\)",
+    "shorter LEFT motion settle minimum": r"STEER_MANUAL_START_LEFT_MIN_MS\s+100U",
+    "shorter RIGHT motion settle minimum": r"STEER_MANUAL_START_RIGHT_MIN_MS\s+160U",
+    "unchanged AS5600 coast quiet time": r"STEER_MANUAL_START_QUIET_MS\s+100U",
+    "unchanged unsafe-settle timeout": r"STEER_MANUAL_START_SETTLE_MAX_MS\s+850U",
     "R1 NC release quiet verification": r"STEER_POS_ESCAPE_RELEASE_QUIET_MS\s+120U",
     "independent normalized speed target": r"steer_sync_left_target_raw_s\s*=\s*\(uint16_t\)target;",
     "PS2 arm state observable": r"steer_ps2_manual_arm_status",
@@ -93,6 +102,28 @@ else:
                       "HAL_UART_Transmit"):
         if forbidden in body:
             fail.append(f"output side effect in read-only route: {forbidden}")
+
+# M7-S16 directional clearance and latency tuning are ONLY threshold changes,
+# not relaxations of the I2C/NC validity gates, wheel timing or power cut.
+# LEFT toward MIN grows; toward MAX falls. RIGHT toward MIN falls.
+# These static checks cannot certify actual coast distance on the chassis.
+m = {
+    "lmin": re.search(r"steer_manual_left_soft_margin_raw\\s*=\\s*(\\d+)U", src),
+    "lmax": re.search(r"steer_manual_left_max_soft_margin_raw\\s*=\\s*(\\d+)U", src),
+    "rmin": re.search(r"steer_manual_right_soft_margin_raw\\s*=\\s*(\\d+)U", src),
+    "rmax": re.search(r"steer_manual_right_max_soft_margin_raw\\s*=\\s*(\\d+)U", src),
+}
+if all(m.values()):
+    stop = {"lmin": 2297 - int(m["lmin"].group(1)),
+            "lmax": 1374 + int(m["lmax"].group(1)),
+            "rmin": 191 + int(m["rmin"].group(1)),
+            "rmax": 982 - int(m["rmax"].group(1))}
+    if stop != {"lmin": 2237, "lmax": 1454, "rmin": 221, "rmax": 882}:
+        fail.append(f"manual soft-limit staged thresholds altered: {stop}")
+else:
+    fail.append("missing per-direction manual soft-limit defaults")
+if "HAL_Delay(20);  /* Chu kỳ điều khiển khoảng 50 Hz */" not in src:
+    fail.append("M6 wheel-control loop cadence altered by latency change")
 
 # Restored M7-S10 endstop policy: IRQ affects the owning motor only.
 # No NC level may latch a vehicle-wide fault. Hard-angle and AS5600
