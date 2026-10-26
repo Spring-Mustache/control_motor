@@ -4275,7 +4275,7 @@ volatile uint8_t steer_cal_result = 0U;
 /* SELECT has an independent, deliberate 1.5 s gesture, only after START
  * has armed steering; START does not itself grant SELECT calibration.
  */
-#define STEER_CAL_PS2_SELECT_HOLD_MS 1500U
+#define STEER_CAL_PS2_SELECT_HOLD_MS 600U
 /* Declared before Steering_CalUpdate, defined with the START variables. */
 extern volatile uint8_t steer_ps2_manual_armed;
 volatile uint32_t steer_cal_select_hold_elapsed_ms = 0U;
@@ -4296,6 +4296,18 @@ volatile uint32_t steer_cal_rejected_start_count = 0U;
 volatile uint32_t steer_cal_start_count = 0U;
 volatile uint8_t steer_cal_left_stage = 0U;
 volatile uint8_t steer_cal_right_stage = 0U;
+/* SELECT only: equalize remaining normalized stroke, NOT raw speed.
+ * The motor closer to its own NC is gently slowed; the lagging motor
+ * is never boosted. Each NC still cuts its own PWM independently.
+ */
+volatile uint8_t steer_cal_endpoint_sync_enable = 1U;
+volatile uint8_t steer_cal_endpoint_sync_state = 0U; /* 0 idle, 1 LEFT leads, 2 RIGHT leads, 3 tracking */
+volatile uint16_t steer_cal_endpoint_sync_left_remaining_permille = 0U;
+volatile uint16_t steer_cal_endpoint_sync_right_remaining_permille = 0U;
+volatile int16_t steer_cal_endpoint_sync_error_permille = 0;
+volatile uint16_t steer_cal_endpoint_sync_left_cap_pwm = 0U;
+volatile uint16_t steer_cal_endpoint_sync_right_cap_pwm = 0U;
+volatile uint32_t steer_cal_endpoint_sync_update_count = 0U;
 /* Return ONLY the NC endpoints that the current R2 or SELECT phase is
  * explicitly moving to/withdrawing from. Called from EXTI and main loop:
  * inspect volatile owner/stage only, no blocking HAL or I2C.
@@ -4363,7 +4375,11 @@ volatile uint8_t steer_cal_right_center_capturing = 0U;
 volatile uint16_t steer_cal_left_center_accepted_raw = 0U;
 volatile uint16_t steer_cal_right_center_accepted_raw = 0U;
 volatile uint16_t steer_cal_left_approach_floor = 175U;
-volatile uint16_t steer_cal_right_approach_floor = 85U;
+/* Previously equal to seek duty 85: RIGHT never slowed near either NC.
+ * Conservative first step: taper to 60 near measured NC (not a claim
+ * that 60 PWM or this taper guarantees a safe stopping distance).
+ */
+volatile uint16_t steer_cal_right_approach_floor = 60U;
 /* Sticky diagnostics: source and affected axis for result 6.
  * 1 dual limits, 2 contradictory/bouncing IRQ, 3 wrong active limit,
  * 4 late contact while driving, 5 invalid release without movement.
@@ -5191,6 +5207,97 @@ static uint8_t Steering_CalCommitAxisSafe(uint8_t left,
   return 0U;
 }
 
+/* Compare % remaining to OWN expected physical switch, not RPM or
+ * RAW/s. Run after both axis sensor/NC services and before the final
+ * atomic IRQ/GPIO/PWM commit. No extra I2C or timer calls.
+ * A lead of 7-17% of stroke progressively reduces the leading duty
+ * (LEFT down to 100, RIGHT down to 45 ticks); no motor is boosted.
+ * If either axis has already reached a NC, its own phase owns PWM=0
+ * and the other axis completes under its normal safe controller.
+ */
+static void Steering_CalEndpointSyncApply(uint16_t *left_pwm,
+                                           uint16_t *right_pwm)
+{
+  uint8_t stage = steer_cal_left_axis.stage;
+  uint16_t left_raw = steer_cal_left_last_raw;
+  uint16_t right_raw = steer_cal_right_last_raw;
+  uint32_t left_rem, right_rem, gap;
+  int32_t difference;
+
+  steer_cal_endpoint_sync_state = 0U;
+  steer_cal_endpoint_sync_left_remaining_permille = 0U;
+  steer_cal_endpoint_sync_right_remaining_permille = 0U;
+  steer_cal_endpoint_sync_error_permille = 0;
+  steer_cal_endpoint_sync_left_cap_pwm = *left_pwm;
+  steer_cal_endpoint_sync_right_cap_pwm = *right_pwm;
+  if ((steer_cal_endpoint_sync_enable != 1U) ||
+      (stage != steer_cal_right_axis.stage) ||
+      ((stage != STEER_CAL_SEEK_MIN) && (stage != STEER_CAL_SEEK_MAX)) ||
+      (*left_pwm == 0U) || (*right_pwm == 0U))
+    return;
+
+  if (stage == STEER_CAL_SEEK_MIN)
+  {
+    if ((left_raw >= STEER_POS_LEFT_MIN_RAW) ||
+        (right_raw <= STEER_POS_RIGHT_MIN_RAW))
+      return;
+    left_rem = (uint32_t)STEER_POS_LEFT_MIN_RAW - left_raw;
+    right_rem = (uint32_t)right_raw - STEER_POS_RIGHT_MIN_RAW;
+  }
+  else
+  {
+    if ((left_raw <= STEER_POS_LEFT_MAX_RAW) ||
+        (right_raw >= STEER_POS_RIGHT_MAX_RAW))
+      return;
+    left_rem = (uint32_t)left_raw - STEER_POS_LEFT_MAX_RAW;
+    right_rem = (uint32_t)STEER_POS_RIGHT_MAX_RAW - right_raw;
+  }
+  {
+    uint32_t lspan = (uint32_t)STEER_POS_LEFT_MIN_RAW -
+                     STEER_POS_LEFT_MAX_RAW;
+    uint32_t rspan = (uint32_t)STEER_POS_RIGHT_MAX_RAW -
+                     STEER_POS_RIGHT_MIN_RAW;
+    if ((lspan == 0U) || (rspan == 0U)) return;
+    left_rem = (left_rem * 1000U) / lspan;
+    right_rem = (right_rem * 1000U) / rspan;
+  }
+  if ((left_rem > 1000U) || (right_rem > 1000U))
+    return; /* unexpected raw beyond calibrated full stroke */
+  steer_cal_endpoint_sync_left_remaining_permille = (uint16_t)left_rem;
+  steer_cal_endpoint_sync_right_remaining_permille = (uint16_t)right_rem;
+  difference = (int32_t)right_rem - (int32_t)left_rem;
+  steer_cal_endpoint_sync_error_permille = (int16_t)difference;
+  steer_cal_endpoint_sync_state = 3U;
+  steer_cal_endpoint_sync_update_count++;
+
+  /* LEFT closer to NC -> left_rem smaller -> positive error.
+   * RIGHT closer to NC -> right_rem smaller -> negative error.
+   * Keep a 7% deadband to avoid hunting on quantized AS5600 readings.
+   */
+  if (difference > 70)
+  {
+    uint16_t floor_pwm = 100U, duty = *left_pwm;
+    gap = (uint32_t)(difference - 70);
+    if (gap > 100U) gap = 100U;
+    if (duty > floor_pwm)
+      *left_pwm = (uint16_t)(duty -
+          ((uint32_t)(duty - floor_pwm) * gap) / 100U);
+    steer_cal_endpoint_sync_state = 1U;
+  }
+  else if (difference < -70)
+  {
+    uint16_t floor_pwm = 45U, duty = *right_pwm;
+    gap = (uint32_t)(-difference - 70);
+    if (gap > 100U) gap = 100U;
+    if (duty > floor_pwm)
+      *right_pwm = (uint16_t)(duty -
+          ((uint32_t)(duty - floor_pwm) * gap) / 100U);
+    steer_cal_endpoint_sync_state = 2U;
+  }
+  steer_cal_endpoint_sync_left_cap_pwm = *left_pwm;
+  steer_cal_endpoint_sync_right_cap_pwm = *right_pwm;
+}
+
 static uint8_t Steering_CalInputsNeutral(void)
 {
   int16_t rx = (int16_t)PS2_Pad.RX - 128;
@@ -5474,6 +5581,10 @@ static void Steering_CalUpdate(void)
     Steering_CalStop((lerr != 0U) ? lerr : rerr);
     return;
   }
+
+  /* Synchronize ARRIVAL progress, not sensor shaft speed; the
+   * independent own-NC and hard-envelope checks still take priority. */
+  Steering_CalEndpointSyncApply(&lpwm, &rpwm);
 
   /* Independently validate LEFT and RIGHT before PWM writes, while
    * IRQs are masked. A normal right MIN arrival no longer aborts the
