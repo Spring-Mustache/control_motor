@@ -33,6 +33,8 @@ stub = r"""
 typedef struct { uint32_t speed_sample_ms; uint8_t speed_valid; } Axis;
 static Axis steer_manual_left_axis, steer_manual_right_axis;
 static uint8_t steer_manual_left_state, steer_manual_right_state;
+static uint8_t steer_manual_right_result;
+#define STEER_MANUAL_RESULT_SOFT 11U
 static uint8_t steer_sync_enable, steer_sync_active;
 static uint16_t steer_sync_right_pwm_reference, steer_sync_left_pwm_command;
 static uint16_t steer_sync_left_speed_raw_s, steer_sync_right_speed_raw_s;
@@ -106,8 +108,27 @@ int main(void) {
   Steering_SyncApply(200, 230, 100, &left);
   assert(left == 0); /* old measurement cannot enable follower */
 
+  /* Normal RIGHT mechanical/soft stop must not strand LEFT. */
   init();
   steer_manual_right_state = STEER_MANUAL_DONE;
+  steer_manual_right_result = 3U;
+  left = 230;
+  Steering_SyncApply(110, 230, 0, &left);
+  assert(left > 0 && left <= 24);
+  assert(steer_sync_active == 0U);
+
+  init();
+  steer_manual_right_state = STEER_MANUAL_DONE;
+  steer_manual_right_result = STEER_MANUAL_RESULT_SOFT;
+  steer_sync_previous_left_pwm = 180;
+  left = 230;
+  Steering_SyncApply(110, 230, 0, &left);
+  assert(left > 180 && left <= 204);
+
+  /* A fault/unclassified STOP of RIGHT still blocks the LEFT drive. */
+  init();
+  steer_manual_right_state = STEER_MANUAL_DONE;
+  steer_manual_right_result = 0U;
   left = 230;
   Steering_SyncApply(110, 230, 0, &left);
   assert(left == 0);
@@ -131,7 +152,7 @@ int main(void) {
   assert(left <= 300);
   assert(steer_sync_limit_count > 0);
 
-  puts("PASS: actual Steering_SyncApply C logic, 9 host scenarios");
+  puts("PASS: actual Steering_SyncApply C logic, 12 host scenarios");
   return 0;
 }
 """
