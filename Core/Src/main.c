@@ -6639,6 +6639,7 @@ static void Steering_PS2ManualDisarm(uint8_t status)
   /* Drop authorization first. Interrupt/NC hard stops stay unchanged. */
   steer_safety_motion_permit = 0U;
   steer_manual_enable = 0U;
+  steer_pos_enable = 0U;
   steer_ps2_manual_armed = 0U;
   steer_ps2_manual_arm_status = status;
   steer_ps2_manual_arm_hold_elapsed_ms = 0U;
@@ -6646,6 +6647,8 @@ static void Steering_PS2ManualDisarm(uint8_t status)
   steer_manual_neutral_required = 1U;
   if (steer_manual_active != 0U)
     Steering_ManualStop();
+  if (steer_pos_active != 0U)
+    Steering_PositionFinish(9U);
   Turn_Motors_Stop();
   steer_ps2_manual_disarm_count++;
 }
@@ -6791,8 +6794,12 @@ static void Steering_PS2ManualArmUpdate(void)
       require_release = 1U;
       return;
     }
-    /* Permit only manual steering; no R1/R2/SELECT automatic travel. */
+    /* Deliberate START arming grants D-pad/RX and bounded R1/R2
+     * position commands under the existing NC, geometry and STOP gates.
+     * SELECT calibration still requires its separate explicit arm.
+     */
     steer_manual_enable = 1U;
+    steer_pos_enable = 1U;
     steer_safety_neutral_required = 1U;
     steer_manual_neutral_required = 1U;
     steer_safety_motion_permit = 1U;
