@@ -90,7 +90,7 @@ int main(void) {
   assert(steer_sync_error_raw_s > 0);
 
   init();
-  steer_sync_left_speed_raw_s = 240; /* LEFT faster than RIGHT */
+  steer_sync_left_speed_raw_s = 300; /* LEFT faster than span-normalized RIGHT target */
   left = 230;
   Steering_SyncApply(110, 230, 100, &left);
   assert(left < 230 && left <= 300);
