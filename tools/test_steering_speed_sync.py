@@ -30,6 +30,10 @@ stub = r"""
 #define STEER_SYNC_MAX_SAMPLE_AGE_MS 110U
 #define STEER_SYNC_MIN_REF_SPEED_RAW_S 8U
 #define STEER_SYNC_MAX_INTEGRAL 6000
+#define STEER_POS_LEFT_MIN_RAW 2297U
+#define STEER_POS_LEFT_MAX_RAW 1374U
+#define STEER_POS_RIGHT_MIN_RAW 191U
+#define STEER_POS_RIGHT_MAX_RAW 982U
 typedef struct { uint32_t speed_sample_ms; uint8_t speed_valid; } Axis;
 static Axis steer_manual_left_axis, steer_manual_right_axis;
 static uint8_t steer_manual_left_state, steer_manual_right_state;
@@ -44,6 +48,7 @@ static uint16_t steer_manual_left_rx_min_pwm, steer_sync_max_trim_pwm;
 static uint16_t steer_sync_pwm_step, steer_sync_previous_left_pwm;
 static int16_t steer_manual_left_soft_remaining;
 static int32_t steer_sync_integral, steer_sync_error_raw_s;
+static uint16_t steer_sync_left_target_raw_s;
 static uint32_t steer_sync_reference_unavailable_count;
 static uint32_t steer_sync_reference_hold_count, steer_sync_limit_count;
 static uint32_t steer_sync_last_update_ms, steer_sync_update_count;
@@ -62,6 +67,7 @@ static void init(void) {
   steer_sync_last_update_ms = 0;
   steer_sync_left_speed_raw_s = 100;
   steer_sync_right_speed_raw_s = 200;
+  steer_sync_left_target_raw_s = 0;
   steer_sync_kp_q4 = 2;
   steer_sync_ki_div = 40;
   steer_sync_left_pwm_ceiling = 300;
@@ -89,6 +95,24 @@ int main(void) {
   Steering_SyncApply(110, 230, 100, &left);
   assert(left < 230 && left <= 300);
   assert(steer_sync_error_raw_s < 0);
+
+  /* Equal normalized travel rate: 791 RIGHT RAW/s means 923 LEFT RAW/s. */
+  init();
+  steer_sync_right_speed_raw_s = 791;
+  steer_sync_left_speed_raw_s = 923;
+  left = 230;
+  Steering_SyncApply(110, 230, 100, &left);
+  assert(steer_sync_left_target_raw_s == 923);
+  assert(steer_sync_error_raw_s == 0);
+
+  /* Equal raw/s is NOT synchronized travel across unequal spans. */
+  init();
+  steer_sync_right_speed_raw_s = 791;
+  steer_sync_left_speed_raw_s = 791;
+  left = 230;
+  Steering_SyncApply(110, 230, 100, &left);
+  assert(steer_sync_error_raw_s == 132);
+  assert(left > 230);
 
   init();
   steer_sync_right_speed_raw_s = 0;
@@ -152,7 +176,7 @@ int main(void) {
   assert(left <= 300);
   assert(steer_sync_limit_count > 0);
 
-  puts("PASS: actual Steering_SyncApply C logic, 12 host scenarios");
+  puts("PASS: actual Steering_SyncApply C logic, 14 host scenarios");
   return 0;
 }
 """
