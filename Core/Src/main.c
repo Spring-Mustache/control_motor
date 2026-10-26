@@ -3149,10 +3149,12 @@ static void Steering_SafetyOnLimitInterrupt(uint8_t bit)
     }
     return;
   }
-  steer_safety_trip_mask |= bit;
-  steer_safety_trip_latched = 1U;
-  if (steer_safety_trip_reason == 0U)
-    steer_safety_trip_reason = 1U;
+  /* NC contact: immediate local PWM stop, not a vehicle-wide trip.
+   * The owner-specific IRQ callbacks below handle arrival/escape.
+   * Preserve sticky contact history for diagnosis.
+   */
+  steer_safety_expected_nc_mask |= bit;
+  steer_safety_expected_nc_edges++;
   /* MX_GPIO_Init configures EXTI before TIM12/TIM14 exist. During
    * early startup a rising NC may occur: retain the fault latch but
    * never dereference an uninitialized TIMx register handle.
