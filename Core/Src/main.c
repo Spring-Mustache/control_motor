@@ -4247,6 +4247,8 @@ volatile uint8_t steer_cal_result = 0U;
  * has armed steering; START does not itself grant SELECT calibration.
  */
 #define STEER_CAL_PS2_SELECT_HOLD_MS 1500U
+/* Declared before Steering_CalUpdate, defined with the START variables. */
+extern volatile uint8_t steer_ps2_manual_armed;
 volatile uint32_t steer_cal_select_hold_elapsed_ms = 0U;
 volatile uint32_t steer_cal_select_hold_grant_count = 0U;
 volatile uint32_t steer_cal_select_hold_reject_count = 0U;
