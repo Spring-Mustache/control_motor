@@ -4349,6 +4349,16 @@ volatile uint8_t steer_cal_right_fault = 0U;
 volatile uint16_t steer_cal_left_min_found = 0U;
 volatile uint16_t steer_cal_left_max_found = 0U;
 volatile uint16_t steer_cal_right_min_found = 0U;
+/* 1-based elapsed timestamps of actual NC contact during SELECT;
+ * 0 means not reached yet. Differences are computed without another
+ * timer/I2C sample, making 'arrive together' observable on hardware.
+ */
+volatile uint32_t steer_cal_left_min_contact_ms = 0U;
+volatile uint32_t steer_cal_right_min_contact_ms = 0U;
+volatile uint32_t steer_cal_left_max_contact_ms = 0U;
+volatile uint32_t steer_cal_right_max_contact_ms = 0U;
+volatile uint32_t steer_cal_min_contact_skew_ms = 0U;
+volatile uint32_t steer_cal_max_contact_skew_ms = 0U;
 volatile uint16_t steer_cal_right_max_found = 0U;
 volatile uint16_t steer_cal_left_pwm = 0U;
 volatile uint16_t steer_cal_right_pwm = 0U;
@@ -4762,8 +4772,22 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
     if (limit == min_bit)
     {
       axis->min_raw = raw;
-      if (left != 0U) steer_cal_left_min_found = raw;
-      else steer_cal_right_min_found = raw;
+      if (left != 0U)
+      {
+        steer_cal_left_min_found = raw;
+        steer_cal_left_min_contact_ms = (uint32_t)(now - steer_cal_begin_ms) + 1U;
+      }
+      else
+      {
+        steer_cal_right_min_found = raw;
+        steer_cal_right_min_contact_ms = (uint32_t)(now - steer_cal_begin_ms) + 1U;
+      }
+      if ((steer_cal_left_min_contact_ms != 0U) &&
+          (steer_cal_right_min_contact_ms != 0U))
+        steer_cal_min_contact_skew_ms =
+            (steer_cal_left_min_contact_ms > steer_cal_right_min_contact_ms) ?
+            steer_cal_left_min_contact_ms - steer_cal_right_min_contact_ms :
+            steer_cal_right_min_contact_ms - steer_cal_left_min_contact_ms;
       Steering_CalAxisStage(axis, STEER_CAL_EXIT_MIN, raw, now);
       return 0U; /* zero-PWM cycle when changing direction */
     }
@@ -4851,8 +4875,22 @@ static uint8_t Steering_CalAxisUpdate(uint8_t left, uint8_t raw_mask,
     if (limit == max_bit)
     {
       axis->max_raw = raw;
-      if (left != 0U) steer_cal_left_max_found = raw;
-      else steer_cal_right_max_found = raw;
+      if (left != 0U)
+      {
+        steer_cal_left_max_found = raw;
+        steer_cal_left_max_contact_ms = (uint32_t)(now - steer_cal_begin_ms) + 1U;
+      }
+      else
+      {
+        steer_cal_right_max_found = raw;
+        steer_cal_right_max_contact_ms = (uint32_t)(now - steer_cal_begin_ms) + 1U;
+      }
+      if ((steer_cal_left_max_contact_ms != 0U) &&
+          (steer_cal_right_max_contact_ms != 0U))
+        steer_cal_max_contact_skew_ms =
+            (steer_cal_left_max_contact_ms > steer_cal_right_max_contact_ms) ?
+            steer_cal_left_max_contact_ms - steer_cal_right_max_contact_ms :
+            steer_cal_right_max_contact_ms - steer_cal_left_max_contact_ms;
       Steering_CalAxisStage(axis, STEER_CAL_EXIT_MAX, raw, now);
       return 0U;
     }
@@ -5467,6 +5505,12 @@ static void Steering_CalUpdate(void)
     steer_cal_left_max_found = 0U;
     steer_cal_right_min_found = 0U;
     steer_cal_right_max_found = 0U;
+    steer_cal_left_min_contact_ms = 0U;
+    steer_cal_right_min_contact_ms = 0U;
+    steer_cal_left_max_contact_ms = 0U;
+    steer_cal_right_max_contact_ms = 0U;
+    steer_cal_min_contact_skew_ms = 0U;
+    steer_cal_max_contact_skew_ms = 0U;
     steer_cal_left_stage = STEER_CAL_SEEK_MIN;
     steer_cal_right_stage = STEER_CAL_SEEK_MIN;
     steer_cal_left_fault = 0U;
