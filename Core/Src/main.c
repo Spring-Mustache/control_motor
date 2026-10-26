@@ -6597,6 +6597,160 @@ static void PS2_ObserveNewMapping(void)
  * Chỉ kết nối PS2 nhưng không chạm điều khiển KHÔNG được phép
  * cướp quyền của voice.
  */
+/* M7-S16 commissioning control: START held 1.5 seconds with all
+ * analog axes neutral and wheels stationary arms ONLY D-pad/RX steering.
+ * START pressed again (fresh rising edge) disarms immediately.
+ * This replaces setting two volatile arm flags in Live Expressions.
+ *
+ * Important: a firmware disarm and CCR=0 are NOT a hardware power cut.
+ * Do not rely on the PS2 radio to stop a self-energizing motor driver.
+ */
+#define STEER_PS2_MANUAL_ARM_HOLD_MS 1500U
+volatile uint8_t steer_ps2_manual_armed = 0U;
+volatile uint8_t steer_ps2_manual_arm_status = 0U;
+/* 0 idle; 1 holding START; 2 armed; 3 disarmed; 4 PS2 lost;
+ * 5 neutral required; 6 NC/limit not ready; 7 STOP/priority;
+ * 8 wheels moving; 9 AS5600 invalid/out of envelope; 10 busy.
+ */
+volatile uint32_t steer_ps2_manual_arm_hold_elapsed_ms = 0U;
+volatile uint32_t steer_ps2_manual_arm_success_count = 0U;
+volatile uint32_t steer_ps2_manual_disarm_count = 0U;
+volatile uint32_t steer_ps2_manual_arm_reject_count = 0U;
+
+static void Steering_PS2ManualDisarm(uint8_t status)
+{
+  /* Drop authorization first. Interrupt/NC hard stops stay unchanged. */
+  steer_safety_motion_permit = 0U;
+  steer_manual_enable = 0U;
+  steer_ps2_manual_armed = 0U;
+  steer_ps2_manual_arm_status = status;
+  steer_ps2_manual_arm_hold_elapsed_ms = 0U;
+  steer_safety_neutral_required = 1U;
+  steer_manual_neutral_required = 1U;
+  if (steer_manual_active != 0U)
+    Steering_ManualStop();
+  Turn_Motors_Stop();
+  steer_ps2_manual_disarm_count++;
+}
+
+static void Steering_PS2ManualArmUpdate(void)
+{
+  static uint8_t start_previous = 0U;
+  static uint8_t require_release = 0U;
+  static uint32_t start_hold_begin_ms = 0U;
+  uint8_t start_now = ((PS2_Pad.Connected == 1U) &&
+                       (PS2_Pad.Mode == 0x73U) &&
+                       (PS2_Pad.Start != 0U)) ? 1U : 0U;
+  uint32_t now = HAL_GetTick();
+  uint8_t reject = 0U;
+
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U) ||
+      (steer_safety_trip_latched != 0U))
+  {
+    if (steer_ps2_manual_armed != 0U)
+      Steering_PS2ManualDisarm(4U);
+    else
+    {
+      steer_ps2_manual_arm_status = 4U;
+      steer_ps2_manual_arm_hold_elapsed_ms = 0U;
+    }
+    start_previous = 0U;
+    require_release = 1U;
+    return;
+  }
+
+  if (steer_ps2_manual_armed != 0U)
+  {
+    if ((start_now != 0U) && (start_previous == 0U))
+    {
+      Steering_PS2ManualDisarm(3U);
+      require_release = 1U;
+    }
+    start_previous = start_now;
+    return;
+  }
+
+  if (start_now == 0U)
+  {
+    start_previous = 0U;
+    require_release = 0U;
+    start_hold_begin_ms = 0U;
+    steer_ps2_manual_arm_hold_elapsed_ms = 0U;
+    if (steer_ps2_manual_arm_status == 1U)
+      steer_ps2_manual_arm_status = 0U;
+    return;
+  }
+
+  if (require_release != 0U) return;
+  if (start_previous == 0U)
+    start_hold_begin_ms = now;
+  start_previous = 1U;
+
+  if ((Steering_ManualInputsNeutral() == 0U) ||
+      (PS2_Pad.Select != 0U) ||
+      (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
+      (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U))
+    reject = 5U;
+  else if ((control_stop_latched != 0U) ||
+           (ps2_cancel_hold != 0U) ||
+           (ps2_spin_rf_latched != 0U) ||
+           (voice_execution_active != 0U) ||
+           (voice_command_ready != 0U))
+    reject = 7U;
+  else if ((debug_limit_r_max.initialized == 0U) ||
+           (debug_limit_r_min.initialized == 0U) ||
+           (debug_limit_l_max.initialized == 0U) ||
+           (debug_limit_l_min.initialized == 0U) ||
+           (debug_limit_active_mask != 0U) ||
+           (debug_limit_raw_mask != 0U) ||
+           (Steering_TestRawLimitMask() != 0U))
+    reject = 6U;
+  else if (Steering_PositionWheelsStopped() == 0U)
+    reject = 8U;
+  else if ((steer_test_running != 0U) ||
+           (steer_test_arm != 0U) || (steer_test_request != 0U) ||
+           (steer_pos_active != 0U) ||
+           (steer_cal_active != 0U) ||
+           (debug_as5600_poll_enable != 0U))
+    reject = 10U;
+
+  if (reject != 0U)
+  {
+    steer_ps2_manual_arm_status = reject;
+    steer_ps2_manual_arm_hold_elapsed_ms = 0U;
+    steer_ps2_manual_arm_reject_count++;
+    require_release = 1U; /* never auto-arm a previously held START */
+    return;
+  }
+
+  steer_ps2_manual_arm_hold_elapsed_ms =
+      (uint32_t)(now - start_hold_begin_ms);
+  steer_ps2_manual_arm_status = 1U;
+  if (steer_ps2_manual_arm_hold_elapsed_ms >=
+      STEER_PS2_MANUAL_ARM_HOLD_MS)
+  {
+    uint16_t left_raw = 0U, right_raw = 0U;
+    if ((Steering_PositionReadOne(1U, &left_raw) == 0U) ||
+        (Steering_PositionReadOne(0U, &right_raw) == 0U) ||
+        (Steering_SafetyHardEnvelopeValid(1U, left_raw) == 0U) ||
+        (Steering_SafetyHardEnvelopeValid(0U, right_raw) == 0U))
+    {
+      steer_ps2_manual_arm_status = 9U;
+      steer_ps2_manual_arm_reject_count++;
+      require_release = 1U;
+      return;
+    }
+    /* Permit only manual steering; no R1/R2/SELECT automatic travel. */
+    steer_manual_enable = 1U;
+    steer_safety_neutral_required = 1U;
+    steer_manual_neutral_required = 1U;
+    steer_safety_motion_permit = 1U;
+    steer_ps2_manual_armed = 1U;
+    steer_ps2_manual_arm_status = 2U;
+    steer_ps2_manual_arm_success_count++;
+  }
+}
+
 static uint8_t PS2_IsManualControlActive(void)
 {
   if ((PS2_Pad.Connected != 1U) ||
@@ -7326,6 +7480,12 @@ static void Steering_DebugRetainWatchSymbols(void)
   nonzero += (uint32_t)(steer_sync_limit_count != 0);
   nonzero += (uint32_t)(steer_sync_reference_hold_count != 0);
   nonzero += (uint32_t)(steer_sync_reference_unavailable_count != 0);
+  nonzero += (uint32_t)(steer_ps2_manual_armed != 0);
+  nonzero += (uint32_t)(steer_ps2_manual_arm_status != 0);
+  nonzero += (uint32_t)(steer_ps2_manual_arm_hold_elapsed_ms != 0);
+  nonzero += (uint32_t)(steer_ps2_manual_arm_success_count != 0);
+  nonzero += (uint32_t)(steer_ps2_manual_disarm_count != 0);
+  nonzero += (uint32_t)(steer_ps2_manual_arm_reject_count != 0);
   steer_debug_watch_boot_nonzero_count = nonzero;
 }
 #endif
@@ -7679,6 +7839,7 @@ int main(void)
      * PS2 chỉ "được kết nối" nhưng đang neutral sẽ không đè Voice.
      */
     PS2_Read_Data();
+    Steering_PS2ManualArmUpdate(); /* START arm/disarm, safe-neutral only */
     PS2_DebugObserveAllInputs();  /* All 16 PS2 buttons; input only */
     PS2_DebugShadowSteeringCommands(); /* Dpad/RX/R1/R2/Select, NO PWM */
     PS2_RestoreRouteUpdate(); /* S15 all mapped PS2 commands, read-only */
