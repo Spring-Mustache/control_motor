@@ -1698,21 +1698,55 @@ static uint8_t Steering_ManualInputsNeutral(void)
  * one of the two sensors is polled per bounded service interval, without
  * requiring debug_as5600_poll_enable or the heavyweight debug probe.
  */
-/* M7-S07: calibrated MIN/MAX are runtime values, not preprocessor
- * constants. Defaults are the previously measured bench values.
- * These RAM values change ONLY after a COMPLETE, valid Select scan.
- * CENTER is intentionally unchanged and never learned.
+/* M7-S16 post-reassembly endpoint measurements, reported 2026-10-26:
+ * LEFT  MIN 2297, CENTER 1873, MAX 1374 (RAW decreases to MAX).
+ * RIGHT MIN 191,  CENTER 662,  MAX 982  (RAW increases to MAX).
+ * MIN/MAX are RAM defaults at boot and change ONLY after a complete,
+ * geometrically valid SELECT scan. CENTER stays fixed in code.
+ * Do NOT assume these readings prove powered endstop stopping distance.
  */
-volatile uint16_t steer_cal_left_min_runtime = 2319U;
-volatile uint16_t steer_cal_left_max_runtime = 1391U;
-volatile uint16_t steer_cal_right_min_runtime = 2934U;
-volatile uint16_t steer_cal_right_max_runtime = 3680U;
+volatile uint16_t steer_cal_left_min_runtime = 2297U;
+volatile uint16_t steer_cal_left_max_runtime = 1374U;
+volatile uint16_t steer_cal_right_min_runtime = 191U;
+volatile uint16_t steer_cal_right_max_runtime = 982U;
 #define STEER_POS_LEFT_MIN_RAW       (steer_cal_left_min_runtime)
-#define STEER_POS_LEFT_CENTER_RAW     1857U
+#define STEER_POS_LEFT_CENTER_RAW     1873U
 #define STEER_POS_LEFT_MAX_RAW       (steer_cal_left_max_runtime)
 #define STEER_POS_RIGHT_MIN_RAW      (steer_cal_right_min_runtime)
-#define STEER_POS_RIGHT_CENTER_RAW    3398U
+#define STEER_POS_RIGHT_CENTER_RAW     662U
 #define STEER_POS_RIGHT_MAX_RAW      (steer_cal_right_max_runtime)
+
+/* The existing S10 manual soft-limit comparisons require unwrapped,
+ * monotonic RAW across the entire mechanical stroke: LEFT MAX <
+ * CENTER < MIN; RIGHT MIN < CENTER < MAX. Reject any SELECT capture
+ * that crosses 4095->0 or reverses the AS5600 orientation; those cases
+ * need explicit circular-safe manual control, NOT a guessed limit.
+ * Previously measured traversals have spans 923 (LEFT), 791 (RIGHT).
+ */
+static uint8_t Steering_PositionGeometryValid(uint8_t left,
+                                              uint16_t min_raw,
+                                              uint16_t max_raw)
+{
+  const uint32_t center = (left != 0U) ?
+      STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW;
+  uint32_t span;
+  if ((min_raw > 4095U) || (max_raw > 4095U)) return 0U;
+  if (left != 0U)
+  {
+    if (!((uint32_t)max_raw + 60U < center &&
+          (uint32_t)min_raw > center + 60U))
+      return 0U;
+    span = (uint32_t)min_raw - (uint32_t)max_raw;
+  }
+  else
+  {
+    if (!((uint32_t)min_raw + 60U < center &&
+          (uint32_t)max_raw > center + 60U))
+      return 0U;
+    span = (uint32_t)max_raw - (uint32_t)min_raw;
+  }
+  return ((span >= 250U) && (span <= 1250U)) ? 1U : 0U;
+}
 #define STEER_POS_TOL_RAW             5 /* R2 MIN unchanged */
 /* M7-S08: R1 CENTER is independent of Select CENTER capture.
  * R1 fine correction accepts at most ±5 AS5600 RAW; Select retains
@@ -1950,9 +1984,14 @@ static uint8_t Steering_PositionReadOne(uint8_t left, uint16_t *raw)
 static uint8_t Steering_PositionRawInRange(uint8_t left, uint16_t raw)
 {
   int16_t d, lower, upper;
-  /* Envelope derives from observed endstop RAW, including limited
-   * overshoot behind the switch so an away-only escape remains possible.
+  /* Reject corrupt/not-yet-calibrated geometry before relying on any
+   * AS5600 operating envelope. Retain 64 RAW recovery headroom only
+   * for the existing bounded escape and axis-position algorithms.
    */
+  if (Steering_PositionGeometryValid(left,
+      left ? STEER_POS_LEFT_MIN_RAW : STEER_POS_RIGHT_MIN_RAW,
+      left ? STEER_POS_LEFT_MAX_RAW : STEER_POS_RIGHT_MAX_RAW) == 0U)
+    return 0U;
   if (left != 0U)
   {
     d = AS5600_ShortestDeltaCounts(STEER_POS_LEFT_CENTER_RAW, raw);
@@ -1971,6 +2010,33 @@ static uint8_t Steering_PositionRawInRange(uint8_t left, uint16_t raw)
   }
   return ((d >= (lower - STEER_POS_RANGE_MARGIN)) &&
           (d <= (upper + STEER_POS_RANGE_MARGIN))) ? 1U : 0U;
+}
+
+/* Strict S11 overshoot guard, independent of the 64-RAW bounded
+ * escape envelope above. Compare signed AS5600 deltas to CENTER so a
+ * changed sensor installation cannot silently retain the old numeric
+ * RIGHT range. A later crossed-zero geometry is explicitly rejected.
+ */
+static uint8_t Steering_SafetyHardEnvelopeValid(uint8_t left, uint16_t raw)
+{
+  uint16_t center = left ? STEER_POS_LEFT_CENTER_RAW :
+                           STEER_POS_RIGHT_CENTER_RAW;
+  uint16_t min_raw = left ? STEER_POS_LEFT_MIN_RAW :
+                            STEER_POS_RIGHT_MIN_RAW;
+  uint16_t max_raw = left ? STEER_POS_LEFT_MAX_RAW :
+                            STEER_POS_RIGHT_MAX_RAW;
+  int16_t d, lower, upper;
+
+  if (Steering_PositionGeometryValid(left, min_raw, max_raw) == 0U)
+    return 0U;
+  d = AS5600_ShortestDeltaCounts(center, raw);
+  lower = AS5600_ShortestDeltaCounts(center,
+                                    left ? max_raw : min_raw);
+  upper = AS5600_ShortestDeltaCounts(center,
+                                    left ? min_raw : max_raw);
+  return ((d >= (lower - (int16_t)STEER_SAFETY_HARD_RAW_OVERSHOOT)) &&
+          (d <= (upper + (int16_t)STEER_SAFETY_HARD_RAW_OVERSHOOT))) ?
+      1U : 0U;
 }
 
 static uint8_t Steering_PositionWheelsStopped(void)
@@ -4279,20 +4345,13 @@ static void Steering_CalOnLimitInterrupt(uint8_t bit)
 static uint8_t Steering_CalAxisValidSpan(uint8_t left,
                                         const SteeringCalAxis_t *axis)
 {
-  /* Must bracket the fixed CENTER with a physically meaningful span. */
-  if (left != 0U)
-  {
-    return ((axis->max_raw >= 1000U) &&
-            (axis->max_raw + 60U < STEER_POS_LEFT_CENTER_RAW) &&
-            (axis->min_raw > STEER_POS_LEFT_CENTER_RAW + 60U) &&
-            (axis->min_raw > axis->max_raw + 250U) &&
-            (axis->min_raw < axis->max_raw + 1250U)) ? 1U : 0U;
-  }
-  return ((axis->min_raw >= 2200U) &&
-          (axis->min_raw + 60U < STEER_POS_RIGHT_CENTER_RAW) &&
-          (axis->max_raw > STEER_POS_RIGHT_CENTER_RAW + 60U) &&
-          (axis->max_raw > axis->min_raw + 250U) &&
-          (axis->max_raw < axis->min_raw + 1250U)) ? 1U : 0U;
+  /* Post-reassembly geometry may shift its absolute RAW origin.
+   * Accept only correct LEFT/RIGHT direction, CENTER bracketing and
+   * 250..1250-count travel. Do not retain the old 2200/1000 floors.
+   * Reuse the exact geometry test used by active motion and hard STOP.
+   */
+  return Steering_PositionGeometryValid(left, axis->min_raw,
+                                         axis->max_raw);
 }
 
 static void Steering_CalAxisStage(SteeringCalAxis_t *axis, uint8_t next,
@@ -7698,14 +7757,8 @@ int main(void)
           steer_safety_trip_reason = 3U;
           steer_safety_trip_latched = 1U;
         }
-        else if ((lraw > (STEER_POS_LEFT_MIN_RAW +
-                           STEER_SAFETY_HARD_RAW_OVERSHOOT)) ||
-                 (lraw + STEER_SAFETY_HARD_RAW_OVERSHOOT <
-                           STEER_POS_LEFT_MAX_RAW) ||
-                 (rraw > (STEER_POS_RIGHT_MAX_RAW +
-                           STEER_SAFETY_HARD_RAW_OVERSHOOT)) ||
-                 (rraw + STEER_SAFETY_HARD_RAW_OVERSHOOT <
-                           STEER_POS_RIGHT_MIN_RAW))
+        else if ((Steering_SafetyHardEnvelopeValid(1U, lraw) == 0U) ||
+                 (Steering_SafetyHardEnvelopeValid(0U, rraw) == 0U))
         {
           steer_safety_trip_reason = 4U;
           steer_safety_trip_left_raw = lraw;
