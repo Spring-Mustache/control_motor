@@ -32,7 +32,7 @@ stub = r"""
 #define STEER_SYNC_MAX_INTEGRAL 6000
 #define STEER_POS_LEFT_MIN_RAW 2297U
 #define STEER_POS_LEFT_MAX_RAW 1374U
-#define STEER_POS_RIGHT_MIN_RAW 191U
+#define STEER_POS_RIGHT_MIN_RAW 166U
 #define STEER_POS_RIGHT_MAX_RAW 982U
 typedef struct { uint32_t speed_sample_ms; uint8_t speed_valid; } Axis;
 static Axis steer_manual_left_axis, steer_manual_right_axis;
@@ -96,9 +96,9 @@ int main(void) {
   assert(left < 230 && left <= 300);
   assert(steer_sync_error_raw_s < 0);
 
-  /* Equal normalized travel rate: 791 RIGHT RAW/s means 923 LEFT RAW/s. */
+  /* Equal normalized travel rate: 816 RIGHT RAW/s means 923 LEFT RAW/s. */
   init();
-  steer_sync_right_speed_raw_s = 791;
+  steer_sync_right_speed_raw_s = 816;
   steer_sync_left_speed_raw_s = 923;
   left = 230;
   Steering_SyncApply(110, 230, 100, &left);
@@ -107,11 +107,11 @@ int main(void) {
 
   /* Equal raw/s is NOT synchronized travel across unequal spans. */
   init();
-  steer_sync_right_speed_raw_s = 791;
-  steer_sync_left_speed_raw_s = 791;
+  steer_sync_right_speed_raw_s = 816;
+  steer_sync_left_speed_raw_s = 816;
   left = 230;
   Steering_SyncApply(110, 230, 100, &left);
-  assert(steer_sync_error_raw_s == 132);
+  assert(steer_sync_error_raw_s == 107);
   assert(left > 230);
 
   init();
