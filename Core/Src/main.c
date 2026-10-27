@@ -1698,16 +1698,21 @@ static uint8_t Steering_ManualInputsNeutral(void)
  * one of the two sensors is polled per bounded service interval, without
  * requiring debug_as5600_poll_enable or the heavyweight debug probe.
  */
-/* M7-S16 post-reassembly endpoint measurements, reported 2026-10-26:
+/* M7-S16 post-reassembly endpoint measurements:
  * LEFT  MIN 2297, CENTER 1873, MAX 1374 (RAW decreases to MAX).
- * RIGHT MIN 191,  CENTER 662,  MAX 982  (RAW increases to MAX).
+ * RIGHT MIN **166** at physically asserted R_MIN NC (new user observation
+ * after SELECT failure, 2026-10-27), CENTER 662, MAX 982.
+ * Old R_MIN=191 caused a whole-vehicle hard-angle trip below 183,
+ * followed by START sensor/envelope rejection 9 despite a healthy magnet.
+ * Update the MEASURED geometry, NOT the fixed 8-RAW hard safety margin.
  * MIN/MAX are RAM defaults at boot and change ONLY after a complete,
  * geometrically valid SELECT scan. CENTER stays fixed in code.
- * Do NOT assume these readings prove powered endstop stopping distance.
+ * The physical NC switch MUST still independently cut the RIGHT PWM.
+ * One reported contact RAW does not establish safe coasting distance.
  */
 volatile uint16_t steer_cal_left_min_runtime = 2297U;
 volatile uint16_t steer_cal_left_max_runtime = 1374U;
-volatile uint16_t steer_cal_right_min_runtime = 191U;
+volatile uint16_t steer_cal_right_min_runtime = 166U;
 volatile uint16_t steer_cal_right_max_runtime = 982U;
 #define STEER_POS_LEFT_MIN_RAW       (steer_cal_left_min_runtime)
 #define STEER_POS_LEFT_CENTER_RAW     1873U
@@ -1721,7 +1726,7 @@ volatile uint16_t steer_cal_right_max_runtime = 982U;
  * CENTER < MIN; RIGHT MIN < CENTER < MAX. Reject any SELECT capture
  * that crosses 4095->0 or reverses the AS5600 orientation; those cases
  * need explicit circular-safe manual control, NOT a guessed limit.
- * Previously measured traversals have spans 923 (LEFT), 791 (RIGHT).
+ * Current measured traversals have spans 923 (LEFT), 816 (RIGHT).
  */
 static uint8_t Steering_PositionGeometryValid(uint8_t left,
                                               uint16_t min_raw,
@@ -3017,13 +3022,16 @@ volatile uint16_t steer_manual_left_soft_margin_raw = 60U;
 /* LEFT MAX is independently adjustable: reduce its threshold by 20 RAW
  * in the direction toward the measured 1374 MAX endpoint. */
 volatile uint16_t steer_manual_left_max_soft_margin_raw = 80U;
-/* RIGHT MIN: only reduce 40->30 for first bench iteration. A full
- * 20-RAW reduction would leave only 20 RAW before NC with unknown
- * coasting distance; that is NOT yet verified safe. */
-volatile uint16_t steer_manual_right_soft_margin_raw = 30U;
-/* R_MAX has now physically contacted NC after the former 40 RAW
- * clearance. Give its approach a separate conservative 100 RAW margin;
- * R_MIN stays on the existing 40 RAW setting. Verify coasting on stand.
+/* RIGHT MIN NC is now measured at RAW 166 instead of old 191.
+ * Preserve a 50-RAW safety clearance from the actual physical NC:
+ * 166+50=216, a conservative 5-RAW approach relative to old 221.
+ * DO NOT retain 30 with a shifted measured NC: that would silently
+ * move D-pad 25 RAW nearer to an unverified switch/coasting region.
+ */
+volatile uint16_t steer_manual_right_soft_margin_raw = 50U;
+/* RIGHT MAX has physically contacted NC when clearance was smaller;
+ * retain its separate 100-RAW soft stop. Both boundaries have no
+ * active brake; check final coast distance on a suspended stand.
  */
 volatile uint16_t steer_manual_right_max_soft_margin_raw = 100U;
 #define STEER_MANUAL_LEFT_SOFT_MARGIN_RAW \
@@ -3678,7 +3686,7 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
   if (dt > 100U) dt = 100U;
   steer_sync_last_update_ms = now;
   /* Equal raw counts/s do NOT mean synchronized travel: the measured
-   * LEFT stroke is 923 RAW while RIGHT is 791 RAW. Match percentage
+   * LEFT stroke is 923 RAW while RIGHT is 816 RAW. Match percentage
    * of each calibrated stroke per second instead. Validated geometry
    * is required by the steering safety gate; retain zero-divisor guard.
    */
