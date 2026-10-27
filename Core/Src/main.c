@@ -5387,19 +5387,22 @@ static void Steering_CalEndpointSyncApply(uint16_t *left_pwm,
 
   if (stage == STEER_CAL_SEEK_MIN)
   {
-    if ((left_raw >= STEER_POS_LEFT_MIN_RAW) ||
-        (right_raw <= STEER_POS_RIGHT_MIN_RAW))
-      return;
-    left_rem = (uint32_t)STEER_POS_LEFT_MIN_RAW - left_raw;
-    right_rem = (uint32_t)right_raw - STEER_POS_RIGHT_MIN_RAW;
+    /* During discovery the actual NC may lie beyond the OLD endpoint.
+     * Clamp its estimated remaining travel to 0 rather than disabling
+     * the slower-leader PWM taper or underflowing unsigned subtraction.
+     * Only a physical NC may advance SEEK_MIN to EXIT_MIN.
+     */
+    left_rem = (left_raw >= STEER_POS_LEFT_MIN_RAW) ? 0U :
+               (uint32_t)STEER_POS_LEFT_MIN_RAW - left_raw;
+    right_rem = (right_raw <= STEER_POS_RIGHT_MIN_RAW) ? 0U :
+                (uint32_t)right_raw - STEER_POS_RIGHT_MIN_RAW;
   }
   else
   {
-    if ((left_raw <= STEER_POS_LEFT_MAX_RAW) ||
-        (right_raw >= STEER_POS_RIGHT_MAX_RAW))
-      return;
-    left_rem = (uint32_t)left_raw - STEER_POS_LEFT_MAX_RAW;
-    right_rem = (uint32_t)STEER_POS_RIGHT_MAX_RAW - right_raw;
+    left_rem = (left_raw <= STEER_POS_LEFT_MAX_RAW) ? 0U :
+               (uint32_t)left_raw - STEER_POS_LEFT_MAX_RAW;
+    right_rem = (right_raw >= STEER_POS_RIGHT_MAX_RAW) ? 0U :
+                (uint32_t)STEER_POS_RIGHT_MAX_RAW - right_raw;
   }
   {
     uint32_t lspan = (uint32_t)STEER_POS_LEFT_MIN_RAW -
