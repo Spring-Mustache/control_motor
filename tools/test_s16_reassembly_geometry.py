@@ -64,6 +64,9 @@ geometry_c = src[start_g:end_g].strip()
 start_h = src.index("static uint8_t Steering_SafetyHardEnvelopeValid(")
 end_h = src.index("static uint8_t Steering_PositionWheelsStopped(", start_h)
 hard_c = src[start_h:end_h].strip()
+start_p = src.index("#define STEER_CAL_PROBE_MAX_EXTENSION_RAW 64U")
+end_p = src.index("static void Steering_CalLeftOff(void)", start_p)
+probe_c = src[start_p:end_p].strip()
 cc = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
 if cc is None:
     print("SKIP: host C compiler not found; actual C helper tests not run")
@@ -80,6 +83,11 @@ static uint16_t steer_cal_left_min_runtime = 2297U;
 static uint16_t steer_cal_left_max_runtime = 1374U;
 static uint16_t steer_cal_right_min_runtime = 166U;
 static uint16_t steer_cal_right_max_runtime = 982U;
+static uint8_t steer_cal_active = 0U;
+#define STEER_LIMIT_L_MIN_MASK 4U
+#define STEER_LIMIT_L_MAX_MASK 8U
+#define STEER_LIMIT_R_MIN_MASK 2U
+#define STEER_LIMIT_R_MAX_MASK 1U
 #define STEER_POS_LEFT_MIN_RAW (steer_cal_left_min_runtime)
 #define STEER_POS_LEFT_MAX_RAW (steer_cal_left_max_runtime)
 #define STEER_POS_RIGHT_MIN_RAW (steer_cal_right_min_runtime)
@@ -120,7 +128,31 @@ int main(void)
   steer_cal_right_min_runtime = 2934U;
   steer_cal_right_max_runtime = 3680U;
   assert(Steering_SafetyHardEnvelopeValid(0U, 662U) == 0U);
-  puts("PASS: actual extracted C geometry & safety envelope: 23 cases");
+  /* An old measured endpoint must not preempt physical NC discovery.
+   * SELECT has a bounded probe; without SELECT, only the actually
+   * asserted owning NC permits departure from the old envelope. */
+  steer_cal_right_min_runtime = 191U;
+  steer_cal_right_max_runtime = 982U;
+  steer_cal_active = 0U;
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(0U, 166U, 0U) == 0U);
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(0U, 166U, 2U) == 1U);
+  assert(steer_cal_probe_envelope_last_reason == 2U);
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(0U, 166U, 1U) == 0U);
+  steer_cal_active = 1U;
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(0U, 166U, 0U) == 1U);
+  assert(steer_cal_probe_envelope_last_reason == 1U);
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(0U, 126U, 0U) == 0U);
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(0U, 166U, 3U) == 0U);
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(1U, 2322U, 0U) == 1U);
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(1U, 2362U, 0U) == 0U);
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(0U, 1007U, 0U) == 1U);
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(0U, 1047U, 0U) == 0U);
+  steer_cal_active = 0U;
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(1U, 2322U, 4U) == 1U);
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(1U, 2322U, 8U) == 0U);
+  steer_cal_right_min_runtime = 166U;
+  assert(Steering_SafetyEnvelopeWithNcDiscovery(0U, 166U, 0U) == 1U);
+  puts("PASS: actual C geometry, hard-angle strict gate and bounded NC discovery");
   return 0;
 }
 """
@@ -128,7 +160,7 @@ with TemporaryDirectory() as temp:
     path = Path(temp) / "test_geometry.c"
     out = Path(temp) / "test_geometry"
     path.write_text(stub + "\n" + geometry_c + "\n" + hard_c
-                    + "\n" + tests, encoding="utf-8")
+                    + "\n" + probe_c + "\n" + tests, encoding="utf-8")
     subprocess.run([cc, "-std=c99", "-Wall", "-Wextra", "-Werror",
                     "-o", str(out), str(path)], check=True)
     subprocess.run([str(out)], check=True)
