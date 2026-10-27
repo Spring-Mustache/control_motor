@@ -41,8 +41,15 @@ assert rmin + 50 < rcenter < rmax - 100
 assert "static uint8_t Steering_PositionGeometryValid(" in src
 assert "static uint8_t Steering_SafetyHardEnvelopeValid(" in src
 assert "return Steering_PositionGeometryValid(left, axis->min_raw," in src
-assert "Steering_SafetyHardEnvelopeValid(1U, lraw) == 0U" in src
-assert "Steering_SafetyHardEnvelopeValid(0U, rraw) == 0U" in src
+# Global gate uses the strict helper via a bounded NC-discovery wrapper,
+# not the stale 8-RAW endpoint during SELECT; strict regular mode retained.
+assert "Steering_SafetyEnvelopeWithNcDiscovery(1U, lraw, nc) == 0U" in src
+assert "Steering_SafetyEnvelopeWithNcDiscovery(0U, rraw, nc) == 0U" in src
+assert "if (Steering_SafetyHardEnvelopeValid(left, raw) != 0U) return 1U;" in src
+assert "#define STEER_CAL_PROBE_MAX_EXTENSION_RAW 64U" in src
+assert "if (steer_cal_active != 0U)" in src
+assert "(active == min_bit)" in src and "(active == max_bit)" in src
+assert "STEER_SAFETY_HARD_RAW_OVERSHOOT 8U" in src
 assert "STEER_MANUAL_LEFT_SOFT_MARGIN_RAW" in src
 assert "STEER_MANUAL_RIGHT_SOFT_MARGIN_RAW" in src
 assert "volatile uint8_t steer_safety_motion_permit = 0U;" in src
