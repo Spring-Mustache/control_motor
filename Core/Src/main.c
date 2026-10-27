@@ -4489,6 +4489,89 @@ typedef struct
 static SteeringCalAxis_t steer_cal_left_axis = {0};
 static SteeringCalAxis_t steer_cal_right_axis = {0};
 
+/* SELECT finds physical NC contacts that can differ from OLD AS5600
+ * endpoint values. Retain strict +/-8 RAW for normal steering, but let
+ * an actively authorized SELECT scan probe up to 64 RAW outside the
+ * old endpoint. NC EXTI still cuts only the affected CCR immediately.
+ *
+ * After an unsuccessful scan, a physically pressed single NC can also
+ * authorize the same bounded angle check for a freshly armed ESCAPE
+ * AWAY from that switch (never toward it). This is NOT a drive grant.
+ */
+#define STEER_CAL_PROBE_MAX_EXTENSION_RAW 64U
+volatile uint32_t steer_cal_probe_envelope_allow_count = 0U;
+volatile uint8_t steer_cal_probe_envelope_last_side = 0U; /* 1 LEFT, 2 RIGHT */
+volatile uint8_t steer_cal_probe_envelope_last_reason = 0U; /* 1 SELECT, 2 pressed NC */
+volatile uint16_t steer_cal_probe_envelope_last_raw = 0U;
+static uint8_t Steering_SafetyEnvelopeWithNcDiscovery(uint8_t left,
+                                                        uint16_t raw,
+                                                        uint8_t raw_nc)
+{
+  uint8_t min_bit = left ? STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_R_MIN_MASK;
+  uint8_t max_bit = left ? STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_R_MAX_MASK;
+  uint8_t active = (uint8_t)(raw_nc & (min_bit | max_bit));
+  uint16_t old_min = left ? STEER_POS_LEFT_MIN_RAW : STEER_POS_RIGHT_MIN_RAW;
+  uint16_t old_max = left ? STEER_POS_LEFT_MAX_RAW : STEER_POS_RIGHT_MAX_RAW;
+  uint8_t beyond_min = 0U, beyond_max = 0U;
+  uint8_t authorized = 0U;
+
+  if (Steering_SafetyHardEnvelopeValid(left, raw) != 0U) return 1U;
+  if (Steering_PositionGeometryValid(left, old_min, old_max) == 0U)
+    return 0U;
+  if ((raw > 4095U) || (active == (min_bit | max_bit))) return 0U;
+
+  /* Nonwrapping monotonic RAW. A provisional extension is measured
+   * against each OLD physical endpoint, never accumulated per frame. */
+  if (left != 0U)
+  {
+    beyond_min = (((uint32_t)raw >
+                   (uint32_t)old_min + STEER_SAFETY_HARD_RAW_OVERSHOOT) &&
+                  ((uint32_t)raw <=
+                   (uint32_t)old_min + STEER_CAL_PROBE_MAX_EXTENSION_RAW));
+    beyond_max = (((uint32_t)raw + STEER_SAFETY_HARD_RAW_OVERSHOOT <
+                    (uint32_t)old_max) &&
+                  ((uint32_t)raw + STEER_CAL_PROBE_MAX_EXTENSION_RAW >=
+                    (uint32_t)old_max));
+  }
+  else
+  {
+    beyond_min = (((uint32_t)raw + STEER_SAFETY_HARD_RAW_OVERSHOOT <
+                    (uint32_t)old_min) &&
+                  ((uint32_t)raw + STEER_CAL_PROBE_MAX_EXTENSION_RAW >=
+                    (uint32_t)old_min));
+    beyond_max = (((uint32_t)raw >
+                   (uint32_t)old_max + STEER_SAFETY_HARD_RAW_OVERSHOOT) &&
+                  ((uint32_t)raw <=
+                   (uint32_t)old_max + STEER_CAL_PROBE_MAX_EXTENSION_RAW));
+  }
+  if ((beyond_min == 0U) && (beyond_max == 0U)) return 0U;
+
+  if (steer_cal_active != 0U)
+  {
+    /* The SELECT owner still checks direction, progress, stage timeout,
+     * raw NC level, late IRQs and its own PWM limits. The global gate
+     * must not preempt a correct NC discovery due to a stale old RAW. */
+    authorized = 1U;
+    steer_cal_probe_envelope_last_reason = 1U;
+  }
+  else if (((beyond_min != 0U) && (active == min_bit)) ||
+           ((beyond_max != 0U) && (active == max_bit)))
+  {
+    /* An asserted NC only permits safe recovery checks; separate
+     * control owners decide whether motion away can be energized. */
+    authorized = 1U;
+    steer_cal_probe_envelope_last_reason = 2U;
+  }
+  if (authorized != 0U)
+  {
+    steer_cal_probe_envelope_allow_count++;
+    steer_cal_probe_envelope_last_side = left ? 1U : 2U;
+    steer_cal_probe_envelope_last_raw = raw;
+  }
+  return authorized;
+}
+
+
 static void Steering_CalLeftOff(void)
 {
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
@@ -7138,13 +7221,15 @@ static void Steering_PS2ManualArmUpdate(void)
 
     if (left_ok != 0U)
     {
-      left_envelope = Steering_SafetyHardEnvelopeValid(1U, left_raw);
+      left_envelope = Steering_SafetyEnvelopeWithNcDiscovery(
+          1U, left_raw, Steering_TestRawLimitMask());
       if (left_envelope == 0U) fail |= 0x04U;
     }
     else if ((fail & 0x03U) == 0U) fail |= 0x40U;
     if (right_ok != 0U)
     {
-      right_envelope = Steering_SafetyHardEnvelopeValid(0U, right_raw);
+      right_envelope = Steering_SafetyEnvelopeWithNcDiscovery(
+          0U, right_raw, Steering_TestRawLimitMask());
       if (right_envelope == 0U) fail |= 0x20U;
     }
     else if ((fail & 0x18U) == 0U) fail |= 0x80U;
@@ -8373,9 +8458,12 @@ int main(void)
           steer_safety_trip_reason = 3U;
           steer_safety_trip_latched = 1U;
         }
-        else if ((Steering_SafetyHardEnvelopeValid(1U, lraw) == 0U) ||
-                 (Steering_SafetyHardEnvelopeValid(0U, rraw) == 0U))
+        else if ((Steering_SafetyEnvelopeWithNcDiscovery(1U, lraw, nc) == 0U) ||
+                 (Steering_SafetyEnvelopeWithNcDiscovery(0U, rraw, nc) == 0U))
         {
+          /* Bounded NC discovery is not global angle failure. Outside
+           * its 64-RAW boundary or with invalid geometry/NC, reason4
+           * still latches STOP exactly as in the normal mode. */
           steer_safety_trip_reason = 4U;
           steer_safety_trip_left_raw = lraw;
           steer_safety_trip_right_raw = rraw;
