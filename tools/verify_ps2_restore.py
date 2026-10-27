@@ -64,6 +64,10 @@ must_have = {
     "probe envelope debug reason": r"steer_cal_probe_envelope_last_reason",
 
     "R1/R2 position owner": r"Steering_PositionUpdate\(\)",
+    "R2 retains near-MIN LEFT target": r"steer_pos_left_r2_target_raw\s*=\s*2297U",
+    "R2 retains near-MIN RIGHT target": r"steer_pos_right_r2_target_raw\s*=\s*191U",
+    "R2 target separated from discovered NC": r"left\s*\?\s*steer_pos_left_r2_target_raw\s*:",
+    "R2 never commands past new RIGHT NC": r"goal\s*<\s*STEER_POS_RIGHT_MIN_RAW",
     "SELECT calibration owner": r"Steering_CalUpdate\(\)",
     "safety actuator gate": r"steer_safety_motion_permit\s*!=\s*1U",
     "independent sensor safety latch": r"steer_safety_trip_latched\s*=\s*1U",
