@@ -20,7 +20,7 @@ expected = {
     "steer_cal_left_min_runtime": 2297,
     "STEER_POS_LEFT_CENTER_RAW": 1873,
     "steer_cal_left_max_runtime": 1374,
-    "steer_cal_right_min_runtime": 191,
+    "steer_cal_right_min_runtime": 166,
     "STEER_POS_RIGHT_CENTER_RAW": 662,
     "steer_cal_right_max_runtime": 982,
 }
@@ -32,12 +32,12 @@ for name, number in expected.items():
     assert re.search(pattern, src), f"wrong or missing {name}={number}"
 
 lmin, lcenter, lmax = 2297, 1873, 1374
-rmin, rcenter, rmax = 191, 662, 982
+rmin, rcenter, rmax = 166, 662, 982
 assert lmax < lcenter < lmin and rmin < rcenter < rmax
 assert lmin - lmax == 923
-assert rmax - rmin == 791
+assert rmax - rmin == 816
 assert lmax + 100 < lcenter < lmin - 100
-assert rmin + 40 < rcenter < rmax - 40
+assert rmin + 50 < rcenter < rmax - 100
 assert "static uint8_t Steering_PositionGeometryValid(" in src
 assert "static uint8_t Steering_SafetyHardEnvelopeValid(" in src
 assert "return Steering_PositionGeometryValid(left, axis->min_raw," in src
@@ -71,7 +71,7 @@ stub = """
 #define STEER_SAFETY_HARD_RAW_OVERSHOOT 8U
 static uint16_t steer_cal_left_min_runtime = 2297U;
 static uint16_t steer_cal_left_max_runtime = 1374U;
-static uint16_t steer_cal_right_min_runtime = 191U;
+static uint16_t steer_cal_right_min_runtime = 166U;
 static uint16_t steer_cal_right_max_runtime = 982U;
 #define STEER_POS_LEFT_MIN_RAW (steer_cal_left_min_runtime)
 #define STEER_POS_LEFT_MAX_RAW (steer_cal_left_max_runtime)
@@ -89,30 +89,31 @@ tests = """
 int main(void)
 {
   assert(Steering_PositionGeometryValid(1U, 2297U, 1374U) == 1U);
-  assert(Steering_PositionGeometryValid(0U, 191U, 982U) == 1U);
+  assert(Steering_PositionGeometryValid(0U, 166U, 982U) == 1U);
   assert(Steering_PositionGeometryValid(0U, 2934U, 3680U) == 0U);
   assert(Steering_PositionGeometryValid(1U, 1374U, 2297U) == 0U);
-  assert(Steering_PositionGeometryValid(0U, 982U, 191U) == 0U);
+  assert(Steering_PositionGeometryValid(0U, 982U, 166U) == 0U);
   assert(Steering_PositionGeometryValid(0U, 4090U, 982U) == 0U);
   assert(Steering_PositionGeometryValid(1U, 2297U, 4090U) == 0U);
-  assert(Steering_PositionGeometryValid(0U, 191U, 4000U) == 0U);
+  assert(Steering_PositionGeometryValid(0U, 166U, 4000U) == 0U);
   assert(Steering_SafetyHardEnvelopeValid(1U, 1873U) == 1U);
   assert(Steering_SafetyHardEnvelopeValid(0U, 662U) == 1U);
   assert(Steering_SafetyHardEnvelopeValid(1U, 2297U) == 1U);
-  assert(Steering_SafetyHardEnvelopeValid(0U, 191U) == 1U);
+  assert(Steering_SafetyHardEnvelopeValid(0U, 166U) == 1U);
+  assert(Steering_SafetyHardEnvelopeValid(0U, 162U) == 1U); /* prior post-trip observation */
   assert(Steering_SafetyHardEnvelopeValid(1U, 2305U) == 1U);
   assert(Steering_SafetyHardEnvelopeValid(1U, 2306U) == 0U);
   assert(Steering_SafetyHardEnvelopeValid(1U, 1366U) == 1U);
   assert(Steering_SafetyHardEnvelopeValid(1U, 1365U) == 0U);
-  assert(Steering_SafetyHardEnvelopeValid(0U, 183U) == 1U);
-  assert(Steering_SafetyHardEnvelopeValid(0U, 182U) == 0U);
+  assert(Steering_SafetyHardEnvelopeValid(0U, 158U) == 1U);
+  assert(Steering_SafetyHardEnvelopeValid(0U, 157U) == 0U);
   assert(Steering_SafetyHardEnvelopeValid(0U, 990U) == 1U);
   assert(Steering_SafetyHardEnvelopeValid(0U, 991U) == 0U);
   assert(Steering_SafetyHardEnvelopeValid(0U, 3398U) == 0U);
   steer_cal_right_min_runtime = 2934U;
   steer_cal_right_max_runtime = 3680U;
   assert(Steering_SafetyHardEnvelopeValid(0U, 662U) == 0U);
-  puts("PASS: actual extracted C geometry & safety envelope: 22 cases");
+  puts("PASS: actual extracted C geometry & safety envelope: 23 cases");
   return 0;
 }
 """
