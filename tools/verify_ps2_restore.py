@@ -57,7 +57,11 @@ must_have = {
     "PS2 arm needs neutral": r"Steering_ManualInputsNeutral\(\)\s*==\s*0U",
     "PS2 arm denies dual NC on RIGHT": r"\(Steering_TestRawLimitMask\(\)\s*&\s*0x03U\)\s*==\s*0x03U",
     "PS2 arm denies dual NC on LEFT": r"\(Steering_TestRawLimitMask\(\)\s*&\s*0x0CU\)\s*==\s*0x0CU",
-    "PS2 arm validates AS5600 hard envelope": r"Steering_SafetyHardEnvelopeValid\(0U, right_raw\)",
+    "PS2 arm uses bounded NC discovery envelope": r"Steering_SafetyEnvelopeWithNcDiscovery\(",
+    "bounded SELECT probe max 64 RAW": r"STEER_CAL_PROBE_MAX_EXTENSION_RAW\s+64U",
+    "strict default still first": r"if\s*\(Steering_SafetyHardEnvelopeValid\(left, raw\)\s*!=\s*0U\)\s*return\s*1U;",
+    "no extension without SELECT or own NC": r"else if\s*\(\(\(beyond_min\s*!=\s*0U\)",
+    "probe envelope debug reason": r"steer_cal_probe_envelope_last_reason",
 
     "R1/R2 position owner": r"Steering_PositionUpdate\(\)",
     "SELECT calibration owner": r"Steering_CalUpdate\(\)",
@@ -132,6 +136,16 @@ else:
 if "HAL_Delay(20);  /* Chu kỳ điều khiển khoảng 50 Hz */" not in src:
     fail.append("M6 wheel-control loop cadence altered by latency change")
 
+# START and the global safety loop must use the same bounded physical
+# discovery helper. The 8-RAW strict envelope remains the default for
+# normal D-pad/R1/R2 when no physical NC is pressed.
+if "Steering_SafetyEnvelopeWithNcDiscovery(1U, lraw, nc) == 0U" not in src:
+    fail.append("main hard-envelope gate bypassed or not discovery-aware")
+if "Steering_SafetyEnvelopeWithNcDiscovery(0U, rraw, nc) == 0U" not in src:
+    fail.append("main RIGHT gate bypassed or not discovery-aware")
+if "Steering_SafetyHardEnvelopeValid(left, raw) != 0U" not in src:
+    fail.append("strict 8-RAW envelope no longer first gate")
+
 # Restored M7-S10 endstop policy: IRQ affects the owning motor only.
 # No NC level may latch a vehicle-wide fault. Hard-angle and AS5600
 # failures still use their independent global safety latch.
@@ -184,8 +198,8 @@ else:
         "right_ok = Steering_PositionReadOne(0U, &right_raw);",
         "AS5600_DebugReadingValid(1U, debug_as5600_left_status)",
         "AS5600_DebugReadingValid(1U, debug_as5600_right_status)",
-        "Steering_SafetyHardEnvelopeValid(1U, left_raw)",
-        "Steering_SafetyHardEnvelopeValid(0U, right_raw)",
+        "Steering_SafetyEnvelopeWithNcDiscovery(",
+        "Steering_TestRawLimitMask()",
         "steer_ps2_arm_sensor_fail_mask = fail;",
         "steer_ps2_manual_arm_status = 9U;",
         "(left_envelope == 0U) || (right_envelope == 0U)",
