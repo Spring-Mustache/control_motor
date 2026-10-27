@@ -1714,6 +1714,13 @@ volatile uint16_t steer_cal_left_min_runtime = 2297U;
 volatile uint16_t steer_cal_left_max_runtime = 1374U;
 volatile uint16_t steer_cal_right_min_runtime = 166U;
 volatile uint16_t steer_cal_right_max_runtime = 982U;
+/* R2 = repeatable near-MIN positioning, not an NC discovery scan.
+ * These bench-accepted original targets remain independent from the
+ * physical MIN contacts learned by SELECT. Never drive R2 beyond the
+ * latest NC position after calibration shifts.
+ */
+volatile uint16_t steer_pos_left_r2_target_raw = 2297U;
+volatile uint16_t steer_pos_right_r2_target_raw = 191U;
 #define STEER_POS_LEFT_MIN_RAW       (steer_cal_left_min_runtime)
 #define STEER_POS_LEFT_CENTER_RAW     1873U
 #define STEER_POS_LEFT_MAX_RAW       (steer_cal_left_max_runtime)
@@ -2507,7 +2514,20 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
 
   goal = (steer_pos_command == 1U) ?
       (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
-      (left ? STEER_POS_LEFT_MIN_RAW : STEER_POS_RIGHT_MIN_RAW);
+      (left ? steer_pos_left_r2_target_raw :
+              steer_pos_right_r2_target_raw);
+  /* New SELECT NC samples are authoritative for physical HARD limits,
+   * but they must never push a formerly safe R2 setpoint farther
+   * INTO a changed NC. Clamp only if a stored R2 target has become
+   * geometrically past that endpoint.
+   */
+  if (steer_pos_command == 2U)
+  {
+    if ((left != 0U) && (goal > STEER_POS_LEFT_MIN_RAW))
+      goal = STEER_POS_LEFT_MIN_RAW;
+    else if ((left == 0U) && (goal < STEER_POS_RIGHT_MIN_RAW))
+      goal = STEER_POS_RIGHT_MIN_RAW;
+  }
   err = AS5600_ShortestDeltaCounts(raw, goal);
   if (left != 0U) steer_pos_left_error = err;
   else steer_pos_right_error = err;
