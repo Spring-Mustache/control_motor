@@ -43,7 +43,9 @@ must_have = {
     "LEFT MIN guarded closer default": r"steer_manual_left_soft_margin_raw\s*=\s*60U",
     "LEFT MAX independently trimmed 20": r"steer_manual_left_max_soft_margin_raw\s*=\s*80U",
     "LEFT MAX separate limit": r"STEER_MANUAL_LEFT_SOFT_MAX\s+\(STEER_POS_LEFT_MAX_RAW\s*\+\s*STEER_MANUAL_LEFT_MAX_SOFT_MARGIN_RAW\)",
-    "RIGHT MIN staged bounded closer": r"steer_manual_right_soft_margin_raw\s*=\s*30U",
+    "RIGHT MIN calibrated physical NC 166": r"steer_cal_right_min_runtime\s*=\s*166U",
+    "RIGHT MIN soft clearance from 166": r"steer_manual_right_soft_margin_raw\s*=\s*50U",
+    "hard position overflow guard still 8": r"#define\s+STEER_SAFETY_HARD_RAW_OVERSHOOT\s+8U",
     "RIGHT MAX retained": r"STEER_MANUAL_RIGHT_SOFT_MAX\s+\(STEER_POS_RIGHT_MAX_RAW\s*-\s*STEER_MANUAL_RIGHT_MAX_SOFT_MARGIN_RAW\)",
     "shorter LEFT motion settle minimum": r"STEER_MANUAL_START_LEFT_MIN_MS\s+100U",
     "shorter RIGHT motion settle minimum": r"STEER_MANUAL_START_RIGHT_MIN_MS\s+160U",
@@ -121,9 +123,9 @@ m = {
 if all(m.values()):
     stop = {"lmin": 2297 - int(m["lmin"].group(1)),
             "lmax": 1374 + int(m["lmax"].group(1)),
-            "rmin": 191 + int(m["rmin"].group(1)),
+            "rmin": 166 + int(m["rmin"].group(1)),
             "rmax": 982 - int(m["rmax"].group(1))}
-    if stop != {"lmin": 2237, "lmax": 1454, "rmin": 221, "rmax": 882}:
+    if stop != {"lmin": 2237, "lmax": 1454, "rmin": 216, "rmax": 882}:
         fail.append(f"manual soft-limit staged thresholds altered: {stop}")
 else:
     fail.append("missing per-direction manual soft-limit defaults")
