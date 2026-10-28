@@ -5351,10 +5351,28 @@ static void Steering_ManualUpdate(void)
     Steering_ManualAxisFault(1U, 15U); /* master fault */
     la = 0U;
   }
-  Steering_SyncApply(HAL_GetTick(), la, ra, &la);
-  /* RIGHT-master speed PI stays intact. Phase trimming is a final
-   * downward-only cap when BOTH axes are moving toward their own
-   * soft endpoints, after independent quiet settling and sensor checks.
+  /* Angle-waypoint control replaces the old RIGHT-master speed PI
+   * ONLY while both manual axes are in ordinary MOVING state.
+   * Otherwise the PI could hold LEFT at PWM=0 whenever the new
+   * angle coordinator deliberately holds RIGHT: both would deadlock.
+   * Existing PI continues to handle independent LEFT finish after a
+   * normal RIGHT completion and all non-waypoint/manual escape modes.
+   * Preserve its tested LEFT max-300 PWM envelope when bypassed.
+   */
+  if ((steer_angle_wp_enable == 1U) &&
+      (steer_manual_left_state == STEER_MANUAL_MOVING) &&
+      (steer_manual_right_state == STEER_MANUAL_MOVING))
+  {
+    if (la > 300U) la = 300U;
+    steer_sync_active = 0U;
+    steer_sync_left_pwm_command = la;
+    steer_sync_right_pwm_reference = ra;
+  }
+  else
+    Steering_SyncApply(HAL_GetTick(), la, ra, &la);
+
+  /* Shared angle waypoints apply a final downward-only PWM cap after
+   * independent NC, AS5600 and manual soft-stop checks.
    */
   if ((steer_manual_left_state == STEER_MANUAL_MOVING) &&
       (steer_manual_right_state == STEER_MANUAL_MOVING) &&
