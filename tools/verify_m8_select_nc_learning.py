@@ -56,9 +56,9 @@ check("SELECT remains bounded if NC fails",
                               "Steering_CalStageTimeout(",
                               "Steering_CalMotionFault(",
                               "Steering_PositionGeometryValid(")))
-check("NC scan does not silently rewrite independent R2 parking targets",
-      "steer_pos_left_r2_target_raw = 2240U;" in src and
-      "steer_pos_right_r2_target_raw = 223U;" in src and
+check("NC scan does not silently rewrite bounded R2 seek references",
+      "steer_pos_left_r2_target_raw = 2297U;" in src and
+      "steer_pos_right_r2_target_raw = 166U;" in src and
       "steer_cal_left_min_runtime = 2297U;" in src and
       "steer_cal_right_min_runtime = 166U;" in src)
 check("safe diagnostic export reports physical versus committed endpoints",
