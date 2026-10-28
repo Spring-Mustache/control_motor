@@ -56,9 +56,11 @@ check("SELECT remains bounded if NC fails",
                               "Steering_CalStageTimeout(",
                               "Steering_CalMotionFault(",
                               "Steering_PositionGeometryValid(")))
-check("safe NC scan does not silently rewrite R2 targets",
-      "steer_pos_left_r2_target_raw = 2297U;" in src and
-      "steer_pos_right_r2_target_raw = 191U;" in src)
+check("NC scan does not silently rewrite independent R2 parking targets",
+      "steer_pos_left_r2_target_raw = 2240U;" in src and
+      "steer_pos_right_r2_target_raw = 223U;" in src and
+      "steer_cal_left_min_runtime = 2297U;" in src and
+      "steer_cal_right_min_runtime = 166U;" in src)
 check("safe diagnostic export reports physical versus committed endpoints",
       all(x in src for x in ("M8S00_CAL_CONTACT,minL=%u,maxL=%u,minR=%u,maxR=%u",
                               "M8S00_CAL_RUNTIME,minL=%u,maxL=%u,minR=%u,maxR=%u",
