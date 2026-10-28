@@ -4318,6 +4318,61 @@ static uint8_t M8S04_DumpAngleWaypoint(void)
   return M8S00_UartLine(line, n);
 }
 
+/* M8-S05: independent run timing for R1, R2, D-pad and joystick RX.
+ * Distinguish endpoint arrivals from short manual steering inputs.
+ * No synchronization claim is made when an input was released early.
+ */
+static uint8_t M8S05_DumpTiming(void)
+{
+  uint8_t kind;
+  char line[270];
+  int n;
+  for (kind = 1U; kind <= 4U; kind++)
+  {
+    const M8S00Arrival_t *p = &m8_s05_last_run[kind];
+    uint32_t tl = ((p->reached & 1U) != 0U) ?
+        (uint32_t)(p->tick_l - p->start_ms) : 0U;
+    uint32_t tr = ((p->reached & 2U) != 0U) ?
+        (uint32_t)(p->tick_r - p->start_ms) : 0U;
+    uint32_t skew = (tl > tr) ? (tl - tr) : (tr - tl);
+    uint32_t fl = ((p->fine_seen & 1U) != 0U) ?
+        (uint32_t)(p->fine_tick_l - p->start_ms) : 0U;
+    uint32_t fr = ((p->fine_seen & 2U) != 0U) ?
+        (uint32_t)(p->fine_tick_r - p->start_ms) : 0U;
+    uint8_t valid = (uint8_t)((p->run_id != 0U) &&
+        (p->reached == 3U) && (p->powered == 3U) &&
+        (p->faults == 0U) &&
+        (((kind >= 3U) && (p->stop_code == 0U)) ||
+         ((kind <= 2U) && (p->stop_code == 2U))));
+    n = snprintf(line, sizeof(line),
+        "M8S05_RUN,kind=%u,trials=%lu,run=%lu,valid=%u,"
+        "L_ms=%lu,R_ms=%lu,skewMs=%lu,Lfine_ms=%lu,Rfine_ms=%lu,"
+        "reached=%u,powered=%u,faults=%u,stop=%u\r\n",
+        (unsigned)kind, (unsigned long)m8_s05_run_count[kind],
+        (unsigned long)p->run_id, (unsigned)valid,
+        (unsigned long)tl, (unsigned long)tr,
+        (unsigned long)((valid != 0U) ? skew : 0U),
+        (unsigned long)fl, (unsigned long)fr,
+        (unsigned)p->reached, (unsigned)p->powered,
+        (unsigned)p->faults, (unsigned)p->stop_code);
+    if (M8S00_UartLine(line, n) == 0U) return 0U;
+  }
+  n = snprintf(line, sizeof(line),
+      "M8S05_PACE,enable=%u,lead=%u,r1Frames=%lu,r1Holds=%lu,"
+      "r1FineHolds=%lu,r2Frames=%lu,r2Holds=%lu,"
+      "manualFrames=%lu,manualHolds=%lu\r\n",
+      (unsigned)steer_angle_wp_enable,
+      (unsigned)steer_angle_wp_lead_permille,
+      (unsigned long)steer_angle_wp_frames_r1,
+      (unsigned long)steer_angle_wp_holds_r1,
+      (unsigned long)steer_angle_wp_r1_fine_hold_frames,
+      (unsigned long)steer_angle_wp_frames_r2,
+      (unsigned long)steer_angle_wp_holds_r2,
+      (unsigned long)steer_angle_wp_frames_manual,
+      (unsigned long)steer_angle_wp_holds_manual);
+  return M8S00_UartLine(line, n);
+}
+
 static uint8_t M8S00_DumpArrival(void)
 {
   const M8S00Arrival_t *p = &m8_s00_arrival;
@@ -4444,6 +4499,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpSync() == 0U) ||
       (M8S00_DumpPhase() == 0U) ||
       (M8S04_DumpAngleWaypoint() == 0U) ||
+      (M8S05_DumpTiming() == 0U) ||
       (M8S00_DumpArrival() == 0U) ||
       (M8S00_DumpInputResponse() == 0U) ||
       (M8S00_DumpConcurrent() == 0U) ||
