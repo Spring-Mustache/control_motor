@@ -2015,6 +2015,7 @@ volatile uint32_t m8_s00_dump_count = 0U;
 /* MCU-side output overlap sampled after all PWM owners (not proof of
  * actual driver voltage/motor motion). Read-only since-boot counters.
  */
+volatile uint32_t ps2_drive_steer_request_frames = 0U;
 volatile uint32_t m8_s00_fourwheel_pwm_frames = 0U;
 volatile uint32_t m8_s00_joint_any_steer_frames = 0U;
 volatile uint32_t m8_s00_joint_both_steer_frames = 0U;
@@ -8087,7 +8088,7 @@ static uint8_t PS2_IsManualControlActive(void)
 /* M8: count PS2 request frames combining wheel drive + steering.
  * Does not claim that all six physical motors were moving safely.
  */
-volatile uint32_t ps2_drive_steer_request_frames = 0U;
+/* Counter storage declared above with M8-S00 UART diagnostics. */
 static void PS2_ApplyManualControl(void)
 {
   int16_t pwm_duty = PS2_Convert_LY_To_PWM(PS2_Pad.LY);
