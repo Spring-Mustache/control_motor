@@ -2293,6 +2293,8 @@ static uint8_t steer_angle_wp_owner_mode = 0U; /* only live owner */
 volatile uint32_t steer_angle_wp_frames = 0U;
 volatile uint32_t steer_angle_wp_hold_frames = 0U;
 volatile uint32_t steer_angle_wp_r1_fine_hold_frames = 0U;
+volatile uint32_t steer_angle_wp_trim_frames = 0U;
+volatile uint16_t steer_angle_wp_last_trim_pwm = 0U;
 volatile uint32_t steer_angle_wp_frames_r1 = 0U;
 volatile uint32_t steer_angle_wp_frames_r2 = 0U;
 volatile uint32_t steer_angle_wp_frames_manual = 0U;
@@ -2375,6 +2377,7 @@ static void Steering_AngleWaypointApply(uint8_t mode,
     uint16_t start_l, uint16_t goal_l, uint16_t raw_l,
     uint16_t start_r, uint16_t goal_r, uint16_t raw_r,
     uint8_t allow_hold_l, uint8_t allow_hold_r,
+    uint16_t floor_l, uint16_t floor_r,
     uint16_t *duty_l, uint16_t *duty_r)
 {
   int16_t sl, gl, al, sr, gr, ar;
@@ -2383,6 +2386,7 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   int32_t target_l, target_r;
   uint32_t now = HAL_GetTick();
   uint8_t mask = steer_angle_wp_hold_mask;
+  steer_angle_wp_last_trim_pwm = 0U;
 
   /* Both coarse: either can be paced. R1 fine: pace ONLY the
    * opposite coarse motor, never truncate a timed fine pulse.
@@ -2467,6 +2471,38 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   }
   if (mask == 1U) *duty_l = 0U;
   else if (mask == 2U) *duty_r = 0U;
+  else
+  {
+    /* Before the hard 3% hold, smoothly slow the leading axis when
+     * >1% ahead. Never command below that axis's already tested PWM
+     * floor; if no floor headroom remains the hard lead hold can still
+     * protect timing. Neither servo's max/limit/approach is raised.
+     */
+    int32_t error = (int32_t)pl - (int32_t)pr;
+    uint16_t trim = 0U;
+    uint16_t room;
+    if ((error > 10) && (allow_hold_l != 0U))
+    {
+      trim = (uint16_t)((error - 10) * 2);
+      if (trim > 64U) trim = 64U;
+      room = (*duty_l > floor_l) ?
+          (uint16_t)(*duty_l - floor_l) : 0U;
+      if (trim > room) trim = room;
+      *duty_l = (uint16_t)(*duty_l - trim);
+    }
+    else if ((error < -10) && (allow_hold_r != 0U))
+    {
+      trim = (uint16_t)((-error - 10) * 2);
+      if (trim > 64U) trim = 64U;
+      room = (*duty_r > floor_r) ?
+          (uint16_t)(*duty_r - floor_r) : 0U;
+      if (trim > room) trim = room;
+      *duty_r = (uint16_t)(*duty_r - trim);
+    }
+    steer_angle_wp_last_trim_pwm = trim;
+    if ((trim != 0U) && (steer_angle_wp_trim_frames != 0xffffffffUL))
+      steer_angle_wp_trim_frames++;
+  }
   steer_angle_wp_hold_mask = mask;
   if ((mask != 0U) && (steer_angle_wp_hold_frames != 0xffffffffUL))
     steer_angle_wp_hold_frames++;
@@ -3609,7 +3645,10 @@ static void Steering_PositionUpdate(void)
         Steering_AngleWaypointApply(steer_pos_command,
             steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
             steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
-            coarse_l, coarse_r, &left_cmd, &right_cmd);
+            coarse_l, coarse_r,
+            Steering_PositionClampDuty(steer_pos_left_pwm_min),
+            Steering_PositionClampDuty(steer_pos_right_pwm_min),
+            &left_cmd, &right_cmd);
     }
     else if ((coarse_l != 0U) && (coarse_r != 0U))
       Steering_PhaseLimit(steer_pos_command,
@@ -4360,7 +4399,7 @@ static uint8_t M8S05_DumpTiming(void)
   n = snprintf(line, sizeof(line),
       "M8S05_PACE,enable=%u,lead=%u,r1Frames=%lu,r1Holds=%lu,"
       "r1FineHolds=%lu,r2Frames=%lu,r2Holds=%lu,"
-      "manualFrames=%lu,manualHolds=%lu\r\n",
+      "manualFrames=%lu,manualHolds=%lu,trimFrames=%lu,trimPWM=%u\r\n",
       (unsigned)steer_angle_wp_enable,
       (unsigned)steer_angle_wp_lead_permille,
       (unsigned long)steer_angle_wp_frames_r1,
@@ -4369,7 +4408,9 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned long)steer_angle_wp_frames_r2,
       (unsigned long)steer_angle_wp_holds_r2,
       (unsigned long)steer_angle_wp_frames_manual,
-      (unsigned long)steer_angle_wp_holds_manual);
+      (unsigned long)steer_angle_wp_holds_manual,
+      (unsigned long)steer_angle_wp_trim_frames,
+      (unsigned)steer_angle_wp_last_trim_pwm);
   return M8S00_UartLine(line, n);
 }
 
@@ -5531,7 +5572,10 @@ static void Steering_ManualUpdate(void)
           steer_manual_left_soft_target, debug_as5600_left_raw,
           steer_manual_right_axis.phase_start_raw,
           steer_manual_right_soft_target, debug_as5600_right_raw,
-          1U, 1U, &la, &ra);
+          1U, 1U,
+          Steering_ManualClampPWM(steer_manual_left_rx_min_pwm),
+          Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
+          &la, &ra);
     else
       Steering_PhaseLimit(3U,
           steer_manual_left_axis.phase_start_raw,
