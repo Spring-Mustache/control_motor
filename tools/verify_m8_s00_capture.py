@@ -5,6 +5,9 @@ import re
 
 root = Path(__file__).resolve().parents[1]
 main = (root / "Core" / "Src" / "main.c").read_text(encoding="utf-8")
+logger = (root / "Services" / "Src" / "ram_logger.c").read_text(encoding="utf-8")
+header = (root / "Services" / "Inc" / "ram_logger.h").read_text(encoding="utf-8")
+wheel = (root / "Core" / "Src" / "wheel_control.c").read_text(encoding="utf-8")
 
 checks = [
     ("capture struct", "M8S00StopSnapshot_t" in main),
@@ -67,6 +70,24 @@ checks = [
     ("no extra sensor read inside UART dump", re.search(
         r"static void M8S00_DumpUpdate\(void\)\n\{([\s\S]*?)\n\}",
         main) is not None),
+    ("USER diagnostic vars defined", all(k in logger for k in (
+        "volatile uint8_t wheel_log_m8_s00_ready = 0U;",
+        "volatile uint8_t wheel_log_m8_s00_button_dump_request = 0U;"))),
+    ("USER routing priority", re.search(
+        r"static void WC_LogHandleShortUserPress\(void\)[\s\S]*?"
+        r"wheel_log_m8_s00_ready[\s\S]*?wheel_log_active != 0U", logger) is not None),
+    ("USER diagnostic vars declared", all(k in header for k in (
+        "extern volatile uint8_t wheel_log_m8_s00_ready;",
+        "extern volatile uint8_t wheel_log_m8_s00_button_dump_request;"))),
+    ("USER main loop wired", "m8_s00_dump_request = 1U;" in main and
+        "wheel_log_m8_s00_button_dump_request = 0U;" in main),
+    ("boot-on wheel PID", "volatile uint8_t wheel_pid_enable = 1U;" in wheel and
+        "wheel_pid_enable = 1U;" in wheel),
+    ("PID snapshot exported", all(k in main for k in (
+        "v.wheel_pid_enable = wheel_pid_enable;",
+        "v.wheel_pid_active = wheel_pid_active;",
+        "v.wheel_pid_update_count = wheel_pid_update_count;",
+        'M8S00_PID,%s,enable=%u,active=%u'))),
 ]
 
 failed = []
