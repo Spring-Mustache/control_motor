@@ -1714,7 +1714,9 @@ static uint8_t Steering_ManualDirectionNeutral(void)
 /* M7-S16 post-reassembly endpoint measurements:
  * LEFT  MIN 2297, CENTER 1873, MAX 1374 (RAW decreases to MAX).
  * RIGHT MIN **166** at physically asserted R_MIN NC (new user observation
- * after SELECT failure, 2026-10-27), CENTER 662, MAX 982.
+ * after SELECT failure, 2026-10-27), CENTER 662.
+ * M8-S01 user mechanical adjustment 2026-10-28: RIGHT MAX RAW 1029
+ * replaces prior 982. Confirm physical NC/coasting clearance on stand.
  * Old R_MIN=191 caused a whole-vehicle hard-angle trip below 183,
  * followed by START sensor/envelope rejection 9 despite a healthy magnet.
  * Update the MEASURED geometry, NOT the fixed 8-RAW hard safety margin.
@@ -1726,7 +1728,7 @@ static uint8_t Steering_ManualDirectionNeutral(void)
 volatile uint16_t steer_cal_left_min_runtime = 2297U;
 volatile uint16_t steer_cal_left_max_runtime = 1374U;
 volatile uint16_t steer_cal_right_min_runtime = 166U;
-volatile uint16_t steer_cal_right_max_runtime = 982U;
+volatile uint16_t steer_cal_right_max_runtime = 1029U;
 /* M8: R2 is the physical MIN endstop command, NOT a pre-NC parking
  * position. In-place L1/L2 pivot rotation requires BOTH own MIN NC
  * contacts to be physically asserted. Do not accept a merely close
@@ -1755,7 +1757,7 @@ volatile uint16_t steer_pos_right_r2_target_raw = 166U;
  * CENTER < MIN; RIGHT MIN < CENTER < MAX. Reject any SELECT capture
  * that crosses 4095->0 or reverses the AS5600 orientation; those cases
  * need explicit circular-safe manual control, NOT a guessed limit.
- * Current measured traversals have spans 923 (LEFT), 816 (RIGHT).
+ * Current configured traversals have spans 923 (LEFT), 863 (RIGHT).
  */
 static uint8_t Steering_PositionGeometryValid(uint8_t left,
                                               uint16_t min_raw,
@@ -4641,7 +4643,7 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
   if (dt > 100U) dt = 100U;
   steer_sync_last_update_ms = now;
   /* Equal raw counts/s do NOT mean synchronized travel: the measured
-   * LEFT stroke is 923 RAW while RIGHT is 816 RAW. Match percentage
+   * LEFT stroke is 923 RAW while RIGHT is 863 RAW. Match percentage
    * of each calibrated stroke per second instead. Validated geometry
    * is required by the steering safety gate; retain zero-divisor guard.
    */
