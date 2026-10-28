@@ -2346,11 +2346,79 @@ volatile uint32_t steer_angle_wp_holds_r1 = 0U;
 volatile uint32_t steer_angle_wp_holds_r2 = 0U;
 volatile uint32_t steer_angle_wp_holds_manual = 0U;
 
+/* AS5600 normalized velocity observer, one timestamp per side.
+ * Unit: permille of that side's CURRENT travel distance per second.
+ * No extra I2C. A new command resets both filters and PI integrals.
+ */
+typedef struct {
+  uint32_t sample_ms;
+  uint16_t progress, speed_pms;
+  uint8_t valid, updated;
+} SteeringAngleSpeedObs_t;
+static SteeringAngleSpeedObs_t steer_speed_obs_l = {0};
+static SteeringAngleSpeedObs_t steer_speed_obs_r = {0};
+static int16_t steer_speed_i_l = 0, steer_speed_i_r = 0;
+volatile uint16_t steer_speed_measured_l_pms = 0U;
+volatile uint16_t steer_speed_measured_r_pms = 0U;
+volatile uint16_t steer_speed_reference_pms = 0U;
+volatile uint16_t steer_speed_feedback_boost_l_pwm = 0U;
+volatile uint16_t steer_speed_feedback_boost_r_pwm = 0U;
+volatile uint32_t steer_speed_feedback_frames = 0U;
+volatile uint32_t steer_speed_feedback_sat_frames = 0U;
+
+/* Read the already checked AS5600 sample timestamps, rejecting
+ * stale, backward or discontinuous progress. Only updates on a new
+ * sample, so 5-ms PS2 polling cannot create fabricated velocity.
+ */
+static void Steering_AngleSpeedObserve(SteeringAngleSpeedObs_t *o,
+                                        uint32_t sample_ms,
+                                        uint16_t progress)
+{
+  uint32_t dt;
+  int32_t moved;
+  uint32_t instant;
+  o->updated = 0U;
+  if ((sample_ms == 0U) || (sample_ms == o->sample_ms)) return;
+  if (o->sample_ms != 0U)
+  {
+    dt = (uint32_t)(sample_ms - o->sample_ms);
+    moved = (int32_t)progress - (int32_t)o->progress;
+    if ((dt >= 7U) && (dt <= 150U) &&
+        (moved >= 0) && (moved <= 120))
+    {
+      instant = ((uint32_t)moved * 1000U) / dt;
+      if (instant > 2400U) instant = 2400U;
+      if (o->valid == 0U) o->speed_pms = (uint16_t)instant;
+      else o->speed_pms = (uint16_t)
+          (((uint32_t)o->speed_pms * 3U + instant + 2U) / 4U);
+      o->valid = 1U;
+      o->updated = 1U;
+    }
+    else
+      o->valid = 0U;
+  }
+  o->progress = progress;
+  o->sample_ms = sample_ms;
+}
+
 static void Steering_AngleWaypointReset(void)
 {
   /* Keep last-mode and angle evidence for post-DISARM UART dump. */
   steer_angle_wp_hold_mask = 0U;
   steer_angle_wp_owner_mode = 0U;
+  /* Fresh sensor speed references for each new R1/R2/D-pad/RX stroke. */
+  {
+    SteeringAngleSpeedObs_t zero = {0};
+    steer_speed_obs_l = zero;
+    steer_speed_obs_r = zero;
+  }
+  steer_speed_i_l = 0;
+  steer_speed_i_r = 0;
+  steer_speed_measured_l_pms = 0U;
+  steer_speed_measured_r_pms = 0U;
+  steer_speed_reference_pms = 0U;
+  steer_speed_feedback_boost_l_pwm = 0U;
+  steer_speed_feedback_boost_r_pwm = 0U;
 }
 
 /* No AS5600 transactions in the mapping. The normal owner read already
@@ -2530,105 +2598,161 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   else if (mode == 3U && steer_angle_wp_frames_manual != 0xffffffffUL)
     steer_angle_wp_frames_manual++;
 
-  /* OFF at >3% lead; ON again below 1.5%. Timeouts/NC win. */
-  if (((mask == 1U) && (allow_hold_l == 0U)) ||
-      ((mask == 2U) && (allow_hold_r == 0U)))
-    mask = 0U;
-  if (mask == 1U)
+  /* M8-S00 closed-loop speed+phase servo:
+   *   - measure normalized angular velocities from AS5600 (not PWM);
+   *   - target = 1.2 x current faster measured angular progress rate;
+   *   - add bounded PI/P corrections ONLY to lagging/slow channels;
+   *   - never zero a channel just because it is leading.
+   * Hard caps remain LEFT<=300, RIGHT<=100 tested PWM; 100-RAW
+   * endpoint coast window and R1 fine correction prohibit boosting.
+   * Speed target may saturate; do NOT report +20% actual speed without
+   * a loaded chassis measurement.
+   */
   {
-    if ((int32_t)pl <= (int32_t)pr + (int32_t)(lead / 2U))
-      mask = 0U;
-  }
-  else if (mask == 2U)
-  {
-    if ((int32_t)pr <= (int32_t)pl + (int32_t)(lead / 2U))
-      mask = 0U;
-  }
-  if (mask == 0U)
-  {
-    if ((allow_hold_l != 0U) &&
-        ((int32_t)pl > (int32_t)pr + (int32_t)lead)) mask = 1U;
-    else if ((allow_hold_r != 0U) &&
-             ((int32_t)pr > (int32_t)pl + (int32_t)lead)) mask = 2U;
-  }
-  if (mask == 1U) *duty_l = 0U;
-  else if (mask == 2U) *duty_r = 0U;
-  else
-  {
-    /* Before the hard 3% hold, smoothly slow the leading axis when
-     * >1% ahead. Never command below that axis's already tested PWM
-     * floor; if no floor headroom remains the hard lead hold can still
-     * protect timing. Neither servo's max/limit/approach is raised.
+    uint16_t cap_l = (mode == 3U) ?
+        steer_manual_left_rx_max_pwm : steer_pos_left_pwm_max;
+    uint16_t cap_r = (mode == 3U) ?
+        steer_manual_right_rx_max_pwm : steer_pos_right_pwm_max;
+    uint16_t speed_target = 0U;
+    uint16_t dist_l = (raw_l > goal_l) ?
+        (raw_l - goal_l) : (goal_l - raw_l);
+    uint16_t dist_r = (raw_r > goal_r) ?
+        (raw_r - goal_r) : (goal_r - raw_r);
+    int32_t e_l, e_r;
+    uint32_t demand_l, demand_r, room_l, room_r;
+    uint16_t pwm_add_l = 0U, pwm_add_r = 0U;
+    if (cap_l > 300U) cap_l = 300U;
+    if (cap_r > 100U) cap_r = 100U;
+    /* D-pad may have a configured cap above RX-max; do not silently
+     * lower an already tested D-pad PWM, but never exceed 300/100.
      */
-    int32_t error = (int32_t)pl - (int32_t)pr;
-    uint16_t trim = 0U;
-    uint16_t room;
-    if ((error > 10) && (allow_hold_l != 0U))
+    if (mode == 3U)
     {
-      trim = (uint16_t)((error - 10) * 2);
-      if (trim > 64U) trim = 64U;
-      room = (*duty_l > floor_l) ?
-          (uint16_t)(*duty_l - floor_l) : 0U;
-      if (trim > room) trim = room;
-      *duty_l = (uint16_t)(*duty_l - trim);
+      uint16_t dpad_l = steer_manual_left_dpad_pwm;
+      uint16_t dpad_r = steer_manual_right_dpad_pwm;
+      if (dpad_l > 300U) dpad_l = 300U;
+      if (dpad_r > 100U) dpad_r = 100U;
+      if (cap_l < dpad_l) cap_l = dpad_l;
+      if (cap_r < dpad_r) cap_r = dpad_r;
     }
-    else if ((error < -10) && (allow_hold_r != 0U))
+    Steering_AngleSpeedObserve(&steer_speed_obs_l,
+        steer_pos_left_last_sample_ms, pl);
+    Steering_AngleSpeedObserve(&steer_speed_obs_r,
+        steer_pos_right_last_sample_ms, pr);
+    steer_speed_measured_l_pms = steer_speed_obs_l.speed_pms;
+    steer_speed_measured_r_pms = steer_speed_obs_r.speed_pms;
+    steer_speed_feedback_boost_l_pwm = 0U;
+    steer_speed_feedback_boost_r_pwm = 0U;
+    steer_angle_wp_hold_mask = 0U;
+    steer_angle_wp_last_trim_pwm = 0U;
+
+    if ((steer_speed_obs_l.valid == 0U) ||
+        (steer_speed_obs_r.valid == 0U))
     {
-      trim = (uint16_t)((-error - 10) * 2);
-      if (trim > 64U) trim = 64U;
-      room = (*duty_r > floor_r) ?
-          (uint16_t)(*duty_r - floor_r) : 0U;
-      if (trim > room) trim = room;
-      *duty_r = (uint16_t)(*duty_r - trim);
+      steer_speed_reference_pms = 0U;
+      return; /* base PWM already has conservative 20% trial */
     }
-    steer_angle_wp_last_trim_pwm = trim;
-    if ((trim != 0U) && (steer_angle_wp_trim_frames != 0xffffffffUL))
+    speed_target = (steer_speed_obs_l.speed_pms >
+                    steer_speed_obs_r.speed_pms) ?
+                    steer_speed_obs_l.speed_pms :
+                    steer_speed_obs_r.speed_pms;
+    speed_target = (uint16_t)
+        (((uint32_t)speed_target * 120U + 50U) / 100U);
+    if (speed_target > 2400U) speed_target = 2400U;
+    steer_speed_reference_pms = speed_target;
+    if (steer_speed_feedback_frames != 0xffffffffUL)
+      steer_speed_feedback_frames++;
+
+    /* Error combines speed deficit (permille/s), normalized angular
+     * phase lag (permille) and a small anti-windup integral term.
+     * PI is sampled only when BOTH observers update; neither motor
+     * is reversed, halted or driven into a soft/NC boundary.
+     */
+    if ((steer_speed_obs_l.updated != 0U) &&
+        (steer_speed_obs_r.updated != 0U))
+    {
+      int32_t dl = (int32_t)pr - (int32_t)pl;
+      int32_t dr = -dl;
+      if (dl > 0)
+      {
+        steer_speed_i_l += (int16_t)(dl / 12);
+        if (steer_speed_i_l > 24) steer_speed_i_l = 24;
+      }
+      else steer_speed_i_l = 0;
+      if (dr > 0)
+      {
+        steer_speed_i_r += (int16_t)(dr / 12);
+        if (steer_speed_i_r > 12) steer_speed_i_r = 12;
+      }
+      else steer_speed_i_r = 0;
+    }
+
+    e_l = ((int32_t)speed_target -
+           (int32_t)steer_speed_obs_l.speed_pms) / 25 +
+          ((int32_t)pr - (int32_t)pl) / 2 +
+          (int32_t)steer_speed_i_l;
+    e_r = ((int32_t)speed_target -
+           (int32_t)steer_speed_obs_r.speed_pms) / 25 +
+          ((int32_t)pl - (int32_t)pr) / 2 +
+          (int32_t)steer_speed_i_r;
+    if (e_l < 0) e_l = 0;
+    if (e_r < 0) e_r = 0;
+    demand_l = (uint32_t)e_l;
+    demand_r = (uint32_t)e_r;
+    /* Maximum speed-loop extra = 20% of CURRENT commanded PWM.
+     * At endpoints/NC/fine approach, never defeat tested taper.
+     */
+    if ((allow_hold_l != 0U) && (dist_l > 100U) &&
+        (*duty_l > 0U) && (*duty_l < cap_l))
+    {
+      room_l = (uint32_t)cap_l - *duty_l;
+      if (demand_l > ((uint32_t)*duty_l / 5U))
+        demand_l = (uint32_t)*duty_l / 5U;
+      if (demand_l > room_l)
+      {
+        demand_l = room_l;
+        if (steer_speed_feedback_sat_frames != 0xffffffffUL)
+          steer_speed_feedback_sat_frames++;
+      }
+      pwm_add_l = (uint16_t)demand_l;
+      *duty_l = (uint16_t)((uint32_t)*duty_l + demand_l);
+    }
+    else if ((allow_hold_l != 0U) && (dist_l > 100U) &&
+             (demand_l > 0U) && (*duty_l >= cap_l) &&
+             (steer_speed_feedback_sat_frames != 0xffffffffUL))
+      steer_speed_feedback_sat_frames++;
+    if ((allow_hold_r != 0U) && (dist_r > 100U) &&
+        (*duty_r > 0U) && (*duty_r < cap_r))
+    {
+      room_r = (uint32_t)cap_r - *duty_r;
+      if (demand_r > ((uint32_t)*duty_r / 5U))
+        demand_r = (uint32_t)*duty_r / 5U;
+      if (demand_r > room_r)
+      {
+        demand_r = room_r;
+        if (steer_speed_feedback_sat_frames != 0xffffffffUL)
+          steer_speed_feedback_sat_frames++;
+      }
+      pwm_add_r = (uint16_t)demand_r;
+      *duty_r = (uint16_t)((uint32_t)*duty_r + demand_r);
+    }
+    else if ((allow_hold_r != 0U) && (dist_r > 100U) &&
+             (demand_r > 0U) && (*duty_r >= cap_r) &&
+             (steer_speed_feedback_sat_frames != 0xffffffffUL))
+      steer_speed_feedback_sat_frames++;
+    steer_speed_feedback_boost_l_pwm = pwm_add_l;
+    steer_speed_feedback_boost_r_pwm = pwm_add_r;
+    steer_angle_wp_last_trim_pwm = (uint16_t)
+        ((uint32_t)pwm_add_l + pwm_add_r);
+    if (((pwm_add_l != 0U) || (pwm_add_r != 0U)) &&
+        (steer_angle_wp_trim_frames != 0xffffffffUL))
       steer_angle_wp_trim_frames++;
   }
-  steer_angle_wp_hold_mask = mask;
-  if ((mask != 0U) && (steer_angle_wp_hold_frames != 0xffffffffUL))
-    steer_angle_wp_hold_frames++;
-  if ((mode == 1U) && (mask != 0U))
-  {
-    if (steer_angle_wp_holds_r1 != 0xffffffffUL)
-      steer_angle_wp_holds_r1++;
-    if (((allow_hold_l == 0U) || (allow_hold_r == 0U)) &&
-        (steer_angle_wp_r1_fine_hold_frames != 0xffffffffUL))
-      steer_angle_wp_r1_fine_hold_frames++;
-  }
-  else if ((mode == 2U) && (mask != 0U) &&
-           (steer_angle_wp_holds_r2 != 0xffffffffUL))
-    steer_angle_wp_holds_r2++;
-  else if ((mode == 3U) && (mask != 0U) &&
-           (steer_angle_wp_holds_manual != 0xffffffffUL))
-    steer_angle_wp_holds_manual++;
 }
 
-/* A controller-induced zero-PWM wait must not look like a jam of the
- * WAITING motor. Defer its progress watchdog ONLY while its opposite
- * motor was actively powered on the previous cycle. The opposite
- * motor retains its own stall watchdog; normal owner timeouts still
- * bound the entire maneuver. All RAW/wrong-direction checks stay live.
+/* No synchronization-induced PWM=0 remains. Each axis's original
+ * stall/timeout watchdog now stays active without artificial resets.
  */
-static void Steering_AngleWaypointWaitProgress(uint8_t mode,
-      uint8_t state_l, uint8_t state_r, uint8_t moving_state,
-      uint16_t last_pwm_l, uint16_t last_pwm_r,
-      uint32_t *progress_l, uint32_t *progress_r,
-      uint32_t now)
-{
-  if ((steer_angle_wp_enable != 1U) ||
-      (steer_angle_wp_owner_mode != mode) ||
-      (state_l != moving_state) || (state_r != moving_state))
-    return;
-  /* This exception covers only an intentional waypoint hold while
-   * the other motor is powered. R1 fine alignment is independent:
-   * it never requests another motor to wait.
-   */
-  if ((steer_angle_wp_hold_mask == 1U) && (last_pwm_r != 0U))
-    *progress_l = now;
-  else if ((steer_angle_wp_hold_mask == 2U) && (last_pwm_l != 0U))
-    *progress_r = now;
-}
 
 static uint8_t Steering_PositionReadOne(uint8_t left, uint16_t *raw)
 {
@@ -3710,10 +3834,6 @@ static void Steering_PositionUpdate(void)
       Steering_PositionAxisFault(0U, 5U);
   }
 
-  Steering_AngleWaypointWaitProgress(steer_pos_command,
-      steer_pos_left_state, steer_pos_right_state, STEER_AXIS_MOVING,
-      steer_pos_left_pwm, steer_pos_right_pwm,
-      &steer_left_axis.progress_ms, &steer_right_axis.progress_ms, now);
   Steering_PositionAxisUpdate(1U, raw_mask, now, &left_cmd, &left_dir);
   Steering_PositionAxisUpdate(0U, raw_mask, now, &right_cmd, &right_dir);
   /* Both samples are validated by their per-axis NC/AS5600 checks.
@@ -5679,11 +5799,6 @@ static void Steering_ManualUpdate(void)
       Steering_ManualAxisFault(0U, 5U);
   }
 
-  Steering_AngleWaypointWaitProgress(3U,
-      steer_manual_left_state, steer_manual_right_state, STEER_MANUAL_MOVING,
-      steer_manual_left_pwm, steer_manual_right_pwm,
-      &steer_manual_left_axis.progress_ms,
-      &steer_manual_right_axis.progress_ms, now);
   mask = Steering_TestRawLimitMask();
   Steering_ManualAxisUpdate(1U, left_direction, mask, now, lpwm, &la);
   Steering_ManualAxisUpdate(0U, right_direction, mask, now, rpwm, &ra);
