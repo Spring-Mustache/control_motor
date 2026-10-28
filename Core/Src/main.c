@@ -3552,10 +3552,12 @@ static void Steering_PositionUpdate(void)
    * R2 still only declares DONE at its OWN physical MIN contact.
    */
   if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
-      (steer_pos_right_state == STEER_AXIS_MOVING) &&
-      (steer_left_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE) &&
-      (steer_right_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE))
+      (steer_pos_right_state == STEER_AXIS_MOVING))
   {
+    uint8_t coarse_l =
+        (steer_left_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE);
+    uint8_t coarse_r =
+        (steer_right_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE);
     uint16_t goal_l = (steer_pos_command == 1U) ?
         STEER_POS_LEFT_CENTER_RAW : steer_pos_left_r2_target_raw;
     uint16_t goal_r = (steer_pos_command == 1U) ?
@@ -3565,11 +3567,18 @@ static void Steering_PositionUpdate(void)
     if ((steer_pos_command == 2U) &&
         (goal_r < STEER_POS_RIGHT_MIN_RAW)) goal_r = STEER_POS_RIGHT_MIN_RAW;
     if (steer_angle_wp_enable == 1U)
-      Steering_AngleWaypointApply(steer_pos_command,
-          steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
-          steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
-          &left_cmd, &right_cmd);
-    else
+    {
+      /* Coarse+fine R1: only reduce the coarse partner's PWM while
+       * the fine motor retains its own pulses, quiet and capture.
+       * Both-fine: leave both independent ±5 RAW servos untouched.
+       */
+      if ((coarse_l != 0U) || (coarse_r != 0U))
+        Steering_AngleWaypointApply(steer_pos_command,
+            steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
+            steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
+            coarse_l, coarse_r, &left_cmd, &right_cmd);
+    }
+    else if ((coarse_l != 0U) && (coarse_r != 0U))
       Steering_PhaseLimit(steer_pos_command,
           steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
           steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
@@ -5431,7 +5440,7 @@ static void Steering_ManualUpdate(void)
           steer_manual_left_soft_target, debug_as5600_left_raw,
           steer_manual_right_axis.phase_start_raw,
           steer_manual_right_soft_target, debug_as5600_right_raw,
-          &la, &ra);
+          1U, 1U, &la, &ra);
     else
       Steering_PhaseLimit(3U,
           steer_manual_left_axis.phase_start_raw,
