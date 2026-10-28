@@ -95,3 +95,14 @@ Trạng thái: **đã sửa mã nguồn, chưa kiểm chứng STM32CubeIDE Build
 - SELECT không dùng (`starts=0`), giữ MIN runtime L=2297/R=166, CENTER L=1873/R=662; R2 đích tiếp cận L=2297/R=166. R_MIN thực tế đã chỉnh cơ khí chạm khoảng RAW 193 theo quan sát người vận hành.
 
 **Quyết định:** ghi nhận tiến triển R1 phải CENTER ±2 RAW; trái đang cách CENTER 6 RAW khi phải DONE, nhưng chưa xác nhận trái DONE trong cùng lần R1. Giữ nguyên code PWM, R1 fine và interlock NC-spint tại bước đọc log; không tuyên bố R2 đạt đủ hai NC hay L1/L2 PASS. Lần xác minh kế tiếp chỉ cần đối chiếu kết quả **cả hai motor R2 thật sự đè NC, sau đó R1 một lần về CENTER**, ưu tiên quan sát rõ khi LEFT kết thúc hoặc một log trạng thái cuối; thử trên giá treo chắc chắn có cắt nguồn động lực độc lập.
+
+## Xác nhận người vận hành sau log 14:49 — R1 đạt hành vi CENTER một lần
+
+Người vận hành trả lời rõ ràng: **"motor trái và phải có tự chỉnh nốt và về CENTER."** Đây là kết quả quan sát thực tế cho chuỗi R1 sau khi trục phải DONE, không phải phép suy diễn chỉ từ snapshot đầu tiên.
+
+- **PASS hành vi R1 theo quan sát:** một lệnh R1 đủ để cả hai trục tự tiếp tục chỉnh tinh và về CENTER, không cần nhấn R1 lần thứ hai. Hai motor hoàn thành độc lập; việc motor phải DONE trước không dừng motor trái.
+- Log `M8_S00_20261028_144914.txt` ghi RIGHT `raw=660`, CENTER=662, sai số -2 RAW tại sự kiện `event=4,axis=2,code=2`. Cùng thời điểm LEFT `raw=1879`, CENTER=1873, sai số +6 RAW và còn `fine_phase=2`; **LEFT final RAW sau khi hoàn tất chưa có trong file**, vì vậy không tuyên bố từ đo đạc rằng sai số cuối LEFT <=5 RAW.
+- `M8S00_EMPTY,FAULT`, `fault_L=0,fault_R=0` và `trip=0` trong log này hỗ trợ việc không có sự cố được ghi nhận ở phiên đó; không thay thế thử toàn bộ các nhánh bảo vệ.
+- **Chưa nghiệm thu:** R2 hoàn thành đúng bằng *hai NC MIN hiện đang tác động*, khóa L1/L2 và quay tại chỗ thật, cũng như việc chạy bánh + đánh lái đồng thời. SELECT tiếp tục tạm hoãn. Không đổi setpoint, PWM hoặc thuật toán R1 khi hành vi R1 đã đạt theo người vận hành.
+
+Trạng thái: **R1 behavioral PASS (user-observed); final numeric tolerance not independently logged**.
