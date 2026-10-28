@@ -2308,18 +2308,14 @@ static void Steering_PhaseLimit(uint8_t mode,
 }
 
 
-/* M8-S04: piecewise AS5600 -> signed steering angle, in centidegrees.
- * Each side has its own geometry: MIN=-45.00, CENTER=0, MAX=+45.00.
- * These are CALIBRATED steering coordinates, not AS5600 shaft degrees.
- * The two motors are opposed for D-pad: LEFT MIN & RIGHT MAX are
- * mirror targets, although both LOCAL angle maps use MIN=-45/MAX=+45.
- *
- * Move a COMMON virtual waypoint just ahead of the SLOWER fraction
- * of the current stroke. Each motor may use only its already validated
- * forward direction, existing PWM, and independent NC/soft-stop owner.
- * When an axis outruns the waypoint, request PWM=0 (no active brake).
- * A large enough hysteresis prevents PWM rapid on/off chatter.
- * Hardware test required: coast distance and NC remain authoritative.
+/* M8-S00 steering feedback: piecewise AS5600 -> signed centidegrees.
+ * Each side uses calibrated MIN=-45deg, CENTER=0, MAX=+45deg; this
+ * is NOT the AS5600 magnet's uncalibrated shaft angle. Both strokes
+ * share one normalized progress and velocity reference, measured
+ * with real AS5600 sample timestamps. The lagging motor may request
+ * extra PWM within its TESTED cap. We do NOT PWM-off the leading
+ * motor to synchronize; independent NC, soft-stop, coast margin,
+ * R1 +/-5 RAW fine, stall and timeout remain authoritative.
  */
 volatile uint8_t steer_angle_wp_enable = 1U;
 volatile uint16_t steer_angle_wp_lead_permille = 30U; /* 3% stroke: test */
@@ -2512,7 +2508,8 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   uint16_t pl, pr, lead, frontier, slow;
   int32_t target_l, target_r;
   uint32_t now = HAL_GetTick();
-  uint8_t mask = steer_angle_wp_hold_mask;
+  (void)floor_l;
+  (void)floor_r;
   steer_angle_wp_last_trim_pwm = 0U;
 
   /* Pace only the ordinary (coarse) trajectory. R1 fine CENTER
@@ -3837,7 +3834,7 @@ static void Steering_PositionUpdate(void)
   Steering_PositionAxisUpdate(1U, raw_mask, now, &left_cmd, &left_dir);
   Steering_PositionAxisUpdate(0U, raw_mask, now, &right_cmd, &right_dir);
   /* Both samples are validated by their per-axis NC/AS5600 checks.
-   * Do not touch R1 short-pulse fine trim or an NC escape.
+   * Speed feedback is coarse-only; never override R1 fine PWM/quiet.
    * R2 still only declares DONE at its OWN physical MIN contact.
    */
   /* M8-S00: R1 timing ends at EACH axis's first fine-phase entry.
@@ -4673,7 +4670,7 @@ static uint8_t M8S05_DumpTiming(void)
   n = snprintf(line, sizeof(line),
       "M8S00_PACING,enable=%u,lead=%u,r1Frames=%lu,r1Holds=%lu,"
       "r1FineHolds=%lu,r2Frames=%lu,r2Holds=%lu,"
-      "manualFrames=%lu,manualHolds=%lu,trimFrames=%lu,trimPWM=%u\r\n",
+      "manualFrames=%lu,manualHolds=%lu,boostFrames=%lu,boostPWM=%u\r\n",
       (unsigned)steer_angle_wp_enable,
       (unsigned)steer_angle_wp_lead_permille,
       (unsigned long)steer_angle_wp_frames_r1,
@@ -4685,6 +4682,26 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned long)steer_angle_wp_holds_manual,
       (unsigned long)steer_angle_wp_trim_frames,
       (unsigned)steer_angle_wp_last_trim_pwm);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+  /* Speed values are permille of the current stroke per second.
+   * Measured angular-rate feedback uses the SAME AS5600 samples as
+   * the motor control loop; no additional I2C bus transactions.
+   */
+  n = snprintf(line, sizeof(line),
+      "M8S00_SPEED,trialPct=%u,measL_pms=%u,measR_pms=%u,"
+      "ref_pms=%u,addPWM_L=%u,addPWM_R=%u,fbFrames=%lu,"
+      "fbSaturated=%lu,ffBoostFrames=%lu,ffSaturated=%lu,"
+      "noSyncHold=1\r\n",
+      (unsigned)steer_speed_trial_pct,
+      (unsigned)steer_speed_measured_l_pms,
+      (unsigned)steer_speed_measured_r_pms,
+      (unsigned)steer_speed_reference_pms,
+      (unsigned)steer_speed_feedback_boost_l_pwm,
+      (unsigned)steer_speed_feedback_boost_r_pwm,
+      (unsigned long)steer_speed_feedback_frames,
+      (unsigned long)steer_speed_feedback_sat_frames,
+      (unsigned long)steer_speed_trial_boost_frames,
+      (unsigned long)steer_speed_trial_saturated_frames);
   return M8S00_UartLine(line, n);
 }
 
@@ -5833,8 +5850,9 @@ static void Steering_ManualUpdate(void)
   else
     Steering_SyncApply(HAL_GetTick(), la, ra, &la);
 
-  /* Shared angle waypoints apply a final downward-only PWM cap after
-   * independent NC, AS5600 and manual soft-stop checks.
+  /* AS5600 two-axis speed/phase feedback may BOOST the slower motor,
+   * but only within tested per-axis caps and outside coast clearance.
+   * It NEVER commands zero PWM to hold the leading axis.
    */
   if ((steer_manual_left_state == STEER_MANUAL_MOVING) &&
       (steer_manual_right_state == STEER_MANUAL_MOVING) &&
