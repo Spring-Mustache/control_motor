@@ -1954,6 +1954,11 @@ volatile M8S00StopSnapshot_t m8_s00_first_fault = {0};
 volatile uint32_t m8_s00_event_count = 0U;
 volatile uint32_t m8_s00_clear_count = 0U;
 volatile uint8_t m8_s00_clear_request = 0U;
+/* UART3 (ST-Link VCP) text export. Deliberately separate from USER wheel CSV. */
+volatile uint8_t m8_s00_dump_request = 0U;
+volatile uint8_t m8_s00_dump_status = 0U; /* 0 idle, 1 OK, 2 unsafe/busy, 3 empty, 4 UART/error */
+volatile uint32_t m8_s00_dump_count = 0U;
+static void M8S00_DumpUpdate(void);
 static void M8S00_CaptureStop(uint8_t event, uint8_t axis,
                             uint8_t code, uint8_t abnormal);
 static void M8S00_ClearService(void);
@@ -3345,6 +3350,158 @@ static void M8S00_ClearService(void)
   m8_s00_first_fault = empty;
   m8_s00_clear_request = 0U;
   m8_s00_clear_count++;
+}
+
+
+/* Emit a single bounded CSV-like key/value line using existing UART3 VCP.
+ * No floats are printed: RPM values below use signed 0.1 RPM units.
+ */
+static uint8_t M8S00_UartLine(const char *line, int length)
+{
+  if ((length <= 0) || (length >= 384)) return 0U;
+  return (HAL_UART_Transmit(&huart3, (uint8_t *)line,
+                            (uint16_t)length, 1000U) == HAL_OK) ? 1U : 0U;
+}
+
+static uint8_t M8S00_DumpOne(const char *label,
+                             const volatile M8S00StopSnapshot_t *p)
+{
+  char line[384];
+  int n;
+  if (p->valid == 0U)
+  {
+    n = snprintf(line, sizeof(line), "M8S00_EMPTY,%s\r\n", label);
+    return M8S00_UartLine(line, n);
+  }
+
+  n = snprintf(line, sizeof(line),
+      "M8S00_META,%s,valid=%u,event=%u,axis=%u,code=%u,tick=%lu,age_ms=%lu,"
+      "control=%u,stop=%u,guard=0x%08lx,trip=%u,trip_reason=%u,gate=%u\r\n",
+      label, (unsigned)p->valid, (unsigned)p->event,
+      (unsigned)p->axis, (unsigned)p->code,
+      (unsigned long)p->tick_ms, (unsigned long)p->command_age_ms,
+      (unsigned)p->control_mode, (unsigned)p->control_stop_latched,
+      (unsigned long)p->guard_flags, (unsigned)p->safety_trip_latched,
+      (unsigned)p->safety_trip_reason, (unsigned)p->wheel_stop_gate);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  n = snprintf(line, sizeof(line),
+      "M8S00_PS2,%s,connected=%u,mode=%u,left=%u,right=%u,r1=%u,r2=%u,"
+      "up=%u,down=%u,select=%u,rx=%u,ly=%u,manual_active=%u,"
+      "position_active=%u,neutral_required=%u\r\n",
+      label, (unsigned)p->ps2_connected, (unsigned)p->ps2_mode,
+      (unsigned)p->ps2_left, (unsigned)p->ps2_right,
+      (unsigned)p->ps2_r1, (unsigned)p->ps2_r2,
+      (unsigned)p->ps2_up, (unsigned)p->ps2_down,
+      (unsigned)p->ps2_select, (unsigned)p->ps2_rx,
+      (unsigned)p->ps2_ly, (unsigned)p->manual_active,
+      (unsigned)p->position_active, (unsigned)p->neutral_required);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  n = snprintf(line, sizeof(line),
+      "M8S00_STEER,%s,rawL=%u,rawR=%u,ccrL=%u,ccrR=%u,"
+      "manualPwmL=%u,manualPwmR=%u,posPwmL=%u,posPwmR=%u,"
+      "softL=%u,softR=%u,nc=%u,irqManual=%u,irqPosition=%u\r\n",
+      label, (unsigned)p->raw_left, (unsigned)p->raw_right,
+      (unsigned)p->ccr_left, (unsigned)p->ccr_right,
+      (unsigned)p->manual_pwm_left, (unsigned)p->manual_pwm_right,
+      (unsigned)p->position_pwm_left, (unsigned)p->position_pwm_right,
+      (unsigned)p->left_soft_target, (unsigned)p->right_soft_target,
+      (unsigned)p->nc_mask, (unsigned)p->manual_irq_trip_mask,
+      (unsigned)p->position_limit_trip_mask);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  n = snprintf(line, sizeof(line),
+      "M8S00_STATE,%s,mlState=%u,mrState=%u,mlResult=%u,mrResult=%u,"
+      "plState=%u,prState=%u,plResult=%u,prResult=%u,"
+      "manualBlock=%u,posBlock=%u,syncEnable=%u,syncActive=%u,"
+      "progressL_ms=%lu,progressR_ms=%lu\r\n",
+      label, (unsigned)p->manual_left_state,
+      (unsigned)p->manual_right_state,
+      (unsigned)p->manual_left_result,
+      (unsigned)p->manual_right_result,
+      (unsigned)p->position_left_state,
+      (unsigned)p->position_right_state,
+      (unsigned)p->position_left_result,
+      (unsigned)p->position_right_result,
+      (unsigned)p->manual_block_reason,
+      (unsigned)p->position_block_reason,
+      (unsigned)p->sync_enable, (unsigned)p->sync_active,
+      (unsigned long)p->manual_left_progress_age_ms,
+      (unsigned long)p->manual_right_progress_age_ms);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  n = snprintf(line, sizeof(line),
+      "M8S00_WHEEL,%s,rpm10LU=%ld,rpm10LD=%ld,rpm10RU=%ld,rpm10RD=%ld,"
+      "wheelTargetPwm=%ld,wheelCurrentPwm=%ld,targetRpm10=%ld,"
+      "pwmLU=%u,pwmLD=%u,pwmRU=%u,pwmRD=%u,"
+      "syncL=%u,syncR=%u,syncHold=%lu\r\n",
+      label, (long)(p->rpm_lu * 10.0f), (long)(p->rpm_ld * 10.0f),
+      (long)(p->rpm_ru * 10.0f), (long)(p->rpm_rd * 10.0f),
+      (long)p->wheel_target_pwm, (long)p->wheel_current_pwm,
+      (long)(p->wheel_pid_target_rpm * 10.0f),
+      (unsigned)p->wheel_pwm_lu, (unsigned)p->wheel_pwm_ld,
+      (unsigned)p->wheel_pwm_ru, (unsigned)p->wheel_pwm_rd,
+      (unsigned)p->sync_left_speed, (unsigned)p->sync_right_speed,
+      (unsigned long)p->sync_reference_hold_count);
+  return M8S00_UartLine(line, n);
+}
+
+/* One-shot request, never queued until conditions later change. Called
+ * AFTER the wheel logger's serial dump service in the normal main loop.
+ * All motor control, calibration, logger and USB settings are unchanged.
+ */
+static void M8S00_DumpUpdate(void)
+{
+  static const char begin[] = "#M8S00_BEGIN,1\r\n";
+  static const char end[] = "#M8S00_END\r\n";
+  if (m8_s00_dump_request == 0U) return;
+  m8_s00_dump_request = 0U;
+
+  /* Blocking UART is forbidden during any powered actuator activity or
+   * wheel logging/CSV dump; zero CCR alone cannot prove driver isolation.
+   */
+  if ((steer_manual_active != 0U) || (steer_pos_active != 0U) ||
+      (steer_cal_active != 0U) || (steer_test_running != 0U) ||
+      (steer_test_arm != 0U) || (steer_test_request != 0U) ||
+      (WheelControl_SpinIsActive() != 0U) ||
+      (Steering_PositionWheelsStopped() == 0U) ||
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) != 0U) ||
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) != 0U) ||
+      (wheel_log_active != 0U) || (wheel_log_dump_active != 0U) ||
+      (wheel_log_dump_request != 0U) ||
+      (wheel_ctrl_debug.target_command != 0) ||
+      (wheel_ctrl_debug.ramp_command != 0) ||
+      (PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U) ||
+      (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
+      (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U) ||
+      (PS2_Pad.Select != 0U) ||
+      (PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
+      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
+      (PS2_Pad.RX < (128U - STEER_POS_RX_NEUTRAL_DELTA)) ||
+      (PS2_Pad.RX > (128U + STEER_POS_RX_NEUTRAL_DELTA)))
+  {
+    m8_s00_dump_status = 2U; /* busy/unsafe, no deferred action */
+    return;
+  }
+  if ((m8_s00_first_stop.valid == 0U) &&
+      (m8_s00_first_fault.valid == 0U))
+  {
+    m8_s00_dump_status = 3U; /* no event since clear */
+    return;
+  }
+
+  m8_s00_dump_status = 4U;
+  if ((HAL_UART_Transmit(&huart3, (uint8_t *)begin,
+                         (uint16_t)(sizeof(begin)-1U), 1000U) != HAL_OK) ||
+      (M8S00_DumpOne("STOP", &m8_s00_first_stop) == 0U) ||
+      (M8S00_DumpOne("FAULT", &m8_s00_first_fault) == 0U) ||
+      (HAL_UART_Transmit(&huart3, (uint8_t *)end,
+                         (uint16_t)(sizeof(end)-1U), 1000U) != HAL_OK))
+    return;
+
+  m8_s00_dump_status = 1U;
+  m8_s00_dump_count++;
 }
 
 static void Steering_SyncReset(void)
@@ -8749,6 +8906,7 @@ int main(void)
 
     /* CSV dump is accepted only after logging is complete and PWM = 0. */
     RamLogger_DumpCsvUpdate();
+    M8S00_DumpUpdate(); /* explicit VCP export only when fully stopped */
 
     HAL_Delay(20);  /* Chu kỳ điều khiển khoảng 50 Hz */
 
