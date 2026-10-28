@@ -3395,6 +3395,16 @@ volatile uint32_t steer_sync_update_count = 0U;
 volatile uint32_t steer_sync_limit_count = 0U;
 volatile uint32_t steer_sync_reference_hold_count = 0U;
 volatile uint32_t steer_sync_reference_unavailable_count = 0U;
+/* M8 read-only normalized-speed mismatch evidence for manual D-pad/RX.
+ * R1/R2 does not currently use the manual RIGHT-master PI regulator.
+ * Persist aggregate stats across steering stops until MCU restart.
+ */
+volatile uint32_t m8_s00_sync_valid_frames = 0U;
+volatile uint32_t m8_s00_sync_abs_error_ema_raw_s = 0U;
+volatile uint32_t m8_s00_sync_abs_error_peak_raw_s = 0U;
+volatile uint16_t m8_s00_sync_left_actual_raw_s = 0U;
+volatile uint16_t m8_s00_sync_right_actual_raw_s = 0U;
+volatile uint16_t m8_s00_sync_left_reference_raw_s = 0U;
 volatile uint16_t steer_sync_kp_q4 = 2U; /* proportional PWM/RAW_s = 2/16 */
 volatile uint16_t steer_sync_ki_div = 40U; /* integral counts / divisor */
 volatile uint16_t steer_sync_left_pwm_ceiling = 300U; /* max tested LEFT */
@@ -3695,6 +3705,26 @@ static uint8_t M8S00_DumpConcurrent(void)
   return M8S00_UartLine(line, n);
 }
 
+static uint8_t M8S00_DumpSync(void)
+{
+  char line[280];
+  int n = snprintf(line, sizeof(line),
+      "M8S00_SYNC,scope=since_boot,mode=manual_only,frames=%lu,"
+      "actualL_raw_s=%u,actualR_raw_s=%u,referenceL_raw_s=%u,"
+      "emaAbsError_raw_s=%lu,peakAbsError_raw_s=%lu,"
+      "syncUpdates=%lu,referenceHolds=%lu,limitCount=%lu\r\n",
+      (unsigned long)m8_s00_sync_valid_frames,
+      (unsigned)m8_s00_sync_left_actual_raw_s,
+      (unsigned)m8_s00_sync_right_actual_raw_s,
+      (unsigned)m8_s00_sync_left_reference_raw_s,
+      (unsigned long)m8_s00_sync_abs_error_ema_raw_s,
+      (unsigned long)m8_s00_sync_abs_error_peak_raw_s,
+      (unsigned long)steer_sync_update_count,
+      (unsigned long)steer_sync_reference_hold_count,
+      (unsigned long)steer_sync_limit_count);
+  return M8S00_UartLine(line, n);
+}
+
 static uint8_t M8S00_DumpSpinNc(void)
 {
   char line[180];
@@ -3780,6 +3810,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpOne("FAULT", &m8_s00_first_fault) == 0U) ||
       (M8S00_DumpEscapeCounters() == 0U) ||
       (M8S00_DumpSpinNc() == 0U) ||
+      (M8S00_DumpSync() == 0U) ||
       (M8S00_DumpConcurrent() == 0U) ||
       (M8S00_DumpCalibration() == 0U) ||
       (HAL_UART_Transmit(&huart3, (uint8_t *)end,
@@ -4366,6 +4397,22 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
   error = (int32_t)steer_sync_left_target_raw_s -
           (int32_t)steer_sync_left_speed_raw_s;
   steer_sync_error_raw_s = error;
+  /* Passive telemetry only; no PWM, PI, sensor or output change. */
+  {
+    uint32_t abs_error = (uint32_t)((error < 0) ? -error : error);
+    m8_s00_sync_left_actual_raw_s = steer_sync_left_speed_raw_s;
+    m8_s00_sync_right_actual_raw_s = steer_sync_right_speed_raw_s;
+    m8_s00_sync_left_reference_raw_s = steer_sync_left_target_raw_s;
+    if (m8_s00_sync_valid_frames == 0U)
+      m8_s00_sync_abs_error_ema_raw_s = abs_error;
+    else
+      m8_s00_sync_abs_error_ema_raw_s =
+          (7U * m8_s00_sync_abs_error_ema_raw_s + abs_error + 4U) / 8U;
+    if (abs_error > m8_s00_sync_abs_error_peak_raw_s)
+      m8_s00_sync_abs_error_peak_raw_s = abs_error;
+    if (m8_s00_sync_valid_frames != 0xffffffffUL)
+      m8_s00_sync_valid_frames++;
+  }
   term = (error * (int32_t)(steer_sync_kp_q4 > 8U ? 8U :
                             steer_sync_kp_q4)) / 16;
   steer_sync_integral += (error * (int32_t)dt) / 20;
