@@ -2047,10 +2047,13 @@ typedef struct
   uint32_t run_id, start_ms, finish_ms, tick_l, tick_r;
   uint32_t power_tick_l, power_tick_r;
   uint32_t fine_tick_l, fine_tick_r;
+  uint32_t near_center_tick_l, near_center_tick_r;
   uint16_t raw_l, raw_r;
   uint8_t active, mode, goal_l, goal_r;
   uint8_t reached, powered, faults, reason_l, reason_r, stop_code;
   uint8_t fine_seen; /* bit 0 LEFT, bit 1 RIGHT */
+  uint8_t near_start_far; /* baseline outside shared +/-3.5 deg */
+  uint8_t near_center_seen; /* first capture inside +/-3.5 deg */
 } M8S00Arrival_t;
 static M8S00Arrival_t m8_s00_arrival = {0};
 static uint32_t m8_s00_arrival_run_count = 0U;
@@ -2349,6 +2352,21 @@ static uint8_t Steering_AngleFromRaw(uint8_t left, uint16_t raw,
   }
   *angle_cdeg = (int16_t)out;
   return 1U;
+}
+
+/* Both motors are compared at the SAME 3.5-degree near-CENTER
+ * threshold, independent of their different 15/35-RAW fine entries.
+ * Read-only observation: this cannot grant a PWM command.
+ */
+#define STEER_S00_R1_NEAR_CENTER_CDEG 350
+static uint8_t Steering_AngleOutsideCenterBand(uint8_t left,
+                                                uint16_t raw)
+{
+  int16_t angle;
+  if (Steering_AngleFromRaw(left, raw, &angle) == 0U)
+    return 0U;
+  return ((angle < -(int16_t)STEER_S00_R1_NEAR_CENTER_CDEG) ||
+          (angle > (int16_t)STEER_S00_R1_NEAR_CENTER_CDEG)) ? 1U : 0U;
 }
 
 static uint16_t Steering_AngleStrokeProgress(int16_t start,
@@ -3171,6 +3189,24 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     return;
   }
   axis->last_raw = raw;
+  /* R1 trajectory checkpoint: first fresh/validated sample <=3.5 deg
+   * from CENTER, for either motor, only after a powered stroke began
+   * OUTSIDE that band. Fine alignment remains independent and does
+   * not affect the shared-degree travel timing comparison.
+   */
+  if ((steer_pos_command == 1U) && (m8_s00_arrival.active != 0U))
+  {
+    uint8_t bit = (left != 0U) ? 1U : 2U;
+    if (((m8_s00_arrival.near_start_far & bit) != 0U) &&
+        ((m8_s00_arrival.near_center_seen & bit) == 0U) &&
+        ((m8_s00_arrival.powered & bit) != 0U) &&
+        (Steering_AngleOutsideCenterBand(left, raw) == 0U))
+    {
+      m8_s00_arrival.near_center_seen |= bit;
+      if (left != 0U) m8_s00_arrival.near_center_tick_l = now;
+      else m8_s00_arrival.near_center_tick_r = now;
+    }
+  }
 
   if (state == STEER_AXIS_ESCAPING)
   {
@@ -3529,6 +3565,9 @@ static void Steering_PositionUpdate(void)
       {
         steer_left_axis.last_raw = v;
         steer_left_axis.escape_start_raw = v;
+        if ((buttons == 1U) &&
+            (Steering_AngleOutsideCenterBand(1U, v) != 0U))
+          m8_s00_arrival.near_start_far |= 1U;
       }
     }
     if (steer_pos_right_state != STEER_AXIS_DONE)
@@ -3541,6 +3580,9 @@ static void Steering_PositionUpdate(void)
       {
         steer_right_axis.last_raw = v;
         steer_right_axis.escape_start_raw = v;
+        if ((buttons == 1U) &&
+            (Steering_AngleOutsideCenterBand(0U, v) != 0U))
+          m8_s00_arrival.near_start_far |= 2U;
       }
     }
   }
