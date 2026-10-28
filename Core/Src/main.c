@@ -7698,20 +7698,18 @@ static uint8_t PS2_IsManualControlActive(void)
 }
 
 
-/*
- * Điều khiển PS2 hiện tại: chỉ 4 motor bánh.
- * Steering PS2 sẽ được thêm khi motor đánh lái được triển khai.
+/* M8: count PS2 request frames combining wheel drive + steering.
+ * Does not claim that all six physical motors were moving safely.
  */
+volatile uint32_t ps2_drive_steer_request_frames = 0U;
 static void PS2_ApplyManualControl(void)
 {
   int16_t pwm_duty = PS2_Convert_LY_To_PWM(PS2_Pad.LY);
 
-  /* R1/R2 own steering only; wheel drive cannot overlap.
-   * Position PWM is serviced separately after arbitration.
+  /* SELECT calibration remains stationary and exclusive.
+   * R1/R2 position steering never steals LY/Up/Down wheel commands.
    */
-  if ((PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
-      (PS2_Pad.Select != 0U) || (steer_cal_active != 0U) ||
-      (steer_pos_active != 0U))
+  if ((PS2_Pad.Select != 0U) || (steer_cal_active != 0U))
   {
     WheelControl_SetTargetPWM(0);
     if ((steer_pos_active == 0U) && (steer_cal_active == 0U))
@@ -7762,19 +7760,21 @@ static void PS2_ApplyManualControl(void)
     pwm_duty = -MOTOR_DPAD_PWM;
   }
 
-  /* Hard steering quarantine: an LY/Up/Down wheel-drive request cannot
-   * leave residual steering CCR, even within the same PS2 handling step.
-   * Motor power remains independently unsafe until hardware checked.
+  /* M8: wheel and steering owners update separate outputs each pass.
+   * Normal propulsion must not clear TIM12/TIM14 steering PWM.
    */
-  if ((pwm_duty != 0) || (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U))
-    Turn_Motors_Stop();
   WheelControl_SetTargetPWM(pwm_duty);
-  /* The steering service below owns TIM12/TIM14 during direct steering.
-   * Stopping them here on each ~20ms PS2 loop formerly defeated RX/D-pad.
-   * Neutral/release is cut in Steering_ManualUpdate(), not here.
+  if ((pwm_duty != 0) &&
+      ((Steering_ManualRequestDirection() != 0) ||
+       (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
+       (steer_manual_active != 0U) || (steer_pos_active != 0U)))
+    ps2_drive_steer_request_frames++;
+  /* Keep idle steering at zero, while preserving an active or pending
+   * manual/position steering owner across the PS2 arbitration pass.
    */
-  if ((steer_manual_active == 0U) &&
-      (Steering_ManualRequestDirection() == 0))
+  if ((steer_manual_active == 0U) && (steer_pos_active == 0U) &&
+      (Steering_ManualRequestDirection() == 0) &&
+      (PS2_Pad.R1 == 0U) && (PS2_Pad.R2 == 0U))
     Turn_Motors_Stop();
 }
 
