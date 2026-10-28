@@ -6492,6 +6492,29 @@ static uint8_t M8S00_DumpCalibration(void)
       (unsigned)steer_cal_timeout_side,
       (unsigned)steer_cal_probe_envelope_last_reason,
       (unsigned)steer_cal_probe_envelope_last_raw);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  /* Preserves the exact LAST real result=9 abort, no effect on motors.
+   * mask bit8=wheel stopped check failed, bit9=traction commanded,
+   * bit10=encoder >2 RPM. bit8+bit10 without bit9 is consistent with
+   * passive wheel rolling, not proof without direct ground observation.
+   */
+  n = snprintf(line, sizeof(line),
+      "M8S00_CAL_ABORT,count=%lu,source=%u,mask=0x%08lx,"
+      "ageMs=%lu,rawL=%u,rawR=%u,wpwmTarget=%d,wpwmNow=%d,"
+      "rpm10LU=%d,rpm10LD=%d,rpm10RU=%d,rpm10RD=%d\r\n",
+      (unsigned long)steer_cal_abort_count,
+      (unsigned)steer_cal_abort_source,
+      (unsigned long)steer_cal_abort_mask,
+      (unsigned long)steer_cal_abort_age_ms,
+      (unsigned)steer_cal_abort_raw_l,
+      (unsigned)steer_cal_abort_raw_r,
+      (int)steer_cal_abort_target_pwm,
+      (int)steer_cal_abort_current_pwm,
+      (int)steer_cal_abort_rpm10_lu,
+      (int)steer_cal_abort_rpm10_ld,
+      (int)steer_cal_abort_rpm10_ru,
+      (int)steer_cal_abort_rpm10_rd);
   return M8S00_UartLine(line, n);
 }
 
