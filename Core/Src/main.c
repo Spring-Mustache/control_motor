@@ -2244,6 +2244,212 @@ static void Steering_PhaseLimit(uint8_t mode,
     steer_phase_trim_frames++;
 }
 
+
+/* M8-S04: piecewise AS5600 -> signed steering angle, in centidegrees.
+ * Each side has its own geometry: MIN=-45.00, CENTER=0, MAX=+45.00.
+ * These are CALIBRATED steering coordinates, not AS5600 shaft degrees.
+ * The two motors are opposed for D-pad: LEFT MIN & RIGHT MAX are
+ * mirror targets, although both LOCAL angle maps use MIN=-45/MAX=+45.
+ *
+ * Move a COMMON virtual waypoint just ahead of the SLOWER fraction
+ * of the current stroke. Each motor may use only its already validated
+ * forward direction, existing PWM, and independent NC/soft-stop owner.
+ * When an axis outruns the waypoint, request PWM=0 (no active brake).
+ * A large enough hysteresis prevents PWM rapid on/off chatter.
+ * Hardware test required: coast distance and NC remain authoritative.
+ */
+volatile uint8_t steer_angle_wp_enable = 1U;
+volatile uint16_t steer_angle_wp_lead_permille = 60U; /* 6% stroke */
+volatile int16_t steer_angle_wp_left_cdeg = 0;
+volatile int16_t steer_angle_wp_right_cdeg = 0;
+volatile int16_t steer_angle_wp_target_left_cdeg = 0;
+volatile int16_t steer_angle_wp_target_right_cdeg = 0;
+volatile int16_t steer_angle_wp_goal_left_cdeg = 0;
+volatile int16_t steer_angle_wp_goal_right_cdeg = 0;
+volatile uint16_t steer_angle_wp_progress_left = 0U;
+volatile uint16_t steer_angle_wp_progress_right = 0U;
+volatile uint8_t steer_angle_wp_hold_mask = 0U; /* 1 L, 2 R */
+volatile uint8_t steer_angle_wp_last_mode = 0U; /* 1 R1, 2 R2, 3 manual */
+volatile uint32_t steer_angle_wp_frames = 0U;
+volatile uint32_t steer_angle_wp_hold_frames = 0U;
+
+static void Steering_AngleWaypointReset(void)
+{
+  steer_angle_wp_hold_mask = 0U;
+  steer_angle_wp_last_mode = 0U;
+}
+
+/* No AS5600 transactions in the mapping. The normal owner read already
+ * validated magnet/status, RAW envelope, jump and motion direction.
+ */
+static uint8_t Steering_AngleFromRaw(uint8_t left, uint16_t raw,
+                                    int16_t *angle_cdeg)
+{
+  uint16_t min_raw = left ? STEER_POS_LEFT_MIN_RAW :
+                            STEER_POS_RIGHT_MIN_RAW;
+  uint16_t cen_raw = left ? STEER_POS_LEFT_CENTER_RAW :
+                            STEER_POS_RIGHT_CENTER_RAW;
+  uint16_t max_raw = left ? STEER_POS_LEFT_MAX_RAW :
+                            STEER_POS_RIGHT_MAX_RAW;
+  int32_t out;
+  if (Steering_PositionGeometryValid(left, min_raw, max_raw) == 0U)
+    return 0U;
+
+  if (left != 0U)
+  {
+    if (raw >= min_raw) out = -4500;
+    else if (raw <= max_raw) out = 4500;
+    else if (raw >= cen_raw)
+      out = -((int32_t)(raw - cen_raw) * 4500) /
+                  (int32_t)(min_raw - cen_raw);
+    else
+      out = ((int32_t)(cen_raw - raw) * 4500) /
+                 (int32_t)(cen_raw - max_raw);
+  }
+  else
+  {
+    if (raw <= min_raw) out = -4500;
+    else if (raw >= max_raw) out = 4500;
+    else if (raw <= cen_raw)
+      out = -((int32_t)(cen_raw - raw) * 4500) /
+                  (int32_t)(cen_raw - min_raw);
+    else
+      out = ((int32_t)(raw - cen_raw) * 4500) /
+                 (int32_t)(max_raw - cen_raw);
+  }
+  *angle_cdeg = (int16_t)out;
+  return 1U;
+}
+
+static uint16_t Steering_AngleStrokeProgress(int16_t start,
+                                              int16_t goal,
+                                              int16_t current,
+                                              uint8_t *valid)
+{
+  int32_t span = (int32_t)goal - (int32_t)start;
+  int32_t travel = (int32_t)current - (int32_t)start;
+  *valid = 0U;
+  if (span < 0) { span = -span; travel = -travel; }
+  /* Less than 5deg: independent arrival control wins; no pacing. */
+  if ((span < 500) || (span > 9000)) return 0U;
+  *valid = 1U;
+  if (travel <= 0) return 0U;
+  if (travel >= span) return 1000U;
+  return (uint16_t)((travel * 1000) / span);
+}
+
+/* Output-only supervisor AFTER all per-axis guard/sensor checks and BEFORE
+ * the atomic late NC IRQ / GPIO / CCR recheck. Both sensor samples must be
+ * fresh. This function NEVER raises a PWM command or reverses an axis.
+ * It does not declare DONE or relax ±5 R1 and physical-NC R2 completion.
+ */
+static void Steering_AngleWaypointApply(uint8_t mode,
+    uint16_t start_l, uint16_t goal_l, uint16_t raw_l,
+    uint16_t start_r, uint16_t goal_r, uint16_t raw_r,
+    uint16_t *duty_l, uint16_t *duty_r)
+{
+  int16_t sl, gl, al, sr, gr, ar;
+  uint8_t vl, vr;
+  uint16_t pl, pr, lead, frontier, slow;
+  int32_t target_l, target_r;
+  uint32_t now = HAL_GetTick();
+  uint8_t mask = steer_angle_wp_hold_mask;
+
+  if ((steer_angle_wp_enable != 1U) ||
+      (*duty_l == 0U) || (*duty_r == 0U) ||
+      (steer_pos_left_last_sample_ms == 0U) ||
+      (steer_pos_right_last_sample_ms == 0U) ||
+      ((uint32_t)(now - steer_pos_left_last_sample_ms) > 100U) ||
+      ((uint32_t)(now - steer_pos_right_last_sample_ms) > 100U))
+  {
+    steer_angle_wp_hold_mask = 0U;
+    return;
+  }
+  if ((Steering_AngleFromRaw(1U, start_l, &sl) == 0U) ||
+      (Steering_AngleFromRaw(1U, goal_l, &gl) == 0U) ||
+      (Steering_AngleFromRaw(1U, raw_l, &al) == 0U) ||
+      (Steering_AngleFromRaw(0U, start_r, &sr) == 0U) ||
+      (Steering_AngleFromRaw(0U, goal_r, &gr) == 0U) ||
+      (Steering_AngleFromRaw(0U, raw_r, &ar) == 0U))
+  {
+    steer_angle_wp_hold_mask = 0U;
+    return;
+  }
+  pl = Steering_AngleStrokeProgress(sl, gl, al, &vl);
+  pr = Steering_AngleStrokeProgress(sr, gr, ar, &vr);
+  if ((vl == 0U) || (vr == 0U))
+  {
+    steer_angle_wp_hold_mask = 0U;
+    return;
+  }
+
+  lead = steer_angle_wp_lead_permille;
+  if (lead < 20U) lead = 20U;
+  if (lead > 120U) lead = 120U;
+  slow = (pl < pr) ? pl : pr;
+  frontier = (uint16_t)(((uint32_t)slow + lead > 1000U) ?
+                         1000U : slow + lead);
+  target_l = (int32_t)sl + ((int32_t)(gl - sl) * frontier) / 1000;
+  target_r = (int32_t)sr + ((int32_t)(gr - sr) * frontier) / 1000;
+
+  steer_angle_wp_left_cdeg = al;
+  steer_angle_wp_right_cdeg = ar;
+  steer_angle_wp_target_left_cdeg = (int16_t)target_l;
+  steer_angle_wp_target_right_cdeg = (int16_t)target_r;
+  steer_angle_wp_goal_left_cdeg = gl;
+  steer_angle_wp_goal_right_cdeg = gr;
+  steer_angle_wp_progress_left = pl;
+  steer_angle_wp_progress_right = pr;
+  steer_angle_wp_last_mode = mode;
+  if (steer_angle_wp_frames != 0xffffffffUL) steer_angle_wp_frames++;
+
+  /* OFF at >6% lead; ON again at <=3%. Independent hard timeout
+   * bounds any intentional wait; STOP/neutral and NC cuts always win.
+   */
+  if (mask == 1U)
+  {
+    if ((int32_t)pl <= (int32_t)pr + (int32_t)(lead / 2U))
+      mask = 0U;
+  }
+  else if (mask == 2U)
+  {
+    if ((int32_t)pr <= (int32_t)pl + (int32_t)(lead / 2U))
+      mask = 0U;
+  }
+  if (mask == 0U)
+  {
+    if ((int32_t)pl > (int32_t)pr + (int32_t)lead) mask = 1U;
+    else if ((int32_t)pr > (int32_t)pl + (int32_t)lead) mask = 2U;
+  }
+  if (mask == 1U) *duty_l = 0U;
+  else if (mask == 2U) *duty_r = 0U;
+  steer_angle_wp_hold_mask = mask;
+  if ((mask != 0U) && (steer_angle_wp_hold_frames != 0xffffffffUL))
+    steer_angle_wp_hold_frames++;
+}
+
+/* A controller-induced zero-PWM wait must not look like a jam of the
+ * WAITING motor. Defer its progress watchdog ONLY while its opposite
+ * motor was actively powered on the previous cycle. The opposite
+ * motor retains its own stall watchdog; normal owner timeouts still
+ * bound the entire maneuver. All RAW/wrong-direction checks stay live.
+ */
+static void Steering_AngleWaypointWaitProgress(uint8_t mode,
+      uint8_t state_l, uint8_t state_r, uint8_t moving_state,
+      uint16_t last_pwm_l, uint16_t last_pwm_r,
+      uint32_t *progress_l, uint32_t *progress_r,
+      uint32_t now)
+{
+  if ((steer_angle_wp_enable != 1U) ||
+      (steer_angle_wp_last_mode != mode) ||
+      (state_l != moving_state) || (state_r != moving_state))
+    return;
+  if ((steer_angle_wp_hold_mask == 1U) && (last_pwm_r != 0U))
+    *progress_l = now;
+  else if ((steer_angle_wp_hold_mask == 2U) && (last_pwm_l != 0U))
+    *progress_r = now;
+}
+
 static uint8_t Steering_PositionReadOne(uint8_t left, uint16_t *raw)
 {
   AS5600_HandleTypeDef *sensor = left ? &As5600_Left : &As5600_Right;
@@ -2403,6 +2609,7 @@ static void Steering_PositionRightOff(void)
 
 static void Steering_PositionFinish(uint8_t result)
 {
+  Steering_AngleWaypointReset();
   if (steer_pos_active != 0U)
     M8S00_CaptureStop(6U, 3U, result,
                       (result == 2U) ? 0U : 1U);
@@ -3285,6 +3492,10 @@ static void Steering_PositionUpdate(void)
       Steering_PositionAxisFault(0U, 5U);
   }
 
+  Steering_AngleWaypointWaitProgress(steer_pos_command,
+      steer_pos_left_state, steer_pos_right_state, STEER_AXIS_MOVING,
+      steer_pos_left_pwm, steer_pos_right_pwm,
+      &steer_left_axis.progress_ms, &steer_right_axis.progress_ms, now);
   Steering_PositionAxisUpdate(1U, raw_mask, now, &left_cmd, &left_dir);
   Steering_PositionAxisUpdate(0U, raw_mask, now, &right_cmd, &right_dir);
   /* Both samples are validated by their per-axis NC/AS5600 checks.
@@ -3304,12 +3515,18 @@ static void Steering_PositionUpdate(void)
         (goal_l > STEER_POS_LEFT_MIN_RAW)) goal_l = STEER_POS_LEFT_MIN_RAW;
     if ((steer_pos_command == 2U) &&
         (goal_r < STEER_POS_RIGHT_MIN_RAW)) goal_r = STEER_POS_RIGHT_MIN_RAW;
-    Steering_PhaseLimit(steer_pos_command,
-        steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
-        steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
-        Steering_PositionClampDuty(steer_pos_left_pwm_min),
-        Steering_PositionClampDuty(steer_pos_right_pwm_min),
-        &left_cmd, &right_cmd);
+    if (steer_angle_wp_enable == 1U)
+      Steering_AngleWaypointApply(steer_pos_command,
+          steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
+          steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
+          &left_cmd, &right_cmd);
+    else
+      Steering_PhaseLimit(steer_pos_command,
+          steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
+          steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
+          Steering_PositionClampDuty(steer_pos_left_pwm_min),
+          Steering_PositionClampDuty(steer_pos_right_pwm_min),
+          &left_cmd, &right_cmd);
   }
   steer_pos_escape_mask = (uint8_t)(
       ((steer_pos_left_state == STEER_AXIS_ESCAPING) ?
@@ -3983,6 +4200,33 @@ static uint8_t M8S00_DumpInputResponse(void)
   return M8S00_UartLine(line, n);
 }
 
+static uint8_t M8S04_DumpAngleWaypoint(void)
+{
+  char line[280];
+  int n = snprintf(line, sizeof(line),
+      "M8S04_ANGLE,enabled=%u,mode=%u,rawL=%u,rawR=%u,"
+      "angL_cd=%d,angR_cd=%d,wayL_cd=%d,wayR_cd=%d,"
+      "goalL_cd=%d,goalR_cd=%d,progressL=%u,progressR=%u,"
+      "hold=%u,frames=%lu,holdFrames=%lu,lead=%u\r\n",
+      (unsigned)steer_angle_wp_enable,
+      (unsigned)steer_angle_wp_last_mode,
+      (unsigned)debug_as5600_left_raw,
+      (unsigned)debug_as5600_right_raw,
+      (int)steer_angle_wp_left_cdeg,
+      (int)steer_angle_wp_right_cdeg,
+      (int)steer_angle_wp_target_left_cdeg,
+      (int)steer_angle_wp_target_right_cdeg,
+      (int)steer_angle_wp_goal_left_cdeg,
+      (int)steer_angle_wp_goal_right_cdeg,
+      (unsigned)steer_angle_wp_progress_left,
+      (unsigned)steer_angle_wp_progress_right,
+      (unsigned)steer_angle_wp_hold_mask,
+      (unsigned long)steer_angle_wp_frames,
+      (unsigned long)steer_angle_wp_hold_frames,
+      (unsigned)steer_angle_wp_lead_permille);
+  return M8S00_UartLine(line, n);
+}
+
 static uint8_t M8S00_DumpArrival(void)
 {
   const M8S00Arrival_t *p = &m8_s00_arrival;
@@ -4108,6 +4352,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpSpinNc() == 0U) ||
       (M8S00_DumpSync() == 0U) ||
       (M8S00_DumpPhase() == 0U) ||
+      (M8S04_DumpAngleWaypoint() == 0U) ||
       (M8S00_DumpArrival() == 0U) ||
       (M8S00_DumpInputResponse() == 0U) ||
       (M8S00_DumpConcurrent() == 0U) ||
@@ -4183,6 +4428,7 @@ static void Steering_ManualStop(void)
                      (control_stop_latched != 0U) ||
                      (control_mode != CONTROL_MODE_PS2)) ? 1U : 0U);
   M8S00_ArrivalFinish(steer_manual_block_reason);
+  Steering_AngleWaypointReset();
   Steering_ManualLeftOff();
   Steering_ManualRightOff();
   Steering_SyncReset();
@@ -5083,6 +5329,11 @@ static void Steering_ManualUpdate(void)
       Steering_ManualAxisFault(0U, 5U);
   }
 
+  Steering_AngleWaypointWaitProgress(3U,
+      steer_manual_left_state, steer_manual_right_state, STEER_MANUAL_MOVING,
+      steer_manual_left_pwm, steer_manual_right_pwm,
+      &steer_manual_left_axis.progress_ms,
+      &steer_manual_right_axis.progress_ms, now);
   mask = Steering_TestRawLimitMask();
   Steering_ManualAxisUpdate(1U, left_direction, mask, now, lpwm, &la);
   Steering_ManualAxisUpdate(0U, right_direction, mask, now, rpwm, &ra);
@@ -5107,14 +5358,22 @@ static void Steering_ManualUpdate(void)
       (steer_manual_left_axis.phase_start_valid != 0U) &&
       (steer_manual_right_axis.phase_start_valid != 0U))
   {
-    Steering_PhaseLimit(3U,
-        steer_manual_left_axis.phase_start_raw,
-        steer_manual_left_soft_target, debug_as5600_left_raw,
-        steer_manual_right_axis.phase_start_raw,
-        steer_manual_right_soft_target, debug_as5600_right_raw,
-        Steering_ManualClampPWM(steer_manual_left_rx_min_pwm),
-        Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
-        &la, &ra);
+    if (steer_angle_wp_enable == 1U)
+      Steering_AngleWaypointApply(3U,
+          steer_manual_left_axis.phase_start_raw,
+          steer_manual_left_soft_target, debug_as5600_left_raw,
+          steer_manual_right_axis.phase_start_raw,
+          steer_manual_right_soft_target, debug_as5600_right_raw,
+          &la, &ra);
+    else
+      Steering_PhaseLimit(3U,
+          steer_manual_left_axis.phase_start_raw,
+          steer_manual_left_soft_target, debug_as5600_left_raw,
+          steer_manual_right_axis.phase_start_raw,
+          steer_manual_right_soft_target, debug_as5600_right_raw,
+          Steering_ManualClampPWM(steer_manual_left_rx_min_pwm),
+          Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
+          &la, &ra);
     steer_sync_left_pwm_command = la;
   }
 
