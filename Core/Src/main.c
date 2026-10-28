@@ -4351,14 +4351,17 @@ static uint8_t M8S04_DumpAngleWaypoint(void)
   return M8S00_UartLine(line, n);
 }
 
-/* M8-S05: independent run timing for R1, R2, D-pad and joystick RX.
- * Distinguish endpoint arrivals from short manual steering inputs.
- * No synchronization claim is made when an input was released early.
+/* M8-S00: separate synchronized steering travel from R1 fine trim.
+ * kind: 1=R1, 2=R2, 3=D-pad, 4=RX. R1 travel time ends at the first
+ * fine-band entry per axis; final completion includes independent
+ * center correction and is NOT an S00 timing acceptance criterion.
+ * R2/manual endpoint timing is valid only when both targets are reached.
+ * Joystick released mid-stroke is incomplete, not a PASS or FAIL.
  */
 static uint8_t M8S05_DumpTiming(void)
 {
   uint8_t kind;
-  char line[270];
+  char line[365];
   int n;
   for (kind = 1U; kind <= 4U; kind++)
   {
@@ -4367,25 +4370,48 @@ static uint8_t M8S05_DumpTiming(void)
         (uint32_t)(p->tick_l - p->start_ms) : 0U;
     uint32_t tr = ((p->reached & 2U) != 0U) ?
         (uint32_t)(p->tick_r - p->start_ms) : 0U;
-    uint32_t skew = (tl > tr) ? (tl - tr) : (tr - tl);
+    uint32_t finish_skew = (tl > tr) ? (tl - tr) : (tr - tl);
     uint32_t fl = ((p->fine_seen & 1U) != 0U) ?
         (uint32_t)(p->fine_tick_l - p->start_ms) : 0U;
     uint32_t fr = ((p->fine_seen & 2U) != 0U) ?
         (uint32_t)(p->fine_tick_r - p->start_ms) : 0U;
-    uint8_t valid = (uint8_t)((p->run_id != 0U) &&
+    uint8_t finish_valid = (uint8_t)((p->run_id != 0U) &&
         (p->reached == 3U) && (p->powered == 3U) &&
         (p->faults == 0U) &&
         (((kind >= 3U) && (p->stop_code == 0U)) ||
          ((kind <= 2U) && (p->stop_code == 2U))));
+    /* For R1, the synchronized travel ends when BOTH axes FIRST enter
+     * the near-CENTER fine band. Final +/-5 RAW alignment is separate:
+     * it may legitimately take different durations on each mechanism.
+     * Other modes use the normal NC/soft-stop endpoint when available.
+     */
+    uint8_t travel_valid = (kind == 1U) ?
+        (uint8_t)((p->run_id != 0U) && (p->fine_seen == 3U) &&
+                  (p->powered == 3U)) : finish_valid;
+    uint32_t travel_l = (kind == 1U) ? fl : tl;
+    uint32_t travel_r = (kind == 1U) ? fr : tr;
+    uint32_t travel_skew = (travel_l > travel_r) ?
+        (travel_l - travel_r) : (travel_r - travel_l);
+    uint32_t align_l = ((kind == 1U) &&
+        ((p->reached & 1U) != 0U) && ((p->fine_seen & 1U) != 0U)) ?
+        (uint32_t)(tl - fl) : 0U;
+    uint32_t align_r = ((kind == 1U) &&
+        ((p->reached & 2U) != 0U) && ((p->fine_seen & 2U) != 0U)) ?
+        (uint32_t)(tr - fr) : 0U;
     n = snprintf(line, sizeof(line),
-        "M8S00_TIMING,kind=%u,trials=%lu,run=%lu,valid=%u,"
-        "L_ms=%lu,R_ms=%lu,skewMs=%lu,Lfine_ms=%lu,Rfine_ms=%lu,"
+        "M8S00_TIMING,kind=%u,trials=%lu,run=%lu,travelValid=%u,"
+        "travelL_ms=%lu,travelR_ms=%lu,travelSkewMs=%lu,"
+        "fineAlignL_ms=%lu,fineAlignR_ms=%lu,finishValid=%u,"
+        "finishL_ms=%lu,finishR_ms=%lu,finishSkewMs=%lu,"
         "reached=%u,powered=%u,faults=%u,stop=%u\r\n",
         (unsigned)kind, (unsigned long)m8_s05_run_count[kind],
-        (unsigned long)p->run_id, (unsigned)valid,
+        (unsigned long)p->run_id, (unsigned)travel_valid,
+        (unsigned long)travel_l, (unsigned long)travel_r,
+        (unsigned long)((travel_valid != 0U) ? travel_skew : 0U),
+        (unsigned long)align_l, (unsigned long)align_r,
+        (unsigned)finish_valid,
         (unsigned long)tl, (unsigned long)tr,
-        (unsigned long)((valid != 0U) ? skew : 0U),
-        (unsigned long)fl, (unsigned long)fr,
+        (unsigned long)((finish_valid != 0U) ? finish_skew : 0U),
         (unsigned)p->reached, (unsigned)p->powered,
         (unsigned)p->faults, (unsigned)p->stop_code);
     if (M8S00_UartLine(line, n) == 0U) return 0U;
