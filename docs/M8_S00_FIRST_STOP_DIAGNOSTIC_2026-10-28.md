@@ -8,6 +8,20 @@ The problem reported by the operator: on supported stand D-pad and R1/R2 steerin
 
 Both records are in ordinary RAM and are **not persistent across reset or power removal**. They are meant to be inspected after the motors have stopped, before reset.
 
+## One-shot USB/VCP text export (new 2026-10-28)
+
+To avoid screenshots of 50+ struct fields, an explicit **UART3 / ST-Link Virtual COM** exporter now prints BOTH complete sticky snapshots as a short, labeled key/value log. The old USER-button wheel logger is **not** used; its CSV does not include these new steering snapshots, and its default start configuration may enable wheel PID.
+
+1. Only after a successful CubeIDE Debug build and verified flash, open the ST-Link VCP COM port in a terminal at **115200 baud, 8N1**, no flow control (e.g. Tera Term); enable text capture or copy the text later. This USART3 connection must actually exist on the tested hardware.
+2. On a supported stand with safe power isolation available, clear old evidence with `m8_s00_clear_request=1` while steering is inactive; check the clear count increased and `first_stop.valid=0`. Perform **one** authorized D-pad or R1/R2 test under the approved safety conditions, release the controls, and **disarm START**. Wait for all wheel/steer motion and feedback to settle.
+3. In CubeIDE Live Expressions, write `m8_s00_dump_request=1`. It is **one-shot**: firmware resets it to 0 whether export succeeds or is refused. The COM terminal should show `#M8S00_BEGIN,1` through `#M8S00_END`. Copy and send **the entire text block**; there is no need to expand `first_stop` and `first_fault` in Live Expressions.
+4. Check `m8_s00_dump_status`: **1** successful UART transmission; **2** unsafe/busy (steering still armed, any owner active, nonneutral PS2, wheel feedback/targets or logger busy); **3** no captured event; **4** UART/write error; **0** no attempt. `m8_s00_dump_count` increments for every completed export. `status=1` means bytes were transmitted to UART, **not** proof a PC terminal received or saved them.
+5. DO NOT reset or power off before exporting; the M8-S00 snapshots are ordinary RAM. If status 2, do not bypass safety gates: make the system safely inactive, then request a new export. Do not hold the USER button to collect M8-S00 evidence.
+
+Each available snapshot exports five groups `M8S00_META`, `M8S00_PS2`, `M8S00_STEER`, `M8S00_STATE`, `M8S00_WHEEL`, labeled `STOP` or `FAULT`; an empty fault record emits `M8S00_EMPTY,FAULT`. Wheel RPM fields with prefix `rpm10` and `targetRpm10` are **tenths of RPM** (divide integers by 10). Raw angular values are **AS5600 counts**, not wheel angle degrees. Output occurs in the main loop **after** normal wheel logger service; no extra I2C sampling is invoked.
+
+**Safe transport limitation:** UART transmission blocks the main loop briefly; the exporter therefore refuses to run while steering permits/enables remain active or wheel/steering motion or telemetry exceeds the stopped checks. An idle MCU cannot substitute for independent physical driver power isolation, and existing MCU PWM=0 is not an electrical emergency disconnect. The exporter has not yet been CubeIDE cross-built or tested with an attached terminal. This feature is pending build and bench verification.
+
 ## Debug variables (Live Expressions)
 
 - \`m8_s00_first_stop\`: first event of any kind since explicit clear/boot.
