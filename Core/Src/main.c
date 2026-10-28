@@ -2269,14 +2269,16 @@ volatile int16_t steer_angle_wp_goal_right_cdeg = 0;
 volatile uint16_t steer_angle_wp_progress_left = 0U;
 volatile uint16_t steer_angle_wp_progress_right = 0U;
 volatile uint8_t steer_angle_wp_hold_mask = 0U; /* 1 L, 2 R */
-volatile uint8_t steer_angle_wp_last_mode = 0U; /* 1 R1, 2 R2, 3 manual */
+volatile uint8_t steer_angle_wp_last_mode = 0U; /* sticky last used mode */
+static uint8_t steer_angle_wp_owner_mode = 0U; /* only live owner */
 volatile uint32_t steer_angle_wp_frames = 0U;
 volatile uint32_t steer_angle_wp_hold_frames = 0U;
 
 static void Steering_AngleWaypointReset(void)
 {
+  /* Keep last-mode and angle evidence for post-DISARM UART dump. */
   steer_angle_wp_hold_mask = 0U;
-  steer_angle_wp_last_mode = 0U;
+  steer_angle_wp_owner_mode = 0U;
 }
 
 /* No AS5600 transactions in the mapping. The normal owner read already
@@ -2401,6 +2403,7 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   steer_angle_wp_progress_left = pl;
   steer_angle_wp_progress_right = pr;
   steer_angle_wp_last_mode = mode;
+  steer_angle_wp_owner_mode = mode;
   if (steer_angle_wp_frames != 0xffffffffUL) steer_angle_wp_frames++;
 
   /* OFF at >6% lead; ON again at <=3%. Independent hard timeout
@@ -2441,7 +2444,7 @@ static void Steering_AngleWaypointWaitProgress(uint8_t mode,
       uint32_t now)
 {
   if ((steer_angle_wp_enable != 1U) ||
-      (steer_angle_wp_last_mode != mode) ||
+      (steer_angle_wp_owner_mode != mode) ||
       (state_l != moving_state) || (state_r != moving_state))
     return;
   if ((steer_angle_wp_hold_mask == 1U) && (last_pwm_r != 0U))
