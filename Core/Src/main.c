@@ -2158,6 +2158,90 @@ static M8S00Arrival_t m8_s05_last_run[5] = {0};
 static uint32_t m8_s05_run_count[5] = {0};
 static uint8_t m8_s05_manual_kind = 3U;
 static uint8_t m8_s05_active_kind = 0U;
+/* R2 physical-MIN only: motor encoder counts vs AS5600 RAW.
+ * Soft MAX is NOT a physical reference. Count every main-loop delta
+ * in signed 32-bit to survive 16-bit timer wrap over the whole stroke.
+ * No motor-output feedback uses this calibration yet.
+ */
+typedef struct {
+  uint16_t last_encoder, start_raw, end_raw;
+  int32_t counts;
+  int16_t raw_delta;
+  uint32_t start_ms, end_ms, updates;
+  uint8_t started, arrived;
+} M8S00R2Enc_t;
+static M8S00R2Enc_t m8_r2_enc_l = {0}, m8_r2_enc_r = {0};
+/* +10% maximum on ONLY the lagging R2 motor, >180 RAW before MIN.
+ * Never change R1 fine, R2 final approach, escape, D-pad, RX or NC.
+ * Driver current/temp and coast clearance require physical testing.
+ */
+volatile uint8_t steer_r2_pwm_trial_enable = 1U;
+volatile uint16_t steer_r2_pwm_trial_left_cap = 330U;
+volatile uint16_t steer_r2_pwm_trial_right_cap = 110U;
+volatile uint32_t steer_r2_pwm_trial_left_frames = 0U;
+volatile uint32_t steer_r2_pwm_trial_right_frames = 0U;
+
+static void M8S00_R2EncSampleOne(M8S00R2Enc_t *p, uint16_t cnt)
+{
+  if ((p->started == 0U) || (p->arrived != 0U)) return;
+  p->counts += (int16_t)(uint16_t)(cnt - p->last_encoder);
+  p->last_encoder = cnt;
+  if (p->updates < 0xffffffffUL) p->updates++;
+}
+static void M8S00_R2EncObserve(uint32_t now)
+{
+  uint16_t lc, rc;
+  if ((steer_pos_active == 0U) || (steer_pos_command != 2U)) return;
+  lc = (uint16_t)__HAL_TIM_GET_COUNTER(&htim4);
+  rc = (uint16_t)hlptim1.Instance->CNT;
+  if ((m8_r2_enc_l.started == 0U) &&
+      (steer_pos_left_state == STEER_AXIS_MOVING) &&
+      (debug_turn_left_start_ok == 1U) &&
+      ((uint32_t)(now - steer_pos_left_last_sample_ms) < 80U) &&
+      ((Steering_TestRawLimitMask() & STEER_LIMIT_L_MIN_MASK) == 0U))
+  {
+    m8_r2_enc_l.started = 1U;
+    m8_r2_enc_l.last_encoder = lc;
+    m8_r2_enc_l.start_raw = debug_as5600_left_raw;
+    m8_r2_enc_l.start_ms = now;
+  }
+  if ((m8_r2_enc_r.started == 0U) &&
+      (steer_pos_right_state == STEER_AXIS_MOVING) &&
+      (debug_turn_right_start_ok == 1U) &&
+      ((uint32_t)(now - steer_pos_right_last_sample_ms) < 80U) &&
+      ((Steering_TestRawLimitMask() & STEER_LIMIT_R_MIN_MASK) == 0U))
+  {
+    m8_r2_enc_r.started = 1U;
+    m8_r2_enc_r.last_encoder = rc;
+    m8_r2_enc_r.start_raw = debug_as5600_right_raw;
+    m8_r2_enc_r.start_ms = now;
+  }
+  M8S00_R2EncSampleOne(&m8_r2_enc_l, lc);
+  M8S00_R2EncSampleOne(&m8_r2_enc_r, rc);
+}
+static void M8S00_R2EncOnMin(uint8_t left, uint8_t reason)
+{
+  M8S00R2Enc_t *p = left ? &m8_r2_enc_l : &m8_r2_enc_r;
+  uint16_t cnt = left ? (uint16_t)__HAL_TIM_GET_COUNTER(&htim4) :
+                        (uint16_t)hlptim1.Instance->CNT;
+  if ((steer_pos_command != 2U) || (reason != 3U) ||
+      (p->started == 0U) || (p->arrived != 0U)) return;
+  M8S00_R2EncSampleOne(p, cnt);
+  p->end_raw = left ? debug_as5600_left_raw : debug_as5600_right_raw;
+  p->raw_delta = AS5600_ShortestDeltaCounts(p->start_raw, p->end_raw);
+  p->end_ms = HAL_GetTick();
+  p->arrived = 1U;
+}
+static uint32_t M8S00_R2EncRatio1000(const M8S00R2Enc_t *p)
+{
+  uint32_t nc, nr;
+  if ((p->started == 0U) || (p->arrived == 0U)) return 0U;
+  nc = (uint32_t)((p->counts < 0) ? -(int64_t)p->counts : p->counts);
+  nr = (uint32_t)((p->raw_delta < 0) ? -(int32_t)p->raw_delta :
+                                             p->raw_delta);
+  if ((nc < 32U) || (nr < 60U)) return 0U;
+  return (uint32_t)(((uint64_t)nc * 1000ULL + nr / 2U) / nr);
+}
 /* Same-clock progress mismatch per PS2 steering mode, including
  * partial joystick-RX strokes (which have no valid endpoint time).
  * Monotonic boot counters only; this struct never affects PWM.
@@ -3096,6 +3180,7 @@ static void Steering_PositionOnLimitInterrupt(uint8_t limit_bit)
 
 static void Steering_PositionAxisDone(uint8_t left, uint8_t result)
 {
+  M8S00_R2EncOnMin(left, result);
   M8S00_ArrivalDone(left, result);
   if (steer_pos_active != 0U)
     M8S00_CaptureStop(4U, (left != 0U) ? 1U : 2U, result, 0U);
@@ -3723,6 +3808,7 @@ static void Steering_PositionUpdate(void)
   uint8_t raw_mask, pending, late_pending;
   uint8_t allowed, left_escape_irq_hold = 0U, right_escape_irq_hold = 0U;
   uint16_t left_cmd = 0U, right_cmd = 0U;
+  uint32_t r2_wp_frames_before = steer_angle_wp_frames_r2;
   GPIO_PinState left_dir = GPIO_PIN_RESET;
   GPIO_PinState right_dir = GPIO_PIN_RESET;
 
@@ -3812,6 +3898,11 @@ static void Steering_PositionUpdate(void)
     steer_pos_command = buttons;
     steer_pos_result = 1U;
     steer_pos_start_ms = now;
+    if (buttons == 2U)
+    {
+      m8_r2_enc_l = (M8S00R2Enc_t){0};
+      m8_r2_enc_r = (M8S00R2Enc_t){0};
+    }
     M8S00_ArrivalBegin((buttons == 1U) ? 1U : 2U,
                         (buttons == 1U) ? 1U : 2U,
                         (buttons == 1U) ? 1U : 2U, now);
@@ -3941,6 +4032,8 @@ static void Steering_PositionUpdate(void)
     }
   }
 
+  /* Sample R2 encoder before processing any queued MIN NC arrival. */
+  M8S00_R2EncObserve(now);
   raw_mask = Steering_TestRawLimitMask();
   irq_state = __get_PRIMASK();
   __disable_irq();
@@ -4035,6 +4128,49 @@ static void Steering_PositionUpdate(void)
       ((steer_pos_right_state == STEER_AXIS_ESCAPING) ?
          steer_right_axis.escape_origin : 0U));
 
+  /* Optional +10% headroom only for the lagging R2 coarse axis.
+   * Never apply inside 180 RAW to physical MIN, at an active NC, or
+   * without a freshly completed AS5600 waypoint update this pass.
+   */
+  if ((steer_r2_pwm_trial_enable == 1U) &&
+      (steer_pos_command == 2U) && (steer_angle_wp_enable == 1U) &&
+      (steer_angle_wp_frames_r2 > r2_wp_frames_before) &&
+      (steer_pos_left_state == STEER_AXIS_MOVING) &&
+      (steer_pos_right_state == STEER_AXIS_MOVING) &&
+      ((uint32_t)(now - steer_pos_left_last_sample_ms) <= 40U) &&
+      ((uint32_t)(now - steer_pos_right_last_sample_ms) <= 40U) &&
+      ((Steering_TestRawLimitMask() &
+        (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_R_MIN_MASK)) == 0U))
+  {
+    int16_t el = AS5600_ShortestDeltaCounts(debug_as5600_left_raw,
+                                             steer_pos_left_r2_target_raw);
+    int16_t er = AS5600_ShortestDeltaCounts(debug_as5600_right_raw,
+                                             steer_pos_right_r2_target_raw);
+    uint16_t dist_l = (uint16_t)((el < 0) ? -el : el);
+    uint16_t dist_r = (uint16_t)((er < 0) ? -er : er);
+    if ((steer_angle_wp_progress_left + 30U <
+         steer_angle_wp_progress_right) &&
+        (dist_l > 180U) && (left_cmd >= 300U) &&
+        (steer_r2_pwm_trial_left_cap > 300U))
+    {
+      uint16_t cap = steer_r2_pwm_trial_left_cap;
+      if (cap > 330U) cap = 330U;
+      left_cmd = cap;
+      if (steer_r2_pwm_trial_left_frames < 0xffffffffUL)
+        steer_r2_pwm_trial_left_frames++;
+    }
+    else if ((steer_angle_wp_progress_right + 30U <
+              steer_angle_wp_progress_left) &&
+             (dist_r > 180U) && (right_cmd >= 100U) &&
+             (steer_r2_pwm_trial_right_cap > 100U))
+    {
+      uint16_t cap = steer_r2_pwm_trial_right_cap;
+      if (cap > 110U) cap = 110U;
+      right_cmd = cap;
+      if (steer_r2_pwm_trial_right_frames < 0xffffffffUL)
+        steer_r2_pwm_trial_right_frames++;
+    }
+  }
   /* ATOMIC recheck: no limit IRQ may arrive between checking GPIO and
    * writing compare; when interrupts unmask, pending limit callback
    * immediately kills only the axis whose NC contact rose.
@@ -4921,6 +5057,48 @@ static uint8_t M8S05_DumpTiming(void)
   return M8S00_UartLine(line, n);
 }
 
+static uint8_t M8S00_DumpR2Encoder(void)
+{
+  const M8S00R2Enc_t *p;
+  uint8_t side;
+  char line[256];
+  int n;
+  uint8_t completed = (uint8_t)(
+      (m8_s05_last_run[2].reached == 3U) &&
+      (m8_s05_last_run[2].powered == 3U) &&
+      (m8_s05_last_run[2].faults == 0U) &&
+      (m8_s05_last_run[2].stop_code == 2U));
+  for (side = 0U; side < 2U; side++)
+  {
+    uint32_t ratio;
+    p = (side == 0U) ? &m8_r2_enc_l : &m8_r2_enc_r;
+    ratio = M8S00_R2EncRatio1000(p);
+    n = snprintf(line, sizeof(line),
+        "M8S00_R2ENC,axis=%c,valid=%u,started=%u,nc=%u,"
+        "startRaw=%u,minRaw=%u,rawDelta=%d,encDelta=%ld,"
+        "countPerRaw1000=%lu,travelMs=%lu,updates=%lu\r\n",
+        (side == 0U) ? 'L' : 'R',
+        (unsigned)((completed != 0U) && (ratio != 0U)),
+        (unsigned)p->started, (unsigned)p->arrived,
+        (unsigned)p->start_raw, (unsigned)p->end_raw,
+        (int)p->raw_delta, (long)p->counts,
+        (unsigned long)ratio,
+        (unsigned long)((p->arrived != 0U) ?
+                        (p->end_ms - p->start_ms) : 0U),
+        (unsigned long)p->updates);
+    if (M8S00_UartLine(line, n) == 0U) return 0U;
+  }
+  n = snprintf(line, sizeof(line),
+      "M8S00_R2PWM,enabled=%u,capL=%u,capR=%u,"
+      "extraFramesL=%lu,extraFramesR=%lu\r\n",
+      (unsigned)steer_r2_pwm_trial_enable,
+      (unsigned)steer_r2_pwm_trial_left_cap,
+      (unsigned)steer_r2_pwm_trial_right_cap,
+      (unsigned long)steer_r2_pwm_trial_left_frames,
+      (unsigned long)steer_r2_pwm_trial_right_frames);
+  return M8S00_UartLine(line, n);
+}
+
 static uint8_t M8S00_DumpArrival(void)
 {
   const M8S00Arrival_t *p = &m8_s00_arrival;
@@ -5048,6 +5226,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpPhase() == 0U) ||
       (M8S04_DumpAngleWaypoint() == 0U) ||
       (M8S05_DumpTiming() == 0U) ||
+      (M8S00_DumpR2Encoder() == 0U) ||
       (M8S00_DumpArrival() == 0U) ||
       (M8S00_DumpInputResponse() == 0U) ||
       (M8S00_DumpConcurrent() == 0U) ||
