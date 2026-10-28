@@ -64,8 +64,8 @@ must_have = {
     "probe envelope debug reason": r"steer_cal_probe_envelope_last_reason",
 
     "R1/R2 position owner": r"Steering_PositionUpdate\(\)",
-    "R2 retains near-MIN LEFT target": r"steer_pos_left_r2_target_raw\s*=\s*2297U",
-    "R2 retains near-MIN RIGHT target": r"steer_pos_right_r2_target_raw\s*=\s*191U",
+    "R2 seeks toward physical LEFT MIN": r"steer_pos_left_r2_target_raw\s*=\s*2297U",
+    "R2 seeks toward physical RIGHT MIN": r"steer_pos_right_r2_target_raw\s*=\s*166U",
     "R2 target separated from discovered NC": r"left\s*\?\s*steer_pos_left_r2_target_raw\s*:",
     "R2 never commands past new RIGHT NC": r"goal\s*<\s*STEER_POS_RIGHT_MIN_RAW",
     "SELECT calibration owner": r"Steering_CalUpdate\(\)",
@@ -186,7 +186,7 @@ if not all(term in src for term in (
         "steer_pos_left_center_tol_raw = 5U;",
         "steer_pos_right_center_tol_raw = 5U;",
         "STEER_POS_TOL_RAW             5")):
-    fail.append("legacy R1 +/-5 / R2 MIN tolerance changed")
+    fail.append("R1 +/-5 tolerance or retained raw diagnostic constant changed")
 
 # START status 9 diagnosis must NOT bypass bad I2C frames, magnet status
 # or the calibrated hard-angle guard. Both buses must be sampled so a
