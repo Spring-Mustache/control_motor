@@ -2046,12 +2046,23 @@ typedef struct
 {
   uint32_t run_id, start_ms, finish_ms, tick_l, tick_r;
   uint32_t power_tick_l, power_tick_r;
+  uint32_t fine_tick_l, fine_tick_r;
   uint16_t raw_l, raw_r;
   uint8_t active, mode, goal_l, goal_r;
   uint8_t reached, powered, faults, reason_l, reason_r, stop_code;
+  uint8_t fine_seen; /* bit 0 LEFT, bit 1 RIGHT */
 } M8S00Arrival_t;
 static M8S00Arrival_t m8_s00_arrival = {0};
 static uint32_t m8_s00_arrival_run_count = 0U;
+/* Separate last completed runs for all relevant PS2 controls.
+ * 1=R1 CENTER, 2=R2 physical MIN, 3=D-pad, 4=joystick RX.
+ * A joystick released mid-stroke is correctly marked incomplete.
+ * These are read-only snapshots, never an actuator command.
+ */
+static M8S00Arrival_t m8_s05_last_run[5] = {0};
+static uint32_t m8_s05_run_count[5] = {0};
+static uint8_t m8_s05_manual_kind = 3U;
+static uint8_t m8_s05_active_kind = 0U;
 /* PS2 poll-to-poll period, measured on real main-loop timestamps. */
 static uint32_t m8_s02_ps2_prev_poll_ms = 0U;
 static uint32_t m8_s02_ps2_poll_count = 0U;
@@ -2066,6 +2077,7 @@ static void M8S00_ArrivalBegin(uint8_t mode, uint8_t gl,
   m8_s00_arrival.run_id = ++m8_s00_arrival_run_count;
   m8_s00_arrival.start_ms = t0;
   m8_s00_arrival.mode = mode;
+  m8_s05_active_kind = (mode == 3U) ? m8_s05_manual_kind : mode;
   m8_s00_arrival.goal_l = gl;
   m8_s00_arrival.goal_r = gr;
   m8_s00_arrival.active = 1U;
@@ -2114,6 +2126,13 @@ static void M8S00_ArrivalFinish(uint8_t reason)
   m8_s00_arrival.finish_ms = HAL_GetTick();
   m8_s00_arrival.stop_code = reason;
   m8_s00_arrival.active = 0U;
+  if ((m8_s05_active_kind >= 1U) && (m8_s05_active_kind <= 4U))
+  {
+    m8_s05_last_run[m8_s05_active_kind] = m8_s00_arrival;
+    if (m8_s05_run_count[m8_s05_active_kind] != 0xffffffffUL)
+      m8_s05_run_count[m8_s05_active_kind]++;
+  }
+  m8_s05_active_kind = 0U;
 }
 
 static uint16_t Steering_PositionClampDuty(uint16_t value)
@@ -2912,6 +2931,20 @@ static void Steering_PositionFineUpdate(uint8_t left,
 
   if (axis->fine_phase == STEER_POS_FINE_PHASE_IDLE)
   {
+    /* Time the FIRST fine entry (coarse travel ends) independently.
+     * Never change PWM/NC/fine acceptance behavior for diagnostics.
+     */
+    if ((m8_s00_arrival.active != 0U) &&
+        (m8_s00_arrival.mode == 1U))
+    {
+      uint8_t bit = (left != 0U) ? 1U : 2U;
+      if ((m8_s00_arrival.fine_seen & bit) == 0U)
+      {
+        m8_s00_arrival.fine_seen |= bit;
+        if (left != 0U) m8_s00_arrival.fine_tick_l = now;
+        else m8_s00_arrival.fine_tick_r = now;
+      }
+    }
     axis->fine_phase = STEER_POS_FINE_PHASE_SETTLE;
     axis->fine_phase_start_ms = now;
     axis->fine_quiet_since_ms = now;
@@ -5238,6 +5271,8 @@ static void Steering_ManualUpdate(void)
     }
 
     steer_manual_begin_ms = now;
+    m8_s05_manual_kind =
+        ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U)) ? 3U : 4U;
     M8S00_ArrivalBegin(3U, (command < 0) ? 3U : 4U,
                         (right_direction < 0) ? 3U : 4U, now);
     Steering_SyncReset(); /* new independent speed history per command */
