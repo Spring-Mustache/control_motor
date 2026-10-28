@@ -2140,6 +2140,96 @@ static uint16_t Steering_PositionDuty(int16_t err, uint16_t min_duty,
  * during position control and outside it. No separate debug enable
  * and no IsDeviceReady probe in this fast path.
  */
+/* M8-S01: bounded phase/arrival regulator common to R1/R2 and D-pad/RX.
+ * Compare completion percentage of each CURRENT stroke, not equal RAW/s.
+ * Never increase PWM or alter a direction; independent NC ISR, sensor,
+ * fine trim, stall, timeout and soft-limit decisions retain priority.
+ * Initial gain/limits require hardware validation on a suspended chassis.
+ */
+volatile uint8_t steer_phase_enable = 1U;
+volatile uint16_t steer_phase_deadband_permille = 30U;
+volatile uint16_t steer_phase_max_trim_pwm = 96U;
+volatile uint16_t steer_phase_progress_l_permille = 0U;
+volatile uint16_t steer_phase_progress_r_permille = 0U;
+volatile int16_t steer_phase_error_permille = 0;
+volatile uint8_t steer_phase_last_leader = 0U; /* 1 L, 2 R, 0 none */
+volatile uint16_t steer_phase_last_trim_pwm = 0U;
+volatile uint8_t steer_phase_last_mode = 0U; /* 1 R1, 2 R2, 3 manual */
+volatile uint32_t steer_phase_valid_frames = 0U;
+volatile uint32_t steer_phase_trim_frames = 0U;
+
+static uint16_t Steering_PhaseProgress(uint16_t start, uint16_t goal,
+                                       uint16_t raw, uint8_t *valid)
+{
+  int32_t span = (int32_t)goal - (int32_t)start;
+  int32_t moved = (int32_t)raw - (int32_t)start;
+  if (span < 0) { span = -span; moved = -moved; }
+  *valid = 0U;
+  if ((span < 80) || (span > 1250)) return 0U;
+  *valid = 1U;
+  if (moved <= 0) return 0U;
+  if (moved >= span) return 1000U;
+  return (uint16_t)(((uint32_t)moved * 1000U) / (uint32_t)span);
+}
+
+static void Steering_PhaseLimit(uint8_t mode,
+    uint16_t start_l, uint16_t goal_l, uint16_t raw_l,
+    uint16_t start_r, uint16_t goal_r, uint16_t raw_r,
+    uint16_t floor_l, uint16_t floor_r,
+    uint16_t *duty_l, uint16_t *duty_r)
+{
+  uint8_t lv = 0U, rv = 0U;
+  uint16_t pl, pr, deadband, max_trim, trim;
+  int32_t error;
+
+  steer_phase_last_leader = 0U;
+  steer_phase_last_trim_pwm = 0U;
+  if ((steer_phase_enable != 1U) ||
+      (*duty_l == 0U) || (*duty_r == 0U)) return;
+  pl = Steering_PhaseProgress(start_l, goal_l, raw_l, &lv);
+  pr = Steering_PhaseProgress(start_r, goal_r, raw_r, &rv);
+  if ((lv == 0U) || (rv == 0U)) return;
+  error = (int32_t)pl - (int32_t)pr;
+  steer_phase_progress_l_permille = pl;
+  steer_phase_progress_r_permille = pr;
+  steer_phase_error_permille = (int16_t)error;
+  steer_phase_last_mode = mode;
+  if (steer_phase_valid_frames != 0xffffffffUL) steer_phase_valid_frames++;
+  deadband = steer_phase_deadband_permille;
+  if (deadband < 10U) deadband = 10U;
+  if (deadband > 100U) deadband = 100U;
+  if ((error >= -(int32_t)deadband) &&
+      (error <= (int32_t)deadband)) return;
+  max_trim = steer_phase_max_trim_pwm;
+  if (max_trim > 125U) max_trim = 125U;
+  trim = (uint16_t)(((error < 0) ? -error : error) - (int32_t)deadband);
+  trim /= 2U;
+  if (trim > max_trim) trim = max_trim;
+  /* The tested per-axis PWM floor wins. If existing approach taper
+   * already falls below the floor, do not raise or reduce it further.
+   * Never command a reversed or negative duty.
+   */
+  if (error > 0)
+  {
+    uint16_t room = (*duty_l > floor_l) ?
+                    (uint16_t)(*duty_l - floor_l) : 0U;
+    if (trim > room) trim = room;
+    *duty_l = (uint16_t)(*duty_l - trim);
+    steer_phase_last_leader = 1U;
+  }
+  else
+  {
+    uint16_t room = (*duty_r > floor_r) ?
+                    (uint16_t)(*duty_r - floor_r) : 0U;
+    if (trim > room) trim = room;
+    *duty_r = (uint16_t)(*duty_r - trim);
+    steer_phase_last_leader = 2U;
+  }
+  steer_phase_last_trim_pwm = trim;
+  if ((trim != 0U) && (steer_phase_trim_frames != 0xffffffffUL))
+    steer_phase_trim_frames++;
+}
+
 static uint8_t Steering_PositionReadOne(uint8_t left, uint16_t *raw)
 {
   AS5600_HandleTypeDef *sensor = left ? &As5600_Left : &As5600_Right;
@@ -3183,6 +3273,30 @@ static void Steering_PositionUpdate(void)
 
   Steering_PositionAxisUpdate(1U, raw_mask, now, &left_cmd, &left_dir);
   Steering_PositionAxisUpdate(0U, raw_mask, now, &right_cmd, &right_dir);
+  /* Both samples are validated by their per-axis NC/AS5600 checks.
+   * Do not touch R1 short-pulse fine trim or an NC escape.
+   * R2 still only declares DONE at its OWN physical MIN contact.
+   */
+  if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
+      (steer_pos_right_state == STEER_AXIS_MOVING) &&
+      (steer_left_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE) &&
+      (steer_right_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE))
+  {
+    uint16_t goal_l = (steer_pos_command == 1U) ?
+        STEER_POS_LEFT_CENTER_RAW : steer_pos_left_r2_target_raw;
+    uint16_t goal_r = (steer_pos_command == 1U) ?
+        STEER_POS_RIGHT_CENTER_RAW : steer_pos_right_r2_target_raw;
+    if ((steer_pos_command == 2U) &&
+        (goal_l > STEER_POS_LEFT_MIN_RAW)) goal_l = STEER_POS_LEFT_MIN_RAW;
+    if ((steer_pos_command == 2U) &&
+        (goal_r < STEER_POS_RIGHT_MIN_RAW)) goal_r = STEER_POS_RIGHT_MIN_RAW;
+    Steering_PhaseLimit(steer_pos_command,
+        steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
+        steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
+        Steering_PositionClampDuty(steer_pos_left_pwm_min),
+        Steering_PositionClampDuty(steer_pos_right_pwm_min),
+        &left_cmd, &right_cmd);
+  }
   steer_pos_escape_mask = (uint8_t)(
       ((steer_pos_left_state == STEER_AXIS_ESCAPING) ?
          steer_left_axis.escape_origin : 0U) |
@@ -3442,6 +3556,8 @@ typedef struct
   uint32_t speed_sample_ms;
   uint16_t speed_filtered_raw_s;
   uint8_t speed_valid;
+  uint16_t phase_start_raw; /* sampled AFTER independent quiet gate */
+  uint8_t phase_start_valid;
 } SteeringManualAxis_t;
 
 static SteeringManualAxis_t steer_manual_left_axis = {0};
@@ -3805,6 +3921,26 @@ static uint8_t M8S00_DumpSync(void)
  * A valid skew requires both motors powered and both axes DONE.
  * Contact DONE timestamp is classified by main loop, not EXTI edge.
  */
+static uint8_t M8S00_DumpPhase(void)
+{
+  char line[250];
+  int n = snprintf(line, sizeof(line),
+      "M8S00_PHASE,enable=%u,mode=%u,validFrames=%lu,trimFrames=%lu,"
+      "progressL_permille=%u,progressR_permille=%u,error_permille=%d,"
+      "leader=%u,trimPWM=%u,deadband=%u,maxTrim=%u\r\n",
+      (unsigned)steer_phase_enable, (unsigned)steer_phase_last_mode,
+      (unsigned long)steer_phase_valid_frames,
+      (unsigned long)steer_phase_trim_frames,
+      (unsigned)steer_phase_progress_l_permille,
+      (unsigned)steer_phase_progress_r_permille,
+      (int)steer_phase_error_permille,
+      (unsigned)steer_phase_last_leader,
+      (unsigned)steer_phase_last_trim_pwm,
+      (unsigned)steer_phase_deadband_permille,
+      (unsigned)steer_phase_max_trim_pwm);
+  return M8S00_UartLine(line, n);
+}
+
 static uint8_t M8S00_DumpArrival(void)
 {
   const M8S00Arrival_t *p = &m8_s00_arrival;
@@ -3929,6 +4065,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpEscapeCounters() == 0U) ||
       (M8S00_DumpSpinNc() == 0U) ||
       (M8S00_DumpSync() == 0U) ||
+      (M8S00_DumpPhase() == 0U) ||
       (M8S00_DumpArrival() == 0U) ||
       (M8S00_DumpConcurrent() == 0U) ||
       (M8S00_DumpCalibration() == 0U) ||
@@ -3952,6 +4089,8 @@ static void Steering_SyncReset(void)
   steer_sync_previous_left_pwm = 0U;
   steer_manual_left_axis.speed_valid = 0U;
   steer_manual_right_axis.speed_valid = 0U;
+  steer_manual_left_axis.phase_start_valid = 0U;
+  steer_manual_right_axis.phase_start_valid = 0U;
 }
 
 static uint16_t Steering_ManualClampPWM(uint16_t pwm)
@@ -4285,6 +4424,8 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
       }
       axis->best_distance = 32767U;
       axis->progress_ms = now;
+      axis->phase_start_raw = raw;
+      axis->phase_start_valid = 1U;
       if (left != 0U) steer_manual_left_state = STEER_MANUAL_MOVING;
       else steer_manual_right_state = STEER_MANUAL_MOVING;
       /* Zero CCR for this cycle, first powered action NEXT cycle
@@ -4914,6 +5055,25 @@ static void Steering_ManualUpdate(void)
     la = 0U;
   }
   Steering_SyncApply(HAL_GetTick(), la, ra, &la);
+  /* RIGHT-master speed PI stays intact. Phase trimming is a final
+   * downward-only cap when BOTH axes are moving toward their own
+   * soft endpoints, after independent quiet settling and sensor checks.
+   */
+  if ((steer_manual_left_state == STEER_MANUAL_MOVING) &&
+      (steer_manual_right_state == STEER_MANUAL_MOVING) &&
+      (steer_manual_left_axis.phase_start_valid != 0U) &&
+      (steer_manual_right_axis.phase_start_valid != 0U))
+  {
+    Steering_PhaseLimit(3U,
+        steer_manual_left_axis.phase_start_raw,
+        steer_manual_left_soft_target, debug_as5600_left_raw,
+        steer_manual_right_axis.phase_start_raw,
+        steer_manual_right_soft_target, debug_as5600_right_raw,
+        Steering_ManualClampPWM(steer_manual_left_rx_min_pwm),
+        Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
+        &la, &ra);
+    steer_sync_left_pwm_command = la;
+  }
 
   primask = __get_PRIMASK();
   __disable_irq();
