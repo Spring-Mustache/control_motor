@@ -1915,6 +1915,13 @@ static uint32_t steer_pos_idle_last_ms = 0U;
 static uint8_t steer_pos_idle_next_side = 0U;
 /* EXTI sets ONLY its own side's bit and zeros its own channel. */
 static volatile uint8_t steer_pos_irq_pending_mask = 0U;
+/* M8-R1 escape: an IRQ of the SAME initially asserted NC is an
+ * anticipated contact reassertion during release. The IRQ still cuts
+ * PWM immediately. Count it separately for LEFT and RIGHT diagnostics.
+ * Any opposite contact, second NC, or IRQ after ESCAPING is a fault.
+ */
+volatile uint32_t steer_pos_escape_origin_irq_left_count = 0U;
+volatile uint32_t steer_pos_escape_origin_irq_right_count = 0U;
 
 /* M8-S00: read-only first-stop/fault evidence for Live Expressions.
  * These snapshots NEVER grant motion, alter PWM, or replace safety logic.
@@ -2221,6 +2228,48 @@ static void Steering_PositionAxisFault(uint8_t left, uint8_t result)
   }
 }
 
+/* During an explicitly initialized departure from an OWN active MIN/MAX,
+ * its rising EXTI edge may reflect reassertion/contact chatter while
+ * mechanically moving AWAY. This is not an arrival at the opposite NC.
+ *
+ * Do NOT clear the IRQ in the ISR, do NOT override the ISR PWM cutoff,
+ * and do NOT allow immediate same-pass re-energization. Callers will
+ * recheck NC levels plus live AS5600, movement direction and 120-ms
+ * stable NC release via the existing ESCAPING path. Other IRQs fault.
+ */
+static uint8_t Steering_PositionOwnEscapeIrq(uint8_t left, uint8_t irq_bits)
+{
+  uint8_t own_mask = (left != 0U) ?
+      (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK) :
+      (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK);
+  SteeringPositionAxis_t *axis = (left != 0U) ?
+      &steer_left_axis : &steer_right_axis;
+  uint8_t state = (left != 0U) ?
+      steer_pos_left_state : steer_pos_right_state;
+  uint8_t own_irq = (uint8_t)(irq_bits & own_mask);
+  if ((steer_pos_active == 0U) ||
+      (state != STEER_AXIS_ESCAPING) ||
+      (axis->escape_origin == 0U) ||
+      (own_irq != axis->escape_origin))
+    return 0U;
+
+  /* Reset release debounce: the contact has just reasserted.
+   * Even if it reads open now, require a fresh quiet interval.
+   */
+  axis->escape_release_pending = 0U;
+  if (left != 0U)
+  {
+    Steering_PositionLeftOff();
+    steer_pos_escape_origin_irq_left_count++;
+  }
+  else
+  {
+    Steering_PositionRightOff();
+    steer_pos_escape_origin_irq_right_count++;
+  }
+  return 1U;
+}
+
 /* R1 CENTER (or R2 MIN departing MAX) may continue after own NC
  * physically releases only when AS5600 confirms >=3 counts of movement
  * in the known AWAY direction. Stops PWM for one entire control cycle
@@ -2261,10 +2310,13 @@ static void Steering_PositionEscapeReleased(uint8_t left, uint32_t now)
     Steering_PositionAxisFault(left, 8U);
     return;
   }
-  if ((progress_ok == 0U) &&
-      ((uint32_t)(now - axis->escape_release_since_ms) <
-       STEER_POS_ESCAPE_RELEASE_QUIET_MS))
+  /* Do not skip release settling just because a few AS5600 counts
+   * were observed; a queued NC reassertion must not resume instantly.
+   */
+  if ((uint32_t)(now - axis->escape_release_since_ms) <
+      STEER_POS_ESCAPE_RELEASE_QUIET_MS)
     return;
+  (void)progress_ok; /* direction check above still rejects wrong travel */
 
   axis->escape_release_pending = 0U;
   axis->progress_ms = now;
@@ -2694,7 +2746,7 @@ static void Steering_PositionUpdate(void)
   uint32_t irq_state;
   uint8_t buttons = 0U;
   uint8_t raw_mask, pending, late_pending;
-  uint8_t allowed;
+  uint8_t allowed, left_escape_irq_hold = 0U, right_escape_irq_hold = 0U;
   uint16_t left_cmd = 0U, right_cmd = 0U;
   GPIO_PinState left_dir = GPIO_PIN_RESET;
   GPIO_PinState right_dir = GPIO_PIN_RESET;
@@ -2917,18 +2969,22 @@ static void Steering_PositionUpdate(void)
    */
   if ((pending & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
   {
-    if ((steer_pos_command == 2U) &&
-        ((pending & STEER_LIMIT_L_MIN_MASK) != 0U) &&
-        ((pending & STEER_LIMIT_L_MAX_MASK) == 0U))
+    if (Steering_PositionOwnEscapeIrq(1U, pending) != 0U)
+      left_escape_irq_hold = 1U;
+    else if ((steer_pos_command == 2U) &&
+             ((pending & STEER_LIMIT_L_MIN_MASK) != 0U) &&
+             ((pending & STEER_LIMIT_L_MAX_MASK) == 0U))
       Steering_PositionAxisDone(1U, 3U);
     else
       Steering_PositionAxisFault(1U, 9U);
   }
   if ((pending & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
   {
-    if ((steer_pos_command == 2U) &&
-        ((pending & STEER_LIMIT_R_MIN_MASK) != 0U) &&
-        ((pending & STEER_LIMIT_R_MAX_MASK) == 0U))
+    if (Steering_PositionOwnEscapeIrq(0U, pending) != 0U)
+      right_escape_irq_hold = 1U;
+    else if ((steer_pos_command == 2U) &&
+             ((pending & STEER_LIMIT_R_MIN_MASK) != 0U) &&
+             ((pending & STEER_LIMIT_R_MAX_MASK) == 0U))
       Steering_PositionAxisDone(0U, 3U);
     else
       Steering_PositionAxisFault(0U, 9U);
@@ -2969,20 +3025,24 @@ static void Steering_PositionUpdate(void)
   steer_pos_irq_pending_mask = 0U;
   if ((late_pending & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
   {
-    if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
-        (steer_pos_command == 2U) &&
-        ((late_pending & STEER_LIMIT_L_MIN_MASK) != 0U) &&
-        ((late_pending & STEER_LIMIT_L_MAX_MASK) == 0U))
+    if (Steering_PositionOwnEscapeIrq(1U, late_pending) != 0U)
+      left_escape_irq_hold = 1U;
+    else if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
+             (steer_pos_command == 2U) &&
+             ((late_pending & STEER_LIMIT_L_MIN_MASK) != 0U) &&
+             ((late_pending & STEER_LIMIT_L_MAX_MASK) == 0U))
       Steering_PositionAxisDone(1U, 3U);
     else
       Steering_PositionAxisFault(1U, 9U);
   }
   if ((late_pending & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
   {
-    if ((steer_pos_right_state == STEER_AXIS_MOVING) &&
-        (steer_pos_command == 2U) &&
-        ((late_pending & STEER_LIMIT_R_MIN_MASK) != 0U) &&
-        ((late_pending & STEER_LIMIT_R_MAX_MASK) == 0U))
+    if (Steering_PositionOwnEscapeIrq(0U, late_pending) != 0U)
+      right_escape_irq_hold = 1U;
+    else if ((steer_pos_right_state == STEER_AXIS_MOVING) &&
+             (steer_pos_command == 2U) &&
+             ((late_pending & STEER_LIMIT_R_MIN_MASK) != 0U) &&
+             ((late_pending & STEER_LIMIT_R_MAX_MASK) == 0U))
       Steering_PositionAxisDone(0U, 3U);
     else
       Steering_PositionAxisFault(0U, 9U);
@@ -3037,6 +3097,13 @@ static void Steering_PositionUpdate(void)
     else
       Steering_PositionAxisFault(0U, 9U);
   }
+
+  /* Preserve the NC ISR's immediate PWM=0 for this pass even if the
+   * latest sensor sample would otherwise request a new drive pulse.
+   * Never use an escape-origin EXTI to bypass the atomic limit checks.
+   */
+  if (left_escape_irq_hold != 0U) left_cmd = 0U;
+  if (right_escape_irq_hold != 0U) right_cmd = 0U;
 
   if ((steer_pos_left_state == STEER_AXIS_MOVING) ||
       (steer_pos_left_state == STEER_AXIS_ESCAPING))
