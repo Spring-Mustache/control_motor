@@ -2361,6 +2361,13 @@ volatile uint16_t steer_speed_feedback_boost_l_pwm = 0U;
 volatile uint16_t steer_speed_feedback_boost_r_pwm = 0U;
 volatile uint32_t steer_speed_feedback_frames = 0U;
 volatile uint32_t steer_speed_feedback_sat_frames = 0U;
+/* Lifetime counters retained through DISARM for per-axis diagnosis. */
+volatile uint32_t steer_speed_taper_l_frames = 0U;
+volatile uint32_t steer_speed_taper_r_frames = 0U;
+volatile uint32_t steer_speed_boost_l_frames = 0U;
+volatile uint32_t steer_speed_boost_r_frames = 0U;
+volatile uint32_t steer_speed_sat_l_frames = 0U;
+volatile uint32_t steer_speed_sat_r_frames = 0U;
 
 /* Read the already checked AS5600 sample timestamps, rejecting
  * stale, backward or discontinuous progress. Only updates on a new
@@ -2593,36 +2600,36 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   else if (mode == 3U && steer_angle_wp_frames_manual != 0xffffffffUL)
     steer_angle_wp_frames_manual++;
 
-  /* M8-S00 closed-loop speed+phase servo:
-   *   - measure normalized angular velocities from AS5600 (not PWM);
-   *   - target = 1.2 x current faster measured angular progress rate;
-   *   - add bounded PI/P corrections ONLY to lagging/slow channels;
-   *   - never zero a channel just because it is leading.
-   * Hard caps remain LEFT<=300, RIGHT<=100 tested PWM; 100-RAW
-   * endpoint coast window and R1 fine correction prohibit boosting.
-   * Speed target may saturate; do NOT report +20% actual speed without
-   * a loaded chassis measurement.
+  /* M8-S00 bounded AS5600 velocity / phase coordinator:
+   * 1. Match the actually measured faster stroke rate, rather than
+   *    requesting 120% of an already saturated motor's rate.
+   * 2. BOOST only the lagging motor, within its previously tested cap.
+   * 3. When the lagging axis has no PWM headroom, TAPER the leader
+   *    continuously toward its tested minimum; NEVER hold at PWM=0.
+   * 4. Leave the last 100 RAW, NC/STOP and R1 fine CENTER untouched.
+   * The separate 120%-PWM travel trial remains in PositionDuty and
+   * ManualAxisUpdate; it does not prove 120% physical speed.
    */
   {
     uint16_t cap_l = (mode == 3U) ?
         steer_manual_left_rx_max_pwm : steer_pos_left_pwm_max;
     uint16_t cap_r = (mode == 3U) ?
         steer_manual_right_rx_max_pwm : steer_pos_right_pwm_max;
-    uint16_t speed_target = 0U;
     uint16_t dist_l = (raw_l > goal_l) ?
         (raw_l - goal_l) : (goal_l - raw_l);
     uint16_t dist_r = (raw_r > goal_r) ?
         (raw_r - goal_r) : (goal_r - raw_r);
-    int32_t e_l, e_r;
-    uint32_t demand_l, demand_r, room_l, room_r;
+    uint16_t gap = (pl > pr) ? (pl - pr) : (pr - pl);
+    uint16_t speed_target = 0U;
     uint16_t pwm_add_l = 0U, pwm_add_r = 0U;
+    uint8_t boost_l = 0U, boost_r = 0U;
+    int32_t demand_l = 0, demand_r = 0;
+    uint32_t room, add;
     if (cap_l > 300U) cap_l = 300U;
     if (cap_r > 100U) cap_r = 100U;
-    /* D-pad may have a configured cap above RX-max; do not silently
-     * lower an already tested D-pad PWM, but never exceed 300/100.
-     */
     if (mode == 3U)
     {
+      /* D-pad already uses the verified 300/100 envelope. */
       uint16_t dpad_l = steer_manual_left_dpad_pwm;
       uint16_t dpad_r = steer_manual_right_dpad_pwm;
       if (dpad_l > 300U) dpad_l = 300U;
@@ -2630,6 +2637,7 @@ static void Steering_AngleWaypointApply(uint8_t mode,
       if (cap_l < dpad_l) cap_l = dpad_l;
       if (cap_r < dpad_r) cap_r = dpad_r;
     }
+
     Steering_AngleSpeedObserve(&steer_speed_obs_l,
         steer_pos_left_last_sample_ms, pl);
     Steering_AngleSpeedObserve(&steer_speed_obs_r,
@@ -2641,100 +2649,157 @@ static void Steering_AngleWaypointApply(uint8_t mode,
     steer_angle_wp_hold_mask = 0U;
     steer_angle_wp_last_trim_pwm = 0U;
 
+    /* RAW already passed independent per-axis guards. A phase leader
+     * may be tapered during velocity-filter warm-up, never to zero.
+     * Suppress taper when the follower is already catching up faster.
+     */
+    if (gap > lead)
+    {
+      uint16_t excess = (uint16_t)(gap - lead);
+      if (excess > 120U) excess = 120U;
+      if ((pl > pr) && (allow_hold_l != 0U) &&
+          (dist_l > 100U) && (*duty_l > floor_l) &&
+          ((steer_speed_obs_l.valid == 0U) ||
+           (steer_speed_obs_r.valid == 0U) ||
+           ((uint32_t)steer_speed_obs_l.speed_pms + 20U >=
+            (uint32_t)steer_speed_obs_r.speed_pms)))
+      {
+        uint32_t trim = ((uint32_t)(*duty_l - floor_l) *
+                         excess + 60U) / 120U;
+        if (trim > 0U)
+        {
+          *duty_l = (uint16_t)(*duty_l - trim);
+          if (steer_speed_taper_l_frames != 0xffffffffUL)
+            steer_speed_taper_l_frames++;
+        }
+      }
+      else if ((pr > pl) && (allow_hold_r != 0U) &&
+               (dist_r > 100U) && (*duty_r > floor_r) &&
+               ((steer_speed_obs_l.valid == 0U) ||
+                (steer_speed_obs_r.valid == 0U) ||
+                ((uint32_t)steer_speed_obs_r.speed_pms + 20U >=
+                 (uint32_t)steer_speed_obs_l.speed_pms)))
+      {
+        uint32_t trim = ((uint32_t)(*duty_r - floor_r) *
+                         excess + 60U) / 120U;
+        if (trim > 0U)
+        {
+          *duty_r = (uint16_t)(*duty_r - trim);
+          if (steer_speed_taper_r_frames != 0xffffffffUL)
+            steer_speed_taper_r_frames++;
+        }
+      }
+    }
+
     if ((steer_speed_obs_l.valid == 0U) ||
         (steer_speed_obs_r.valid == 0U))
     {
       steer_speed_reference_pms = 0U;
-      return; /* base PWM already has conservative 20% trial */
+      steer_speed_i_l = 0;
+      steer_speed_i_r = 0;
+      return; /* coarse PWM and nonzero phase taper only */
     }
+
+    /* Measured faster rate is an achievable reference; trial PWM
+     * still attempts +20% wherever previously tested caps allow it.
+     */
     speed_target = (steer_speed_obs_l.speed_pms >
                     steer_speed_obs_r.speed_pms) ?
                     steer_speed_obs_l.speed_pms :
                     steer_speed_obs_r.speed_pms;
-    speed_target = (uint16_t)
-        (((uint32_t)speed_target * 120U + 50U) / 100U);
-    if (speed_target > 2400U) speed_target = 2400U;
     steer_speed_reference_pms = speed_target;
     if (steer_speed_feedback_frames != 0xffffffffUL)
       steer_speed_feedback_frames++;
 
-    /* Error combines speed deficit (permille/s), normalized angular
-     * phase lag (permille) and a small anti-windup integral term.
-     * PI is sampled only when BOTH observers update; neither motor
-     * is reversed, halted or driven into a soft/NC boundary.
+    if (gap > lead)
+    {
+      if (pl < pr) boost_l = 1U;
+      else if (pr < pl) boost_r = 1U;
+    }
+    else if ((uint32_t)steer_speed_obs_l.speed_pms + 35U <
+             (uint32_t)steer_speed_obs_r.speed_pms)
+      boost_l = 1U;
+    else if ((uint32_t)steer_speed_obs_r.speed_pms + 35U <
+             (uint32_t)steer_speed_obs_l.speed_pms)
+      boost_r = 1U;
+
+    /* One-sided bounded integral. Update on ANY new AS5600 sample,
+     * not only when both sensors update on the same poll. Anti-windup
+     * resets at the cap and within the final coast clearance.
      */
-    if ((steer_speed_obs_l.updated != 0U) &&
+    if ((steer_speed_obs_l.updated != 0U) ||
         (steer_speed_obs_r.updated != 0U))
     {
-      int32_t dl = (int32_t)pr - (int32_t)pl;
-      int32_t dr = -dl;
-      if (dl > 0)
+      if ((boost_l != 0U) && (*duty_l < cap_l) &&
+          (dist_l > 100U))
       {
-        steer_speed_i_l += (int16_t)(dl / 12);
-        if (steer_speed_i_l > 24) steer_speed_i_l = 24;
+        steer_speed_i_l += (int16_t)((gap > lead) ? 2U : 1U);
+        if (steer_speed_i_l > 20) steer_speed_i_l = 20;
       }
       else steer_speed_i_l = 0;
-      if (dr > 0)
+      if ((boost_r != 0U) && (*duty_r < cap_r) &&
+          (dist_r > 100U))
       {
-        steer_speed_i_r += (int16_t)(dr / 12);
+        steer_speed_i_r += (int16_t)((gap > lead) ? 2U : 1U);
         if (steer_speed_i_r > 12) steer_speed_i_r = 12;
       }
       else steer_speed_i_r = 0;
     }
+    if (boost_l != 0U)
+      demand_l = ((int32_t)speed_target -
+                  (int32_t)steer_speed_obs_l.speed_pms) / 25 +
+                 (int32_t)((gap > lead) ? (gap - lead) / 2U : 0U) +
+                 (int32_t)steer_speed_i_l;
+    if (boost_r != 0U)
+      demand_r = ((int32_t)speed_target -
+                  (int32_t)steer_speed_obs_r.speed_pms) / 25 +
+                 (int32_t)((gap > lead) ? (gap - lead) / 2U : 0U) +
+                 (int32_t)steer_speed_i_r;
+    if (demand_l < 0) demand_l = 0;
+    if (demand_r < 0) demand_r = 0;
 
-    e_l = ((int32_t)speed_target -
-           (int32_t)steer_speed_obs_l.speed_pms) / 25 +
-          ((int32_t)pr - (int32_t)pl) / 2 +
-          (int32_t)steer_speed_i_l;
-    e_r = ((int32_t)speed_target -
-           (int32_t)steer_speed_obs_r.speed_pms) / 25 +
-          ((int32_t)pl - (int32_t)pr) / 2 +
-          (int32_t)steer_speed_i_r;
-    if (e_l < 0) e_l = 0;
-    if (e_r < 0) e_r = 0;
-    demand_l = (uint32_t)e_l;
-    demand_r = (uint32_t)e_r;
-    /* Maximum speed-loop extra = 20% of CURRENT commanded PWM.
-     * At endpoints/NC/fine approach, never defeat tested taper.
-     */
-    if ((allow_hold_l != 0U) && (dist_l > 100U) &&
-        (*duty_l > 0U) && (*duty_l < cap_l))
+    if ((boost_l != 0U) && (allow_hold_l != 0U) &&
+        (dist_l > 100U) && (*duty_l > 0U) && (demand_l > 0))
     {
-      room_l = (uint32_t)cap_l - *duty_l;
-      if (demand_l > ((uint32_t)*duty_l / 5U))
-        demand_l = (uint32_t)*duty_l / 5U;
-      if (demand_l > room_l)
+      room = (*duty_l < cap_l) ? (uint32_t)(cap_l - *duty_l) : 0U;
+      add = (uint32_t)demand_l;
+      if (add > (uint32_t)*duty_l / 5U)
+        add = (uint32_t)*duty_l / 5U;
+      if (add > room)
       {
-        demand_l = room_l;
+        add = room;
+        steer_speed_i_l = 0;
         if (steer_speed_feedback_sat_frames != 0xffffffffUL)
           steer_speed_feedback_sat_frames++;
+        if (steer_speed_sat_l_frames != 0xffffffffUL)
+          steer_speed_sat_l_frames++;
       }
-      pwm_add_l = (uint16_t)demand_l;
-      *duty_l = (uint16_t)((uint32_t)*duty_l + demand_l);
+      pwm_add_l = (uint16_t)add;
+      *duty_l = (uint16_t)((uint32_t)*duty_l + add);
+      if ((add > 0U) && (steer_speed_boost_l_frames != 0xffffffffUL))
+        steer_speed_boost_l_frames++;
     }
-    else if ((allow_hold_l != 0U) && (dist_l > 100U) &&
-             (demand_l > 0U) && (*duty_l >= cap_l) &&
-             (steer_speed_feedback_sat_frames != 0xffffffffUL))
-      steer_speed_feedback_sat_frames++;
-    if ((allow_hold_r != 0U) && (dist_r > 100U) &&
-        (*duty_r > 0U) && (*duty_r < cap_r))
+    if ((boost_r != 0U) && (allow_hold_r != 0U) &&
+        (dist_r > 100U) && (*duty_r > 0U) && (demand_r > 0))
     {
-      room_r = (uint32_t)cap_r - *duty_r;
-      if (demand_r > ((uint32_t)*duty_r / 5U))
-        demand_r = (uint32_t)*duty_r / 5U;
-      if (demand_r > room_r)
+      room = (*duty_r < cap_r) ? (uint32_t)(cap_r - *duty_r) : 0U;
+      add = (uint32_t)demand_r;
+      if (add > (uint32_t)*duty_r / 5U)
+        add = (uint32_t)*duty_r / 5U;
+      if (add > room)
       {
-        demand_r = room_r;
+        add = room;
+        steer_speed_i_r = 0;
         if (steer_speed_feedback_sat_frames != 0xffffffffUL)
           steer_speed_feedback_sat_frames++;
+        if (steer_speed_sat_r_frames != 0xffffffffUL)
+          steer_speed_sat_r_frames++;
       }
-      pwm_add_r = (uint16_t)demand_r;
-      *duty_r = (uint16_t)((uint32_t)*duty_r + demand_r);
+      pwm_add_r = (uint16_t)add;
+      *duty_r = (uint16_t)((uint32_t)*duty_r + add);
+      if ((add > 0U) && (steer_speed_boost_r_frames != 0xffffffffUL))
+        steer_speed_boost_r_frames++;
     }
-    else if ((allow_hold_r != 0U) && (dist_r > 100U) &&
-             (demand_r > 0U) && (*duty_r >= cap_r) &&
-             (steer_speed_feedback_sat_frames != 0xffffffffUL))
-      steer_speed_feedback_sat_frames++;
     steer_speed_feedback_boost_l_pwm = pwm_add_l;
     steer_speed_feedback_boost_r_pwm = pwm_add_r;
     steer_angle_wp_last_trim_pwm = (uint16_t)
@@ -4700,6 +4765,16 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned long)steer_speed_feedback_sat_frames,
       (unsigned long)steer_speed_trial_boost_frames,
       (unsigned long)steer_speed_trial_saturated_frames);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+  n = snprintf(line, sizeof(line),
+      "M8S00_CTRL,taperL=%lu,taperR=%lu,boostL=%lu,boostR=%lu,"
+      "satL=%lu,satR=%lu\r\n",
+      (unsigned long)steer_speed_taper_l_frames,
+      (unsigned long)steer_speed_taper_r_frames,
+      (unsigned long)steer_speed_boost_l_frames,
+      (unsigned long)steer_speed_boost_r_frames,
+      (unsigned long)steer_speed_sat_l_frames,
+      (unsigned long)steer_speed_sat_r_frames);
   return M8S00_UartLine(line, n);
 }
 
