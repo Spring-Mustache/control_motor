@@ -1997,6 +1997,8 @@ volatile uint8_t m8_s00_dump_request = 0U;
 volatile uint8_t m8_s00_dump_status = 0U; /* 0 idle, 1 OK, 2 unsafe/busy, 3 empty, 4 UART/error */
 volatile uint32_t m8_s00_dump_count = 0U;
 static void M8S00_DumpUpdate(void);
+static uint8_t M8S00_CalHasSession(void);
+static uint8_t M8S00_DumpCalibration(void);
 static void M8S00_CaptureStop(uint8_t event, uint8_t axis,
                             uint8_t code, uint8_t abnormal);
 static void M8S00_ClearService(void);
@@ -3651,8 +3653,12 @@ static void M8S00_DumpUpdate(void)
     m8_s00_dump_status = 2U; /* busy/unsafe, no deferred action */
     return;
   }
+  /* A completed or failed SELECT scan is reportable without a position
+   * stop event. Its counters must not authorize motor operation.
+   */
   if ((m8_s00_first_stop.valid == 0U) &&
-      (m8_s00_first_fault.valid == 0U))
+      (m8_s00_first_fault.valid == 0U) &&
+      (M8S00_CalHasSession() == 0U))
   {
     m8_s00_dump_status = 3U; /* no event since clear */
     return;
@@ -3664,6 +3670,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpOne("STOP", &m8_s00_first_stop) == 0U) ||
       (M8S00_DumpOne("FAULT", &m8_s00_first_fault) == 0U) ||
       (M8S00_DumpEscapeCounters() == 0U) ||
+      (M8S00_DumpCalibration() == 0U) ||
       (HAL_UART_Transmit(&huart3, (uint8_t *)end,
                          (uint16_t)(sizeof(end)-1U), 1000U) != HAL_OK))
     return;
@@ -6343,6 +6350,72 @@ static void Steering_CalUpdate(void)
     steer_cal_completed_count++;
     Steering_CalStop(2U);
   }
+}
+
+/* SELECT contact-discovery report. Both functions are evaluated ONLY
+ * after the existing disarmed/standstill UART safety gate.
+ * MIN/MAX are captured upon the actual owning NC assertion in SEEK
+ * stages. A scan commits runtime endpoints atomically only after both
+ * axes finish and the nonwrapping geometry is valid.
+ */
+static uint8_t M8S00_CalHasSession(void)
+{
+  return ((steer_cal_start_count != 0U) ||
+          (steer_cal_rejected_start_count != 0U) ||
+          (steer_cal_unarmed_select_count != 0U)) ? 1U : 0U;
+}
+
+static uint8_t M8S00_DumpCalibration(void)
+{
+  char line[384];
+  int n = snprintf(line, sizeof(line),
+      "M8S00_CAL,starts=%lu,complete=%lu,failed=%lu,rejected=%lu,"
+      "result=%u,last_run=%u,reject=%u,stageL=%u,stageR=%u,"
+      "faultL=%u,faultR=%u\r\n",
+      (unsigned long)steer_cal_start_count,
+      (unsigned long)steer_cal_completed_count,
+      (unsigned long)steer_cal_failed_count,
+      (unsigned long)steer_cal_rejected_start_count,
+      (unsigned)steer_cal_result, (unsigned)steer_cal_last_run_result,
+      (unsigned)steer_cal_reject_reason,
+      (unsigned)steer_cal_left_stage, (unsigned)steer_cal_right_stage,
+      (unsigned)steer_cal_left_fault, (unsigned)steer_cal_right_fault);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  n = snprintf(line, sizeof(line),
+      "M8S00_CAL_CONTACT,minL=%u,maxL=%u,minR=%u,maxR=%u,"
+      "minMsL=%lu,minMsR=%lu,maxMsL=%lu,maxMsR=%lu\r\n",
+      (unsigned)steer_cal_left_min_found,
+      (unsigned)steer_cal_left_max_found,
+      (unsigned)steer_cal_right_min_found,
+      (unsigned)steer_cal_right_max_found,
+      (unsigned long)steer_cal_left_min_contact_ms,
+      (unsigned long)steer_cal_right_min_contact_ms,
+      (unsigned long)steer_cal_left_max_contact_ms,
+      (unsigned long)steer_cal_right_max_contact_ms);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  n = snprintf(line, sizeof(line),
+      "M8S00_CAL_RUNTIME,minL=%u,maxL=%u,minR=%u,maxR=%u,"
+      "centerL=%u,centerR=%u,r2L=%u,r2R=%u,"
+      "limitFaultSide=%u,limitReason=%u,motionFaultSide=%u,"
+      "motionReason=%u,timeoutSide=%u,probeReason=%u,probeRaw=%u\r\n",
+      (unsigned)steer_cal_left_min_runtime,
+      (unsigned)steer_cal_left_max_runtime,
+      (unsigned)steer_cal_right_min_runtime,
+      (unsigned)steer_cal_right_max_runtime,
+      (unsigned)STEER_POS_LEFT_CENTER_RAW,
+      (unsigned)STEER_POS_RIGHT_CENTER_RAW,
+      (unsigned)steer_pos_left_r2_target_raw,
+      (unsigned)steer_pos_right_r2_target_raw,
+      (unsigned)steer_cal_limit_fault_side,
+      (unsigned)steer_cal_limit_fault_reason,
+      (unsigned)steer_cal_motion_fault_side,
+      (unsigned)steer_cal_motion_fault_reason,
+      (unsigned)steer_cal_timeout_side,
+      (unsigned)steer_cal_probe_envelope_last_reason,
+      (unsigned)steer_cal_probe_envelope_last_raw);
+  return M8S00_UartLine(line, n);
 }
 
 static int16_t PS2_Convert_LY_To_PWM(uint8_t ly)
