@@ -279,6 +279,11 @@ volatile uint32_t wheel_log_button_press_count = 0U;
 volatile uint32_t wheel_log_button_last_tick = 0U;
 volatile uint32_t wheel_log_user_clear_count = 0U;
 volatile uint8_t wheel_log_user_clear_blocked = 0U;
+/* M8-S00 single USER short press export request (consumed by main.c).
+ * This does not modify wheel PID, start another logger or write USART in ISR.
+ */
+volatile uint8_t wheel_log_m8_s00_ready = 0U;
+volatile uint8_t wheel_log_m8_s00_button_dump_request = 0U;
 
 /* 1 = start logger bằng USER button sẽ bật closed-loop PID. */
 volatile uint8_t wheel_log_force_pid_on_start = 1U;
@@ -750,6 +755,18 @@ static void WC_LogHandleShortUserPress(void)
 {
   if (wheel_ff_test_active != 0U)
   {
+    return;
+  }
+  /* Preserve STOP of an ongoing wheel log. If a completed M8-S00
+   * diagnostic is waiting, a short USER press requests only its export
+   * instead of silently starting another wheel test or changing PID.
+   * The main loop independently rejects serial I/O until fully safe.
+   */
+  if ((wheel_log_active == 0U) &&
+      (wheel_log_m8_s00_ready != 0U) &&
+      (wheel_log_dump_active == 0U))
+  {
+    wheel_log_m8_s00_button_dump_request = 1U;
     return;
   }
   if (wheel_log_active != 0U)
