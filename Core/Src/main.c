@@ -2040,6 +2040,23 @@ static uint16_t Steering_PositionClampDuty(uint16_t value)
   return (value > 400U) ? 400U : value;
 }
 
+/* NC grants only the AWAY direction for its own steering axis.
+ * DIR1=away from MIN and DIR0=away from MAX on BOTH axes.
+ * This never overrides ISR PWM cut, sensor limits or motion permit.
+ */
+static uint8_t Steering_PositionNcDirectionAllowed(uint8_t left,
+                                                   uint8_t nc,
+                                                   GPIO_PinState dir)
+{
+  uint8_t mi = left ? STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_R_MIN_MASK;
+  uint8_t ma = left ? STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_R_MAX_MASK;
+  uint8_t own = (uint8_t)(nc & (mi | ma));
+  if (own == 0U) return 1U;
+  if (own == mi) return (dir == GPIO_PIN_SET) ? 1U : 0U;
+  if (own == ma) return (dir == GPIO_PIN_RESET) ? 1U : 0U;
+  return 0U;
+}
+
 static uint16_t Steering_PositionDuty(int16_t err, uint16_t min_duty,
                                      uint16_t max_duty, uint16_t divisor)
 {
@@ -2346,7 +2363,7 @@ static void Steering_PositionEscapeReleased(uint8_t left, uint32_t now)
 
   /* A switch can open before the AS5600 reports three RAW counts.
    * Old behavior stopped with result=7, requiring a second R1 press.
-   * Hold PWM OFF until NC has stayed physically released for 120 ms.
+   * Confirm NC release over 120 ms while AWAY-direction servo keeps moving.
    * The ordinary sensor, geometry, late-IRQ and NC rechecks are still
    * mandatory before the next cycle can drive TOWARD CENTER.
    * If RAW confirmed >=3 counts, allow the existing direct transition.
@@ -2364,8 +2381,9 @@ static void Steering_PositionEscapeReleased(uint8_t left, uint32_t now)
     Steering_PositionAxisFault(left, 8U);
     return;
   }
-  /* Do not skip release settling just because a few AS5600 counts
-   * were observed; a queued NC reassertion must not resume instantly.
+  /* Maintain ESCAPING classification for NC contact bounce.
+   * IRQ still zeros PWM immediately for its own control pass.
+   * There is no longer a 120-ms forced motor stop here.
    */
   if ((uint32_t)(now - axis->escape_release_since_ms) <
       STEER_POS_ESCAPE_RELEASE_QUIET_MS)
@@ -2670,11 +2688,12 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
      * After verified switch release, transition through one zero-PWM
      * cycle and then continue the requested R1/R2 target.
      */
+    /* Confirm release while continuing bounded AWAY motion. */
     if ((limit_mask & axis->escape_origin) == 0U)
-    {
       Steering_PositionEscapeReleased(left, now);
+    if (((left != 0U) && (steer_pos_left_state == STEER_AXIS_ERROR)) ||
+        ((left == 0U) && (steer_pos_right_state == STEER_AXIS_ERROR)))
       return;
-    }
     if ((uint32_t)(now - axis->escape_start_ms) >= STEER_POS_ESCAPE_MS)
     {
       Steering_PositionAxisFault(left, 5U);
@@ -2694,9 +2713,36 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
       Steering_PositionAxisFault(left, 8U);
       return;
     }
+    /* Escape no longer uses MAX PWM and a 120-ms motor pause.
+     * Follow the same position PWM law throughout R1/R2 travel.
+     */
+    goal = (steer_pos_command == 1U) ?
+        (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
+        (left ? steer_pos_left_r2_target_raw :
+                steer_pos_right_r2_target_raw);
+    if (steer_pos_command == 2U)
+    {
+      if ((left != 0U) && (goal > STEER_POS_LEFT_MIN_RAW))
+        goal = STEER_POS_LEFT_MIN_RAW;
+      else if ((left == 0U) && (goal < STEER_POS_RIGHT_MIN_RAW))
+        goal = STEER_POS_RIGHT_MIN_RAW;
+    }
+    err = AS5600_ShortestDeltaCounts(raw, goal);
+    if (left != 0U) steer_pos_left_error = err;
+    else steer_pos_right_error = err;
     *direction = (from_max != 0U) ? GPIO_PIN_RESET : GPIO_PIN_SET;
-    *duty = left ? Steering_PositionClampDuty(steer_pos_left_pwm_max)
-                 : Steering_PositionClampDuty(steer_pos_right_pwm_max);
+    if (((from_max == 0U) && ((left != 0U) ? (err >= 0) : (err <= 0))) ||
+        ((from_max != 0U) && ((left != 0U) ? (err <= 0) : (err >= 0))) ||
+        (Steering_PositionNcDirectionAllowed(left, limit_mask, *direction) == 0U))
+    {
+      Steering_PositionAxisFault(left, 9U);
+      return;
+    }
+    *duty = left ?
+        Steering_PositionDuty(err, steer_pos_left_pwm_min,
+                              steer_pos_left_pwm_max, 2U) :
+        Steering_PositionDuty(err, steer_pos_right_pwm_min,
+                              steer_pos_right_pwm_max, 4U);
     return;
   }
 
@@ -3119,10 +3165,7 @@ static void Steering_PositionUpdate(void)
     uint8_t own_limits = (uint8_t)
         (raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK));
     if (own_limits == 0U)
-    {
-      left_cmd = 0U;
       Steering_PositionEscapeReleased(1U, now);
-    }
     else if (own_limits != steer_left_axis.escape_origin)
       Steering_PositionAxisFault(1U, 9U);
   }
@@ -3131,10 +3174,7 @@ static void Steering_PositionUpdate(void)
     uint8_t own_limits = (uint8_t)
         (raw_mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK));
     if (own_limits == 0U)
-    {
-      right_cmd = 0U;
       Steering_PositionEscapeReleased(0U, now);
-    }
     else if (own_limits != steer_right_axis.escape_origin)
       Steering_PositionAxisFault(0U, 9U);
   }
@@ -3170,20 +3210,19 @@ static void Steering_PositionUpdate(void)
   if ((steer_pos_left_state == STEER_AXIS_MOVING) ||
       (steer_pos_left_state == STEER_AXIS_ESCAPING))
   {
-    if ((steer_pos_left_state != STEER_AXIS_ESCAPING) ||
-        ((raw_mask & steer_left_axis.escape_origin) != 0U))
+    if ((left_cmd != 0U) &&
+        (Steering_PositionNcDirectionAllowed(1U, raw_mask, left_dir) == 0U))
+    {
+      Steering_PositionAxisFault(1U, 9U);
+      left_cmd = 0U;
+    }
+    if (steer_pos_left_state != STEER_AXIS_ERROR)
     {
       if (left_cmd != 0U)
         HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port,
                           MOTOR_DIR_TURN_left_Pin, left_dir);
       __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, left_cmd);
       steer_pos_left_pwm = left_cmd;
-    }
-    else
-    {
-      /* Released NC is being confirmed: stay in ESCAPING with PWM zero,
-       * not DONE=7, until the safe CENTER transition is authorized. */
-      Steering_PositionLeftOff();
     }
   }
   else
@@ -3192,18 +3231,19 @@ static void Steering_PositionUpdate(void)
   if ((steer_pos_right_state == STEER_AXIS_MOVING) ||
       (steer_pos_right_state == STEER_AXIS_ESCAPING))
   {
-    if ((steer_pos_right_state != STEER_AXIS_ESCAPING) ||
-        ((raw_mask & steer_right_axis.escape_origin) != 0U))
+    if ((right_cmd != 0U) &&
+        (Steering_PositionNcDirectionAllowed(0U, raw_mask, right_dir) == 0U))
+    {
+      Steering_PositionAxisFault(0U, 9U);
+      right_cmd = 0U;
+    }
+    if (steer_pos_right_state != STEER_AXIS_ERROR)
     {
       if (right_cmd != 0U)
         HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port,
                           MOTOR_DIR_TURN_right_Pin, right_dir);
       __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, right_cmd);
       steer_pos_right_pwm = right_cmd;
-    }
-    else
-    {
-      Steering_PositionRightOff();
     }
   }
   else
