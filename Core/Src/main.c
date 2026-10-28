@@ -2709,10 +2709,11 @@ static void Steering_PositionUpdate(void)
              (ps2_spin_rf_latched == 0U) &&
              (voice_execution_active == 0U) && (voice_command_ready == 0U) &&
              (PS2_Pad.L1 == 0U) && (PS2_Pad.L2 == 0U) &&
-             (PS2_Pad.Up == 0U) && (PS2_Pad.Down == 0U) &&
+             (WheelControl_SpinIsActive() == 0U) &&
              (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
-             (PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT) &&
-             (PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT) &&
+             /* Position steering may overlap LY/Up/Down propulsion;
+              * L1/L2 spin remains an exclusive maneuver.
+              */
              (PS2_Pad.RX >= (128U - STEER_POS_RX_NEUTRAL_DELTA)) &&
              (PS2_Pad.RX <= (128U + STEER_POS_RX_NEUTRAL_DELTA)) &&
              (steer_pos_enable == 1U) &&
@@ -2721,8 +2722,7 @@ static void Steering_PositionUpdate(void)
              (PS2_Pad.Select == 0U) &&
              (debug_as5600_poll_enable == 0U) &&
              (steer_test_running == 0U) && (steer_test_request == 0U) &&
-             (steer_test_arm == 0U) &&
-             (Steering_PositionWheelsStopped() != 0U));
+             (steer_test_arm == 0U));
 
   if (steer_pos_active == 0U)
   {
@@ -2756,7 +2756,7 @@ static void Steering_PositionUpdate(void)
                (debug_limit_l_max.initialized == 0U))
         steer_pos_block_reason = 7U;
       else if (steer_manual_active != 0U) steer_pos_block_reason = 9U;
-      else if (Steering_PositionWheelsStopped() == 0U)
+      else if (WheelControl_SpinIsActive() != 0U)
         steer_pos_block_reason = 5U;
       else if ((debug_as5600_poll_enable != 0U) ||
                (steer_test_running != 0U) ||
@@ -2765,9 +2765,6 @@ static void Steering_PositionUpdate(void)
         steer_pos_block_reason = 6U;
       else if ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U) ||
                (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
-               (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U) ||
-               (PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
-               (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
                (PS2_Pad.RX < (128U - STEER_POS_RX_NEUTRAL_DELTA)) ||
                (PS2_Pad.RX > (128U + STEER_POS_RX_NEUTRAL_DELTA)))
         steer_pos_block_reason = 4U;
