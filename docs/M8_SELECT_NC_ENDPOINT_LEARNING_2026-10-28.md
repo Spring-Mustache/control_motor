@@ -56,3 +56,11 @@ Bản chẩn đoán bổ sung (commit sau 14:00) xuất `M8S00_CAL_ABORT` với 
 - Người vận hành đánh giá các RAW hiện tại nhìn chung đã gần vị trí mong muốn, chỉ lệch nhẹ; **quyết định tạm thời bỏ qua việc thử/sửa SELECT** và tiếp tục công việc điều khiển R1/R2, chạy bánh + đánh lái độc lập. Không yêu cầu làm tiếp 24 lần thử, không tăng ngưỡng RPM và không nới biên thăm dò.
 
 **Phân biệt trạng thái:** lỗi hủy SELECT tại lần cuối đã được chứng minh do điều kiện bánh đứng yên/encoder; nguyên nhân cơ khí được người vận hành quan sát; R_MIN ≈193 là số đo do người vận hành cung cấp; các giới hạn runtime của firmware vẫn là giá trị cũ. **Chưa chỉnh sửa firmware hay ghi giá trị mới vào RAM/Flash.** Khi quay lại SELECT cần quyết định riêng về khoảng dự phòng NC, phương pháp học contact và điều kiện hoạt động an toàn.
+
+## M8 R1/R2 — triển khai sau khi tạm hoãn SELECT
+
+Từ log cũ, công tắc L_MIN được thấy tác động ở RAW khoảng 2274. Theo quan sát cơ khí mới của người vận hành, R_MIN hiện tác động tại khoảng 193 sau khi chỉnh lại vị trí. Đây là hai điểm NC quan sát, **không phải kết quả học SELECT**. R1 CENTER không đổi: LEFT 1873, RIGHT 662. Các giới hạn NC runtime vẫn LEFT MIN 2297/MAX 1374, RIGHT MIN 166/MAX 982, không được ghi đè.
+
+R2 được đổi sang mục tiêu **ở phía trong công tắc** để tránh lặp lại việc chạm rồi ESCAPING: LEFT=2240 (34 RAW lùi khỏi điểm NC quan sát), RIGHT=223 (30 RAW lùi khỏi điểm NC quan sát). Đây là khoảng dự phòng khởi đầu **chưa xác minh quãng trôi sau cắt PWM**; tuyệt đối không gọi là khoảng dừng an toàn đã được thử. Giữ nguyên NC EXTI cắt PWM, kiểm tra giới hạn AS5600, xử lý khi motor đã nằm tại NC, và SELECT đang tạm hoãn. Không lấy setpoint R2 làm giá trị MIN thực.
+
+Bài nghiệm thu trên giá treo và cắt nguồn động lực độc lập: trước tiên thử R2 riêng, xác nhận cả hai cơ cấu dừng **trước khi đè công tắc** (đồng thời đo RAW thực tế sau khi đứng yên); chỉ khi đạt mới tiếp tục R1 một lần. R1 PASS khi mỗi motor về CENTER (±5 RAW, ổn định) không cần nhấn lần hai và không có `M8S00_FINE` reason khác 0. Nếu motor còn chạm NC hoặc trôi qua khoảng hở, dừng, không mở rộng thử nghiệm. Tốc độ/độ mượt cần đánh giá thực tế; log STOP/FAULT không chứng minh đã có chạy bánh và lái đồng thời. Không sửa PWM, không tăng số xung, và không đổi logic R1 fine trong commit setpoint này vì `code=10` cũ chưa được giải mã thành `reasonL`.
