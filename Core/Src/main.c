@@ -2341,12 +2341,10 @@ static uint8_t Steering_PositionOwnEscapeIrq(uint8_t left, uint8_t irq_bits)
   return 1U;
 }
 
-/* R1 CENTER (or R2 MIN departing MAX) may continue after own NC
- * physically releases only when AS5600 confirms >=3 counts of movement
- * in the known AWAY direction. Stops PWM for one entire control cycle
- * during transition; stall, magnet, and total timeout checks still apply.
- * If the switch opens/closes without measured motion, STOP this axis with
- * result=7 rather than treating contact bounce as a valid release.
+/* R1 CENTER (or R2 MIN departing MAX) continues AWAY from an initial
+ * NC using normal position PWM. Confirm 120-ms NC release while still
+ * moving AWAY; own-NC bounce interrupts PWM for one control pass and
+ * resets this confirmation timer. Reject clear wrong-way AS5600 travel.
  */
 static void Steering_PositionEscapeReleased(uint8_t left, uint32_t now)
 {
@@ -2685,8 +2683,8 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     uint8_t from_max = (axis->escape_origin == own_max) ? 1U : 0U;
     /* LEFT RAW: leaving MIN decreases, leaving MAX increases.
      * RIGHT RAW: leaving MIN increases, leaving MAX decreases.
-     * After verified switch release, transition through one zero-PWM
-     * cycle and then continue the requested R1/R2 target.
+     * Release timing is independent of PWM: motion continues AWAY
+     * using the normal position servo, subject to atomic NC checks.
      */
     /* Confirm release while continuing bounded AWAY motion. */
     if ((limit_mask & axis->escape_origin) == 0U)
@@ -3156,9 +3154,10 @@ static void Steering_PositionUpdate(void)
       Steering_PositionAxisFault(0U, 9U);
   }
 
-  /* Escape paths must also recheck the originating switch after I2C
-   * reads: no side may be reenergized if its NC was released, if both
-   * NC lines opened, or if the unexpected opposite limit activated.
+  /* After I2C, recheck NC with interrupts masked. ESCAPING accepts
+   * only its own origin NC or released NC, and keeps using the ordinary
+   * AWAY-direction servo. Dual/unexpected NC remains a local fault.
+   * The final CCR guard checks direction again before enabling PWM.
    */
   if (steer_pos_left_state == STEER_AXIS_ESCAPING)
   {
