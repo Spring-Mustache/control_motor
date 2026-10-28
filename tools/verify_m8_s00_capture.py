@@ -8,6 +8,7 @@ main = (root / "Core" / "Src" / "main.c").read_text(encoding="utf-8")
 logger = (root / "Services" / "Src" / "ram_logger.c").read_text(encoding="utf-8")
 header = (root / "Services" / "Inc" / "ram_logger.h").read_text(encoding="utf-8")
 wheel = (root / "Core" / "Src" / "wheel_control.c").read_text(encoding="utf-8")
+powershell = (root / "tools" / "capture_m8_s00.ps1").read_text(encoding="utf-8")
 
 checks = [
     ("capture struct", "M8S00StopSnapshot_t" in main),
@@ -88,6 +89,12 @@ checks = [
         "v.wheel_pid_active = wheel_pid_active;",
         "v.wheel_pid_update_count = wheel_pid_update_count;",
         'M8S00_PID,%s,enable=%u,active=%u'))),
+    ("PowerShell native COM reader", "[System.IO.Ports.SerialPort]::GetPortNames()" in powershell and
+        "System.IO.Ports.SerialPort" in powershell and
+        "$serial.ReadLine().Trim()" in powershell),
+    ("PowerShell exact frame boundaries", "'#M8S00_BEGIN,1'" in powershell and
+        "'#M8S00_END'" in powershell and "WriteAllLines(" in powershell),
+    ("PowerShell partial capture warns", "CHI NHAN DUOC MOT PHAN" in powershell),
 ]
 
 failed = []
