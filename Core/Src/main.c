@@ -1727,13 +1727,22 @@ volatile uint16_t steer_cal_left_min_runtime = 2297U;
 volatile uint16_t steer_cal_left_max_runtime = 1374U;
 volatile uint16_t steer_cal_right_min_runtime = 166U;
 volatile uint16_t steer_cal_right_max_runtime = 982U;
-/* R2 = repeatable near-MIN positioning, not an NC discovery scan.
- * These bench-accepted original targets remain independent from the
- * physical MIN contacts learned by SELECT. Never drive R2 beyond the
- * latest NC position after calibration shifts.
+/* M8 R2 = a near-MIN parking setpoint INSIDE the physical endstop,
+ * not a command to press the NC on every move. Operator observed L_MIN
+ * triggering near RAW 2274 (M8 log), and R_MIN near RAW 193 after a
+ * mechanical switch adjustment (not yet SELECT-calibrated).
+ *
+ * INITIAL, UNVALIDATED suspended-bench commissioning offsets:
+ * LEFT target 2240 (34 RAW inward from observed L_MIN);
+ * RIGHT target 223 (30 RAW inward from observed R_MIN).
+ * Only motor motion/actual coast testing can establish safe clearance.
+ * Live Expressions may tune these two targets separately, but a small
+ * RAW gap alone does not prove adequate coast/braking clearance.
+ * Keep both NC hardware cutoffs, current hard envelopes and SELECT
+ * calibration values independent. Do NOT treat targets as new limits.
  */
-volatile uint16_t steer_pos_left_r2_target_raw = 2297U;
-volatile uint16_t steer_pos_right_r2_target_raw = 191U;
+volatile uint16_t steer_pos_left_r2_target_raw = 2240U;
+volatile uint16_t steer_pos_right_r2_target_raw = 223U;
 #define STEER_POS_LEFT_MIN_RAW       (steer_cal_left_min_runtime)
 #define STEER_POS_LEFT_CENTER_RAW     1873U
 #define STEER_POS_LEFT_MAX_RAW       (steer_cal_left_max_runtime)
