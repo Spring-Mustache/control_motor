@@ -1813,7 +1813,14 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
  * A failed tight ±5 result is reported as error, never claimed as PASS.
  * R2 MIN retains its original controller and ±5 comparator.
  */
-#define STEER_POS_FINE_ENTER_RAW       35U
+#define STEER_POS_FINE_ENTER_RAW       35U /* RIGHT unchanged */
+/* M8: LEFT previously entered short-pulse fine mode at 35 RAW and
+ * failed with code=10 still 22 RAW from CENTER. Keep its proven
+ * continuous/coarse PWM down to 15 RAW instead of requiring many
+ * ineffective short trim pulses. No PWM, timeout, fine-pulse count or
+ * NC limit is increased. LEFT only; hardware acceptance still needed.
+ */
+#define STEER_POS_FINE_LEFT_ENTER_RAW  15U
 #define STEER_POS_FINE_ABORT_RAW       90U
 #define STEER_POS_FINE_OFF_MIN_MS     200U
 #define STEER_POS_FINE_QUIET_MS       100U
@@ -2705,8 +2712,10 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
    */
   if (steer_pos_command == 1U)
   {
+    uint16_t fine_enter = (left != 0U) ?
+        STEER_POS_FINE_LEFT_ENTER_RAW : STEER_POS_FINE_ENTER_RAW;
     if ((axis->fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
-        (abs_error <= STEER_POS_FINE_ENTER_RAW))
+        (abs_error <= fine_enter))
     {
       Steering_PositionFineUpdate(left, axis, raw, err, step, now,
                                   duty, direction);
