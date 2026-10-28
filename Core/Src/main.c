@@ -8999,9 +8999,13 @@ int main(void)
      * Process it here, before wheel-control, so a manual validation
      * start can enable PID in the same control cycle.
      */
+    /* SELECT-only attempts also produce safe M8S00_CAL diagnostics
+     * through short USER once all actuator owners are disarmed.
+     */
     wheel_log_m8_s00_ready =
         ((m8_s00_first_stop.valid != 0U) ||
-         (m8_s00_first_fault.valid != 0U)) ? 1U : 0U;
+         (m8_s00_first_fault.valid != 0U) ||
+         (M8S00_CalHasSession() != 0U)) ? 1U : 0U;
     RamLogger_ButtonUpdate();
     if (wheel_log_m8_s00_button_dump_request != 0U)
     {
