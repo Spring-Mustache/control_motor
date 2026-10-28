@@ -2410,11 +2410,9 @@ static void Steering_AngleWaypointReset(void)
   }
   steer_speed_i_l = 0;
   steer_speed_i_r = 0;
-  steer_speed_measured_l_pms = 0U;
-  steer_speed_measured_r_pms = 0U;
-  steer_speed_reference_pms = 0U;
-  steer_speed_feedback_boost_l_pwm = 0U;
-  steer_speed_feedback_boost_r_pwm = 0U;
+  /* Retain last measured speed and boost for the post-DISARM UART
+   * snapshot. New sensor samples will overwrite them on next run.
+   */
 }
 
 /* No AS5600 transactions in the mapping. The normal owner read already
