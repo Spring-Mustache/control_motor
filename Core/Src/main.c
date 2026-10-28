@@ -328,6 +328,31 @@ volatile uint8_t debug_turn_right_b = 0U;
 volatile uint8_t debug_turn_left_start_ok = 0U;
 volatile uint8_t debug_turn_right_start_ok = 0U;
 
+/* M8-S00 steering motor encoder RPM observer (diagnostic ONLY).
+ * "16-bit" here is the hardware counter width, NOT counts/revolution.
+ * Set COUNTS per one turn of the shaft whose RPM is desired (after
+ * quadrature decode and any gearbox reduction), independently by side.
+ * Zero means NOT CALIBRATED: log counts/s only, rpmValid=0.
+ * Do not borrow the WHEEL 3257 count/rev constant without calibration.
+ */
+volatile uint32_t steer_encoder_left_output_cpr = 0U;
+volatile uint32_t steer_encoder_right_output_cpr = 0U;
+typedef struct
+{
+  uint16_t last_count;
+  uint32_t last_ms;
+  int16_t last_delta;
+  uint16_t dt_ms;
+  uint32_t inst_cps;
+  uint32_t smooth_cps;
+  uint32_t peak_cps;
+  uint32_t samples;
+  uint32_t timing_gaps;
+  uint8_t primed;
+} SteeringEncoderSpeed_t;
+static SteeringEncoderSpeed_t steer_encoder_speed_l = {0};
+static SteeringEncoderSpeed_t steer_encoder_speed_r = {0};
+
 
 /* ============================================================
  * AS5600 STEERING ANGLE DEBUG / MANUAL CALIBRATION
@@ -1190,6 +1215,73 @@ static uint8_t Steering_TestRawLimitMask(void)
           GPIO_PIN_SET) ? 1U : 0U) << 2) |
       (((HAL_GPIO_ReadPin(LIMIT_L_MAX_GPIO_Port, LIMIT_L_MAX_Pin) ==
           GPIO_PIN_SET) ? 1U : 0U) << 3));
+}
+
+/* Observe hardware 16-bit quadrature counters using modular signed
+ * subtraction. At 50-ms intervals, the true movement must be fewer
+ * than 32768 counts per sample; otherwise the direction is ambiguous.
+ * One-pole smoothing suppresses count quantization before peak capture.
+ * No motor output, I2C, owner, NC, STOP or AS5600 logic is modified.
+ */
+static void Steering_EncoderSpeedOne(SteeringEncoderSpeed_t *e,
+                                      uint16_t count, uint32_t now,
+                                      uint8_t start_ok)
+{
+  uint32_t dt;
+  int16_t delta;
+  uint32_t magnitude, instant;
+  if (start_ok == 0U) return;
+  if (e->primed == 0U)
+  {
+    e->last_count = count;
+    e->last_ms = now;
+    e->primed = 1U;
+    return;
+  }
+  dt = (uint32_t)(now - e->last_ms);
+  if (dt < 50U) return;
+  delta = (int16_t)(uint16_t)(count - e->last_count);
+  e->last_count = count;
+  e->last_ms = now;
+  if (dt > 250U)
+  {
+    /* Stale interval: discard instead of misreporting peak RPM. */
+    if (e->timing_gaps != 0xffffffffUL) e->timing_gaps++;
+    return;
+  }
+  e->last_delta = delta;
+  e->dt_ms = (uint16_t)dt;
+  magnitude = (delta < 0) ? (uint32_t)(-(int32_t)delta) : (uint32_t)delta;
+  instant = (magnitude * 1000U + dt / 2U) / dt;
+  e->inst_cps = instant;
+  if (e->samples == 0U)
+    e->smooth_cps = instant;
+  else
+    e->smooth_cps = (e->smooth_cps * 3U + instant + 2U) / 4U;
+  if ((e->samples != 0xffffffffUL)) e->samples++;
+  /* Peak of filtered counts/s, not a single unsmoothed edge glitch. */
+  if ((e->samples >= 3U) && (e->smooth_cps > e->peak_cps))
+    e->peak_cps = e->smooth_cps;
+}
+
+static void Steering_EncoderSpeedObserve(uint32_t now, uint16_t cnt_l,
+                                          uint16_t cnt_r)
+{
+  Steering_EncoderSpeedOne(&steer_encoder_speed_l, cnt_l, now,
+                           debug_turn_left_start_ok);
+  Steering_EncoderSpeedOne(&steer_encoder_speed_r, cnt_r, now,
+                           debug_turn_right_start_ok);
+}
+
+/* RPM x10, rounded. 0 is NOT a measured RPM when CPR=0: the UART
+ * dump explicitly reports rpmValid=0 in that case.
+ */
+static uint32_t Steering_EncoderRPM10(uint32_t cps, uint32_t output_cpr)
+{
+  if (output_cpr == 0U) return 0U;
+  return (uint32_t)(((uint64_t)cps * 600ULL +
+                     (uint64_t)output_cpr / 2ULL) /
+                    (uint64_t)output_cpr);
 }
 
 static uint16_t Steering_TestEncoderCount(uint8_t command)
@@ -4775,6 +4867,57 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned long)steer_speed_boost_r_frames,
       (unsigned long)steer_speed_sat_l_frames,
       (unsigned long)steer_speed_sat_r_frames);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  /* Separate encoder RPM from normalized AS5600 travel speed.
+   * cpr=0 -> rpmValid=0, with counts/s retained for calibration.
+   * Peak is filtered counts/s since reset, not a guaranteed physical
+   * no-load maximum and not an average over a complete R1/R2 stroke.
+   */
+  n = snprintf(line, sizeof(line),
+      "M8S00_ENCODER,axis=L,start=%u,cpr=%lu,rpmValid=%u,"
+      "dt_ms=%u,delta=%d,cps=%lu,peakCps=%lu,"
+      "rpm10=%lu,peakRpm10=%lu,samples=%lu,gaps=%lu\r\n",
+      (unsigned)debug_turn_left_start_ok,
+      (unsigned long)steer_encoder_left_output_cpr,
+      (unsigned)((steer_encoder_left_output_cpr != 0U) &&
+                 (steer_encoder_speed_l.samples > 0U) &&
+                 (debug_turn_left_start_ok != 0U)),
+      (unsigned)steer_encoder_speed_l.dt_ms,
+      (int)steer_encoder_speed_l.last_delta,
+      (unsigned long)steer_encoder_speed_l.smooth_cps,
+      (unsigned long)steer_encoder_speed_l.peak_cps,
+      (unsigned long)Steering_EncoderRPM10(
+          steer_encoder_speed_l.smooth_cps,
+          steer_encoder_left_output_cpr),
+      (unsigned long)Steering_EncoderRPM10(
+          steer_encoder_speed_l.peak_cps,
+          steer_encoder_left_output_cpr),
+      (unsigned long)steer_encoder_speed_l.samples,
+      (unsigned long)steer_encoder_speed_l.timing_gaps);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  n = snprintf(line, sizeof(line),
+      "M8S00_ENCODER,axis=R,start=%u,cpr=%lu,rpmValid=%u,"
+      "dt_ms=%u,delta=%d,cps=%lu,peakCps=%lu,"
+      "rpm10=%lu,peakRpm10=%lu,samples=%lu,gaps=%lu\r\n",
+      (unsigned)debug_turn_right_start_ok,
+      (unsigned long)steer_encoder_right_output_cpr,
+      (unsigned)((steer_encoder_right_output_cpr != 0U) &&
+                 (steer_encoder_speed_r.samples > 0U) &&
+                 (debug_turn_right_start_ok != 0U)),
+      (unsigned)steer_encoder_speed_r.dt_ms,
+      (int)steer_encoder_speed_r.last_delta,
+      (unsigned long)steer_encoder_speed_r.smooth_cps,
+      (unsigned long)steer_encoder_speed_r.peak_cps,
+      (unsigned long)Steering_EncoderRPM10(
+          steer_encoder_speed_r.smooth_cps,
+          steer_encoder_right_output_cpr),
+      (unsigned long)Steering_EncoderRPM10(
+          steer_encoder_speed_r.peak_cps,
+          steer_encoder_right_output_cpr),
+      (unsigned long)steer_encoder_speed_r.samples,
+      (unsigned long)steer_encoder_speed_r.timing_gaps);
   return M8S00_UartLine(line, n);
 }
 
@@ -10411,6 +10554,12 @@ int main(void)
      */
     debug_turn_left_cnt = __HAL_TIM_GET_COUNTER(&htim4);
     debug_turn_right_cnt = (uint32_t)hlptim1.Instance->CNT;
+    /* Two independent 50-ms motor-shaft encoder observers.
+     * Read-only telemetry; normal angle synchronizer stays on AS5600.
+     */
+    Steering_EncoderSpeedObserve(HAL_GetTick(),
+                                  (uint16_t)debug_turn_left_cnt,
+                                  (uint16_t)debug_turn_right_cnt);
 
     /*
      * Đọc trực tiếp mức A/B để phân biệt lỗi encoder/dây với lỗi peripheral.
