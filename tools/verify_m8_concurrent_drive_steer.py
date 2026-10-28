@@ -11,12 +11,13 @@ main = (Path(__file__).resolve().parents[1] / "Core/Src/main.c").read_text(encod
 
 
 def function(name):
-    marker = "static " + name + "("
-    pos = main.find(marker)
-    if pos < 0:
-        raise AssertionError("Missing function: " + name)
-    opening = main.find("{", pos)
-    assert opening >= 0, name
+    # Match the actual definition, not a forward declaration followed
+    # much later by some unrelated function's opening brace.
+    pattern = r"\\bstatic\\s+" + re.escape(name) + r"\\s*\\(\\s*void\\s*\\)\\s*\\{"
+    match = re.search(pattern, main)
+    if match is None:
+        raise AssertionError("Missing definition: " + name)
+    opening = match.end() - 1
     # Skip comments and strings: braces in comments cannot end a function.
     depth = 0
     state = "code"
