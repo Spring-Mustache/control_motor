@@ -57,10 +57,26 @@ Bản chẩn đoán bổ sung (commit sau 14:00) xuất `M8S00_CAL_ABORT` với 
 
 **Phân biệt trạng thái:** lỗi hủy SELECT tại lần cuối đã được chứng minh do điều kiện bánh đứng yên/encoder; nguyên nhân cơ khí được người vận hành quan sát; R_MIN ≈193 là số đo do người vận hành cung cấp; các giới hạn runtime của firmware vẫn là giá trị cũ. **Chưa chỉnh sửa firmware hay ghi giá trị mới vào RAM/Flash.** Khi quay lại SELECT cần quyết định riêng về khoảng dự phòng NC, phương pháp học contact và điều kiện hoạt động an toàn.
 
-## M8 R1/R2 — triển khai sau khi tạm hoãn SELECT
+## Lịch sử M8 R1/R2 — phương án dừng trước NC (ĐÃ BỊ THAY THẾ)
 
 Từ log cũ, công tắc L_MIN được thấy tác động ở RAW khoảng 2274. Theo quan sát cơ khí mới của người vận hành, R_MIN hiện tác động tại khoảng 193 sau khi chỉnh lại vị trí. Đây là hai điểm NC quan sát, **không phải kết quả học SELECT**. R1 CENTER không đổi: LEFT 1873, RIGHT 662. Các giới hạn NC runtime vẫn LEFT MIN 2297/MAX 1374, RIGHT MIN 166/MAX 982, không được ghi đè.
 
 R2 được đổi sang mục tiêu **ở phía trong công tắc** để tránh lặp lại việc chạm rồi ESCAPING: LEFT=2240 (34 RAW lùi khỏi điểm NC quan sát), RIGHT=223 (30 RAW lùi khỏi điểm NC quan sát). Đây là khoảng dự phòng khởi đầu **chưa xác minh quãng trôi sau cắt PWM**; tuyệt đối không gọi là khoảng dừng an toàn đã được thử. Giữ nguyên NC EXTI cắt PWM, kiểm tra giới hạn AS5600, xử lý khi motor đã nằm tại NC, và SELECT đang tạm hoãn. Không lấy setpoint R2 làm giá trị MIN thực.
 
 Bài nghiệm thu trên giá treo và cắt nguồn động lực độc lập: trước tiên thử R2 riêng, xác nhận cả hai cơ cấu dừng **trước khi đè công tắc** (đồng thời đo RAW thực tế sau khi đứng yên); chỉ khi đạt mới tiếp tục R1 một lần. R1 PASS khi mỗi motor về CENTER (±5 RAW, ổn định) không cần nhấn lần hai và không có `M8S00_FINE` reason khác 0. Nếu motor còn chạm NC hoặc trôi qua khoảng hở, dừng, không mở rộng thử nghiệm. Tốc độ/độ mượt cần đánh giá thực tế; log STOP/FAULT không chứng minh đã có chạy bánh và lái đồng thời. Không sửa PWM, không tăng số xung, và không đổi logic R1 fine trong commit setpoint này vì `code=10` cũ chưa được giải mã thành `reasonL`.
+
+## Quyết định mới — xoay tại chỗ cần cả hai công tắc MIN
+
+Người vận hành xác nhận rằng hình học của xe chỉ đạt góc cần thiết để **L1/L2 xoay tại chỗ** sau khi cơ cấu lái **trái và phải cùng chạm công tắc MIN**. Do đó hai setpoint tạm thời `2240/223` (lùi trước NC) trong phần lịch sử ở trên **không được sử dụng nữa**.
+
+Firmware M8 chuyển R2 thành lệnh **tìm công tắc MIN vật lý**, với yêu cầu:
+1. Mỗi trục chỉ được kết thúc R2 thành công (`result=3`) khi công tắc MIN của chính nó tác động ở mức GPIO hoặc ngắt EXTI. RAW cách đích ±5 **không** được coi là hoàn thành R2.
+2. Các RAW `L=2297, R=166` trong mã chỉ là **điểm tham chiếu tiếp cận/giới hạn lỗi khi NC không xuất hiện**, không phải điều kiện hoàn thành. Đặc biệt R_MIN đã được người vận hành chỉnh cơ khí và quan sát tác động khoảng **193 RAW**; đây vẫn là quan sát chứ không phải kết quả SELECT.
+3. Nếu không có NC trước giới hạn RAW tiếp cận, quá thời gian hoặc phát hiện AS5600 sai hướng, trục dừng lỗi, **không ép qua chặn cứng để cố lấy NC**.
+4. L1/L2 chỉ bắt đầu chế độ quay tại chỗ khi **đồng thời có cả L_MIN và R_MIN đang tác động**, và không có L_MAX/R_MAX. NC nhả khi spin đang chạy => cắt PWM bốn bánh ngay bằng `WheelControl_EmergencyStop()`; đây là dừng khẩn cấp phần mềm, không thay thế ngắt nguồn động lực độc lập. Một yêu cầu L1/L2 chưa đủ NC bị chặn, tăng bộ đếm `ps2_spin_nc_block_frames`.
+5. Thêm `M8S00_SPIN_NC` vào báo cáo UART xuất sau khi DISARM: `blocked_frames`, `active_cuts`, `last_mask`. Mã mask L_MIN=4, R_MIN=2; cả hai MIN đúng, không MAX là `0x06`.
+6. R1 vẫn phải rời NC và quay về CENTER **trong một lệnh**. Không hạ điều kiện NC, bỏ AS5600, thay tốc độ PWM hay làm lại SELECT ở bước này.
+
+**Bài nghiệm thu theo thứ tự:** (a) nguồn động lực có công tắc ngắt độc lập, xe trên giá treo chắc chắn; (b) R2, xác minh **cả hai NC tác động** và hai trục đều báo result=3, không có fault/trip; (c) nhấn R1 một lần, xác nhận mỗi trục rời NC rồi về CENTER; (d) chỉ thử L1/L2 với bánh treo tự do sau khi R2 đã đạt hai NC và tất cả điều kiện dừng vẫn an toàn. Không thử xoay tại chỗ chịu tải trên mặt đất trước khi vượt qua các bài kiểm tra giá treo. Không đánh đồng tiếp xúc NC với chứng nhận quãng trôi an toàn/hình học hoàn chỉnh.
+
+Trạng thái: **đã sửa mã nguồn, chưa kiểm chứng STM32CubeIDE Build, chưa flash và chưa nghiệm thu phần cứng**.
