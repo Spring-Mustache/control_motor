@@ -1682,6 +1682,19 @@ static uint8_t Steering_ManualInputsNeutral(void)
           (rx >= -10) && (rx <= 10)) ? 1U : 0U;
 }
 
+/* M8: only a steering direction release is needed between successive
+ * manual steering commands while the wheels may continue under LY/Up/Down.
+ * Do not use this for START arming or overall safety neutral rearm.
+ */
+static uint8_t Steering_ManualDirectionNeutral(void)
+{
+  int16_t rx = (int16_t)PS2_Pad.RX - 128;
+  return ((PS2_Pad.Connected == 1U) &&
+          (PS2_Pad.Mode == 0x73U) &&
+          (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
+          (rx >= -10) && (rx <= 10)) ? 1U : 0U;
+}
+
 /*
  * M7-S04B: independent left/right PS2 R1/R2 steering position control.
  * Default DISARMED; enabling requires suspended bench and verified sensors.
@@ -4211,7 +4224,7 @@ static void Steering_ManualUpdate(void)
         ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U)) ? 7U : 0U;
     Steering_ManualStop();
     /* Contradictory D-pad left+right is NOT considered neutral. */
-    if (Steering_ManualInputsNeutral() != 0U)
+    if (Steering_ManualDirectionNeutral() != 0U)
       steer_manual_neutral_required = 0U;
     else if ((PS2_Pad.Left != 0U) && (PS2_Pad.Right != 0U))
       steer_manual_neutral_required = 1U;
@@ -4244,21 +4257,19 @@ static void Steering_ManualUpdate(void)
       (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
       (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
       (WheelControl_SpinIsActive() != 0U) ||
-      (PS2_Pad.LY < PS2_LY_FORWARD_LIMIT) ||
-      (PS2_Pad.LY > PS2_LY_REVERSE_LIMIT) ||
-      (PS2_Pad.Up != 0U) || (PS2_Pad.Down != 0U) ||
-      /* The old wheel-motion bypass must NOT override this safety gate. */
-      (Steering_PositionWheelsStopped() == 0U) ||
+      /* Normal wheel motion (including passive offset-pivot rolling)
+       * and LY/Up/Down throttle do not block manual steering. NC,
+       * AS5600, stall, STOP, RF and spin protections remain.
+       */
       (debug_as5600_poll_enable != 0U) ||
       (steer_test_running != 0U) ||
       (steer_test_arm != 0U) || (steer_test_request != 0U) ||
       (voice_execution_active != 0U) || (voice_command_ready != 0U))
   {
-    /* A blocked held command must not auto-start after a transient
-     * condition (e.g., wheel deceleration or Voice cancel) clears.
+    /* Incompatible mode/owner still requires a NEW neutral steer
+     * request, but ordinary wheel movement is not a steering fault.
      */
-    steer_manual_block_reason =
-        (Steering_PositionWheelsStopped() == 0U) ? 4U : 2U;
+    steer_manual_block_reason = 2U;
     steer_manual_neutral_required = 1U;
     Steering_ManualStop();
     return;
