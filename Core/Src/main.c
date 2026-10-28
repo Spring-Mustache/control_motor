@@ -1903,6 +1903,58 @@ static uint8_t steer_pos_idle_next_side = 0U;
 /* EXTI sets ONLY its own side's bit and zeros its own channel. */
 static volatile uint8_t steer_pos_irq_pending_mask = 0U;
 
+/* M8-S00: read-only first-stop/fault evidence for Live Expressions.
+ * These snapshots NEVER grant motion, alter PWM, or replace safety logic.
+ * Cleared explicitly while both steering owners are inactive.
+ */
+typedef struct
+{
+  uint32_t tick_ms;
+  uint32_t command_age_ms;
+  uint32_t manual_left_progress_age_ms;
+  uint32_t manual_right_progress_age_ms;
+  uint32_t sync_reference_hold_count;
+  float rpm_lu, rpm_ld, rpm_ru, rpm_rd;
+  int32_t wheel_target_pwm;
+  int32_t wheel_current_pwm;
+  uint16_t raw_left, raw_right;
+  uint16_t left_soft_target, right_soft_target;
+  uint16_t manual_pwm_left, manual_pwm_right;
+  uint16_t position_pwm_left, position_pwm_right;
+  uint16_t ccr_left, ccr_right;
+  uint16_t sync_left_speed, sync_right_speed;
+  uint8_t valid, event, axis, code;
+  uint8_t ps2_connected, ps2_mode;
+  uint8_t ps2_left, ps2_right, ps2_r1, ps2_r2;
+  uint8_t ps2_up, ps2_down, ps2_select, ps2_rx, ps2_ly;
+  uint8_t control_mode, control_stop_latched;
+  uint8_t manual_active, position_active;
+  uint8_t manual_left_state, manual_right_state;
+  uint8_t manual_left_result, manual_right_result;
+  uint8_t position_left_state, position_right_state;
+  uint8_t position_left_result, position_right_result;
+  uint8_t manual_block_reason, position_block_reason;
+  uint8_t neutral_required, safety_trip_latched, safety_trip_reason;
+  uint8_t wheel_stop_gate, nc_mask;
+  uint8_t manual_irq_trip_mask, position_limit_trip_mask;
+  uint8_t sync_enable, sync_active;
+} M8S00StopSnapshot_t;
+
+/* Event: 1 manual DONE, 2 manual FAULT, 3 manual STOP,
+ *        4 position DONE, 5 position FAULT, 6 position FINISH.
+ * Axis: 1 LEFT, 2 RIGHT, 3 both. Code: existing result/reason.
+ * first_fault excludes normal DONE/neutral STOP; remains sticky even
+ * when the first_stop was a normal per-axis arrival.
+ */
+volatile M8S00StopSnapshot_t m8_s00_first_stop = {0};
+volatile M8S00StopSnapshot_t m8_s00_first_fault = {0};
+volatile uint32_t m8_s00_event_count = 0U;
+volatile uint32_t m8_s00_clear_count = 0U;
+volatile uint8_t m8_s00_clear_request = 0U;
+static void M8S00_CaptureStop(uint8_t event, uint8_t axis,
+                            uint8_t code, uint8_t abnormal);
+static void M8S00_ClearService(void);
+
 static uint16_t Steering_PositionClampDuty(uint16_t value)
 {
   return (value > 400U) ? 400U : value;
@@ -2083,6 +2135,9 @@ static void Steering_PositionRightOff(void)
 
 static void Steering_PositionFinish(uint8_t result)
 {
+  if (steer_pos_active != 0U)
+    M8S00_CaptureStop(6U, 3U, result,
+                      (result == 2U) ? 0U : 1U);
   Steering_PositionLeftOff();
   Steering_PositionRightOff();
   if (steer_pos_active != 0U) steer_pos_finish_count++;
@@ -2109,6 +2164,8 @@ static void Steering_PositionOnLimitInterrupt(uint8_t limit_bit)
 
 static void Steering_PositionAxisDone(uint8_t left, uint8_t result)
 {
+  if (steer_pos_active != 0U)
+    M8S00_CaptureStop(4U, (left != 0U) ? 1U : 2U, result, 0U);
   if (left != 0U)
   {
     Steering_PositionLeftOff();
@@ -2125,6 +2182,8 @@ static void Steering_PositionAxisDone(uint8_t left, uint8_t result)
 
 static void Steering_PositionAxisFault(uint8_t left, uint8_t result)
 {
+  if (steer_pos_active != 0U)
+    M8S00_CaptureStop(5U, (left != 0U) ? 1U : 2U, result, 1U);
   if (left != 0U)
   {
     Steering_PositionLeftOff();
@@ -3158,6 +3217,106 @@ volatile uint16_t steer_sync_pwm_step = 24U; /* max delta per control loop */
 static uint32_t steer_sync_last_update_ms = 0U;
 static uint16_t steer_sync_previous_left_pwm = 0U;
 
+/* M8-S00 captures the evidence before owner cleanup overwrites it.
+ * Runs only on main-loop stop/fault paths; never performs I2C, UART,
+ * logger writes, driver resets, or GPIO/PWM changes.
+ */
+static void M8S00_CaptureStop(uint8_t event, uint8_t axis,
+                            uint8_t code, uint8_t abnormal)
+{
+  M8S00StopSnapshot_t v = {0};
+  uint32_t now = HAL_GetTick();
+  m8_s00_event_count++;
+  if ((m8_s00_first_stop.valid != 0U) &&
+      ((abnormal == 0U) || (m8_s00_first_fault.valid != 0U)))
+    return;
+  v.tick_ms = now;
+  v.event = event;
+  v.axis = axis;
+  v.code = code;
+  v.command_age_ms = (steer_manual_active != 0U) ?
+      (uint32_t)(now - steer_manual_begin_ms) :
+      (uint32_t)(now - steer_pos_start_ms);
+  v.manual_left_progress_age_ms =
+      (uint32_t)(now - steer_manual_left_axis.progress_ms);
+  v.manual_right_progress_age_ms =
+      (uint32_t)(now - steer_manual_right_axis.progress_ms);
+  v.sync_reference_hold_count = steer_sync_reference_hold_count;
+  v.rpm_lu = Motor_LeftUp.current_rpm;
+  v.rpm_ld = Motor_LeftDown.current_rpm;
+  v.rpm_ru = Motor_RightUp.current_rpm;
+  v.rpm_rd = Motor_RightDown.current_rpm;
+  v.wheel_target_pwm = (int32_t)wheel_target_pwm;
+  v.wheel_current_pwm = (int32_t)wheel_current_pwm;
+  v.raw_left = debug_as5600_left_raw;
+  v.raw_right = debug_as5600_right_raw;
+  v.left_soft_target = steer_manual_left_soft_target;
+  v.right_soft_target = steer_manual_right_soft_target;
+  v.manual_pwm_left = steer_manual_left_pwm;
+  v.manual_pwm_right = steer_manual_right_pwm;
+  v.position_pwm_left = steer_pos_left_pwm;
+  v.position_pwm_right = steer_pos_right_pwm;
+  v.ccr_left = (uint16_t)__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2);
+  v.ccr_right = (uint16_t)__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1);
+  v.sync_left_speed = steer_sync_left_speed_raw_s;
+  v.sync_right_speed = steer_sync_right_speed_raw_s;
+  v.ps2_connected = PS2_Pad.Connected;
+  v.ps2_mode = PS2_Pad.Mode;
+  v.ps2_left = PS2_Pad.Left;
+  v.ps2_right = PS2_Pad.Right;
+  v.ps2_r1 = PS2_Pad.R1;
+  v.ps2_r2 = PS2_Pad.R2;
+  v.ps2_up = PS2_Pad.Up;
+  v.ps2_down = PS2_Pad.Down;
+  v.ps2_select = PS2_Pad.Select;
+  v.ps2_rx = PS2_Pad.RX;
+  v.ps2_ly = PS2_Pad.LY;
+  v.control_mode = (uint8_t)control_mode;
+  v.control_stop_latched = control_stop_latched;
+  v.manual_active = steer_manual_active;
+  v.position_active = steer_pos_active;
+  v.manual_left_state = steer_manual_left_state;
+  v.manual_right_state = steer_manual_right_state;
+  v.manual_left_result = steer_manual_left_result;
+  v.manual_right_result = steer_manual_right_result;
+  v.position_left_state = steer_pos_left_state;
+  v.position_right_state = steer_pos_right_state;
+  v.position_left_result = steer_pos_left_result;
+  v.position_right_result = steer_pos_right_result;
+  v.manual_block_reason = steer_manual_block_reason;
+  v.position_block_reason = steer_pos_block_reason;
+  v.neutral_required = steer_manual_neutral_required;
+  v.safety_trip_latched = steer_safety_trip_latched;
+  v.safety_trip_reason = steer_safety_trip_reason;
+  v.wheel_stop_gate = Steering_PositionWheelsStopped();
+  v.nc_mask = Steering_TestRawLimitMask();
+  v.manual_irq_trip_mask = steer_manual_irq_trip_mask;
+  v.position_limit_trip_mask = steer_pos_limit_trip_mask;
+  v.sync_enable = steer_sync_enable;
+  v.sync_active = steer_sync_active;
+  v.valid = 1U;
+  if (m8_s00_first_stop.valid == 0U)
+    m8_s00_first_stop = v;
+  if ((abnormal != 0U) && (m8_s00_first_fault.valid == 0U))
+    m8_s00_first_fault = v;
+}
+
+/* An operator may write 1 to m8_s00_clear_request in Live Expressions,
+ * but snapshots are cleared only with both steering owners inactive.
+ * No motor-control state, permits, NC latch, or PWM is touched.
+ */
+static void M8S00_ClearService(void)
+{
+  M8S00StopSnapshot_t empty = {0};
+  if ((m8_s00_clear_request == 0U) ||
+      (steer_manual_active != 0U) || (steer_pos_active != 0U))
+    return;
+  m8_s00_first_stop = empty;
+  m8_s00_first_fault = empty;
+  m8_s00_clear_request = 0U;
+  m8_s00_clear_count++;
+}
+
 static void Steering_SyncReset(void)
 {
   steer_sync_active = 0U;
@@ -3213,6 +3372,11 @@ static void Steering_ManualStop(void)
     steer_manual_direction = 0;
     return;
   }
+  M8S00_CaptureStop(3U, 3U, steer_manual_block_reason,
+                    ((steer_manual_block_reason != 0U) ||
+                     (steer_safety_trip_latched != 0U) ||
+                     (control_stop_latched != 0U) ||
+                     (control_mode != CONTROL_MODE_PS2)) ? 1U : 0U);
   Steering_ManualLeftOff();
   Steering_ManualRightOff();
   Steering_SyncReset();
@@ -3265,6 +3429,8 @@ static void Steering_ManualOnLimitInterrupt(uint8_t bit)
 
 static void Steering_ManualAxisDone(uint8_t left, uint8_t reason)
 {
+  if (steer_manual_active != 0U)
+    M8S00_CaptureStop(1U, (left != 0U) ? 1U : 2U, reason, 0U);
   if (left != 0U)
   {
     Steering_ManualLeftOff();
@@ -3285,6 +3451,8 @@ static void Steering_ManualAxisDone(uint8_t left, uint8_t reason)
 
 static void Steering_ManualAxisFault(uint8_t left, uint8_t reason)
 {
+  if (steer_manual_active != 0U)
+    M8S00_CaptureStop(2U, (left != 0U) ? 1U : 2U, reason, 1U);
   if (left != 0U)
   {
     Steering_ManualLeftOff();
@@ -8542,6 +8710,7 @@ int main(void)
      */
     if (debug_steer_auto_as5600_idle_observe != 0U)
       Steering_PositionTelemetryIdleUpdate();
+    M8S00_ClearService(); /* read-only S00 diagnostics reset */
     PS2_DebugObserveRightOutput(); /* after all PWM owners have run */
 #if STEER_SAFETY_INCIDENT_LOCKOUT != 0U
     Steering_QuarantineAuditPins(); /* parked pin audit in diagnostic mode */
