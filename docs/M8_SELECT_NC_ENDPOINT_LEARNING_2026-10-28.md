@@ -80,3 +80,18 @@ Firmware M8 chuyển R2 thành lệnh **tìm công tắc MIN vật lý**, với 
 **Bài nghiệm thu theo thứ tự:** (a) nguồn động lực có công tắc ngắt độc lập, xe trên giá treo chắc chắn; (b) R2, xác minh **cả hai NC tác động** và hai trục đều báo result=3, không có fault/trip; (c) nhấn R1 một lần, xác nhận mỗi trục rời NC rồi về CENTER; (d) chỉ thử L1/L2 với bánh treo tự do sau khi R2 đã đạt hai NC và tất cả điều kiện dừng vẫn an toàn. Không thử xoay tại chỗ chịu tải trên mặt đất trước khi vượt qua các bài kiểm tra giá treo. Không đánh đồng tiếp xúc NC với chứng nhận quãng trôi an toàn/hình học hoàn chỉnh.
 
 Trạng thái: **đã sửa mã nguồn, chưa kiểm chứng STM32CubeIDE Build, chưa flash và chưa nghiệm thu phần cứng**.
+
+## M8-S00 14:49 — kết quả kiểm tra R1 và cờ công tắc hai trục
+
+**Log gốc:** `M8_S00_20261028_144914.txt`, người vận hành cung cấp ngày 2026-10-28.
+
+- Sự kiện STOP đầu tiên: `event=4,axis=2,code=2`, tức motor **phải** được báo DONE bình thường trong bộ vị trí R1/R2 (không phải lỗi). R1 CENTER phải = 662; snapshot tại `rawR=660`, sai lệch -2 RAW. `fine_phase_R=3`, `fine_pulses_R=1`, `reasonR=0`.
+- Tại **cùng thời điểm ghi sự kiện của motor phải**, motor trái ở `rawL=1879`, CENTER=1873, sai lệch +6 RAW; `fine_phase_L=2`, `fine_pulses_L=1`, `fine_error_L=-6`, `reasonL=0`. Snapshot này **không ghi nhận motor trái đã hoàn tất** sau đó. `plState=1/prState=1` có thể phản ánh thứ tự capture trước khi hàm `Steering_PositionAxisDone` cập nhật state.
+- `irqPosition=6` tương ứng cờ L_MIN=4 và R_MIN=2 đã xuất hiện từ lúc bắt đầu tác vụ, nhưng tại snapshot về CENTER `nc=0`. Không được nhầm cờ IRQ lịch sử là hai NC đang đồng thời tác động tại lúc xuất log.
+- `M8S00_ESCAPE,origin_irq_L=3,origin_irq_R=3,fault_L=0,fault_R=0`: cả hai bên đều từng gặp ngắt NC của công tắc xuất phát trong quá trình ESCAPING, tổng 3 mỗi bên **kể từ boot**. Các bộ đếm không xác nhận số lần R2 thành công hoặc tình trạng hình học khi xoay tại chỗ.
+- `M8S00_EMPTY,FAULT`, `trip=0`: không ghi nhận fault vị trí hoặc safety trip trong snapshot/phiên quan sát, **không phải chứng nhận mọi chức năng PASS**.
+- `M8S00_SPIN_NC,blocked_frames=0,active_cuts=0,last_mask=0x00`: không có lượt spin bị NC chặn/cắt được ghi; **không chứng minh** L1/L2 đã thử hoặc đang hoạt động đúng.
+- `M8S00_CONCURRENT,request=0,fourWheel=0,oneSteer=0,bothSteer=0`: không có bằng chứng bánh và lái thực sự vận hành đồng thời trong phiên.
+- SELECT không dùng (`starts=0`), giữ MIN runtime L=2297/R=166, CENTER L=1873/R=662; R2 đích tiếp cận L=2297/R=166. R_MIN thực tế đã chỉnh cơ khí chạm khoảng RAW 193 theo quan sát người vận hành.
+
+**Quyết định:** ghi nhận tiến triển R1 phải CENTER ±2 RAW; trái đang cách CENTER 6 RAW khi phải DONE, nhưng chưa xác nhận trái DONE trong cùng lần R1. Giữ nguyên code PWM, R1 fine và interlock NC-spint tại bước đọc log; không tuyên bố R2 đạt đủ hai NC hay L1/L2 PASS. Lần xác minh kế tiếp chỉ cần đối chiếu kết quả **cả hai motor R2 thật sự đè NC, sau đó R1 một lần về CENTER**, ưu tiên quan sát rõ khi LEFT kết thúc hoặc một log trạng thái cuối; thử trên giá treo chắc chắn có cắt nguồn động lực độc lập.
