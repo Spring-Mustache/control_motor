@@ -3468,7 +3468,8 @@ static void Steering_PositionUpdate(void)
  * LEFT MAX now has an independent 80 RAW default (formerly shared 100).
  * RIGHT MIN conservatively changes 40->30 RAW only; requesting a full
  * 20-RAW decrease would leave too little verified coast clearance.
- * RIGHT MAX remains at 100 RAW after physical NC contact at 40.
+ * RIGHT MAX now trials a 50-RAW margin after the 1029-RAW mechanical
+ * adjustment; the earlier 40-RAW NC contact means coast margin is tight.
  * PWM=0 is NOT active braking; none of these defaults prove endstop
  * clearance until a suspended chassis test confirms the final RAW.
  */
@@ -3487,11 +3488,12 @@ volatile uint16_t steer_manual_left_max_soft_margin_raw = 80U;
  * move D-pad 25 RAW nearer to an unverified switch/coasting region.
  */
 volatile uint16_t steer_manual_right_soft_margin_raw = 50U;
-/* RIGHT MAX has physically contacted NC when clearance was smaller;
- * retain its separate 100-RAW soft stop. Both boundaries have no
- * active brake; check final coast distance on a suspended stand.
+/* M8-S01 RIGHT MAX: user-requested 50-RAW trial, formerly 100.
+ * 1029-50=979 is the SOFT PWM-off threshold, NOT the NC position.
+ * No active brake: verify final coast and no R_MAX NC contact on stand;
+ * return to 100 if contact or unexpected overshoot occurs.
  */
-volatile uint16_t steer_manual_right_max_soft_margin_raw = 100U;
+volatile uint16_t steer_manual_right_max_soft_margin_raw = 50U;
 #define STEER_MANUAL_LEFT_SOFT_MARGIN_RAW \
     ((steer_manual_left_soft_margin_raw < 60U) ? 60U : \
      ((steer_manual_left_soft_margin_raw > 180U) ? 180U : \
@@ -3505,7 +3507,7 @@ volatile uint16_t steer_manual_right_max_soft_margin_raw = 100U;
      ((steer_manual_right_soft_margin_raw > 120U) ? 120U : \
       steer_manual_right_soft_margin_raw))
 #define STEER_MANUAL_RIGHT_MAX_SOFT_MARGIN_RAW \
-    ((steer_manual_right_max_soft_margin_raw < 60U) ? 60U : \
+    ((steer_manual_right_max_soft_margin_raw < 50U) ? 50U : \
      ((steer_manual_right_max_soft_margin_raw > 160U) ? 160U : \
       steer_manual_right_max_soft_margin_raw))
 #define STEER_MANUAL_APPROACH_WINDOW_RAW 100U
