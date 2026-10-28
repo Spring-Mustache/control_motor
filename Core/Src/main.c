@@ -1699,10 +1699,10 @@ static uint8_t Steering_ManualDirectionNeutral(void)
  * M7-S04B: independent left/right PS2 R1/R2 steering position control.
  * Default DISARMED; enabling requires suspended bench and verified sensors.
  *
- * R1 = CENTER: independent move; if initially touching MIN, do only a
- * short release of that side then stop and require a NEW R1 press.
- * R2 = MIN: each axis independently stops at its own NC MIN limit,
- * or at its AS5600 calibrated MIN ±5 counts (distinct arrival reason).
+ * R1 = CENTER: independent move; an axis initially at MIN safely
+ * escapes its own NC and continues toward CENTER in the SAME command.
+ * R2 = MIN: each axis independently stops on its own physical MIN NC,
+ * never on an AS5600 near-target tolerance alone.
  * A correctly triggered MIN of one side MUST NOT stop the other side.
  * An unexpected limit/fault stops the affected side; systemic STOP,
  * RF loss, loss of arbitration or manual diagnostic conflict stops both.
@@ -1781,7 +1781,7 @@ static uint8_t Steering_PositionGeometryValid(uint8_t left,
   }
   return ((span >= 250U) && (span <= 1250U)) ? 1U : 0U;
 }
-#define STEER_POS_TOL_RAW             5 /* R2 MIN unchanged */
+#define STEER_POS_TOL_RAW             5 /* retained for diagnostics; R2 arrival is NC-only */
 /* M7-S08: R1 CENTER is independent of Select CENTER capture.
  * R1 fine correction accepts at most ±5 AS5600 RAW; Select retains
  * separate 15/20-count calibration capture with no CENTER learning.
@@ -1811,7 +1811,7 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
 /* Nonblocking R1-only fine position controller. PWM outputs are OFF
  * while coasting/quiet capture; bounded timed motor pulses then settle.
  * A failed tight ±5 result is reported as error, never claimed as PASS.
- * R2 MIN retains its original controller and ±5 comparator.
+ * R2 MIN retains bounded approach PWM, but requires physical NC to finish.
  */
 #define STEER_POS_FINE_ENTER_RAW       35U /* RIGHT unchanged */
 /* M8: LEFT previously entered short-pulse fine mode at 35 RAW and
@@ -2016,6 +2016,13 @@ volatile uint32_t m8_s00_dump_count = 0U;
  * actual driver voltage/motor motion). Read-only since-boot counters.
  */
 volatile uint32_t ps2_drive_steer_request_frames = 0U;
+/* Pivot geometry interlock: R2 must reach BOTH MIN NC switches before
+ * L1/L2 can rotate opposing wheel pairs. Count rejected button frames
+ * and any unexpected NC release that cut an ongoing spin immediately.
+ */
+volatile uint32_t ps2_spin_nc_block_frames = 0U;
+volatile uint32_t ps2_spin_nc_active_cut_count = 0U;
+volatile uint8_t ps2_spin_nc_last_mask = 0U;
 volatile uint32_t m8_s00_fourwheel_pwm_frames = 0U;
 volatile uint32_t m8_s00_joint_any_steer_frames = 0U;
 volatile uint32_t m8_s00_joint_both_steer_frames = 0U;
@@ -3648,6 +3655,18 @@ static uint8_t M8S00_DumpConcurrent(void)
   return M8S00_UartLine(line, n);
 }
 
+static uint8_t M8S00_DumpSpinNc(void)
+{
+  char line[180];
+  int n = snprintf(line, sizeof(line),
+      "M8S00_SPIN_NC,scope=since_boot,blocked_frames=%lu,"
+      "active_cuts=%lu,last_mask=0x%02x\r\n",
+      (unsigned long)ps2_spin_nc_block_frames,
+      (unsigned long)ps2_spin_nc_active_cut_count,
+      (unsigned)ps2_spin_nc_last_mask);
+  return M8S00_UartLine(line, n);
+}
+
 static uint8_t M8S00_DumpEscapeCounters(void)
 {
   char line[200];
@@ -3720,6 +3739,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpOne("STOP", &m8_s00_first_stop) == 0U) ||
       (M8S00_DumpOne("FAULT", &m8_s00_first_fault) == 0U) ||
       (M8S00_DumpEscapeCounters() == 0U) ||
+      (M8S00_DumpSpinNc() == 0U) ||
       (M8S00_DumpConcurrent() == 0U) ||
       (M8S00_DumpCalibration() == 0U) ||
       (HAL_UART_Transmit(&huart3, (uint8_t *)end,
@@ -8124,12 +8144,15 @@ static void PS2_ApplyManualControl(void)
     if ((nc & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_R_MIN_MASK |
                STEER_LIMIT_L_MAX_MASK | STEER_LIMIT_R_MAX_MASK)) != pivot_nc)
     {
+      ps2_spin_nc_last_mask = nc;
+      ps2_spin_nc_block_frames++;
       if (WheelControl_SpinIsActive() != 0U)
       {
         /* Unexpected endstop release DURING wheel spin: zero all
          * wheel PWM immediately; operator must reissue spin later.
          */
         WheelControl_EmergencyStop();
+        ps2_spin_nc_active_cut_count++;
       }
       else
       {
