@@ -2012,6 +2012,14 @@ volatile uint8_t m8_s00_clear_request = 0U;
 volatile uint8_t m8_s00_dump_request = 0U;
 volatile uint8_t m8_s00_dump_status = 0U; /* 0 idle, 1 OK, 2 unsafe/busy, 3 empty, 4 UART/error */
 volatile uint32_t m8_s00_dump_count = 0U;
+/* MCU-side output overlap sampled after all PWM owners (not proof of
+ * actual driver voltage/motor motion). Read-only since-boot counters.
+ */
+volatile uint32_t m8_s00_fourwheel_pwm_frames = 0U;
+volatile uint32_t m8_s00_joint_any_steer_frames = 0U;
+volatile uint32_t m8_s00_joint_both_steer_frames = 0U;
+volatile uint16_t m8_s00_joint_last_ccr_l = 0U;
+volatile uint16_t m8_s00_joint_last_ccr_r = 0U;
 static void M8S00_DumpUpdate(void);
 static uint8_t M8S00_CalHasSession(void);
 static uint8_t M8S00_DumpCalibration(void);
@@ -3617,6 +3625,22 @@ static uint8_t M8S00_DumpOne(const char *label,
  * counters as a separate line so later RIGHT events are not invisible.
  * Values are read-only and printed only by the disarmed UART service.
  */
+/* Emit only from M8S00_DumpUpdate's disarmed safe-UART owner. */
+static uint8_t M8S00_DumpConcurrent(void)
+{
+  char line[210];
+  int n = snprintf(line, sizeof(line),
+      "M8S00_CONCURRENT,scope=since_boot,request=%lu,fourWheel=%lu,"
+      "oneSteer=%lu,bothSteer=%lu,ccrL=%u,ccrR=%u\r\n",
+      (unsigned long)ps2_drive_steer_request_frames,
+      (unsigned long)m8_s00_fourwheel_pwm_frames,
+      (unsigned long)m8_s00_joint_any_steer_frames,
+      (unsigned long)m8_s00_joint_both_steer_frames,
+      (unsigned)m8_s00_joint_last_ccr_l,
+      (unsigned)m8_s00_joint_last_ccr_r);
+  return M8S00_UartLine(line, n);
+}
+
 static uint8_t M8S00_DumpEscapeCounters(void)
 {
   char line[200];
@@ -3676,7 +3700,8 @@ static void M8S00_DumpUpdate(void)
    */
   if ((m8_s00_first_stop.valid == 0U) &&
       (m8_s00_first_fault.valid == 0U) &&
-      (M8S00_CalHasSession() == 0U))
+      (M8S00_CalHasSession() == 0U) &&
+      (m8_s00_joint_any_steer_frames == 0U))
   {
     m8_s00_dump_status = 3U; /* no event since clear */
     return;
@@ -3688,6 +3713,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpOne("STOP", &m8_s00_first_stop) == 0U) ||
       (M8S00_DumpOne("FAULT", &m8_s00_first_fault) == 0U) ||
       (M8S00_DumpEscapeCounters() == 0U) ||
+      (M8S00_DumpConcurrent() == 0U) ||
       (M8S00_DumpCalibration() == 0U) ||
       (HAL_UART_Transmit(&huart3, (uint8_t *)end,
                          (uint16_t)(sizeof(end)-1U), 1000U) != HAL_OK))
@@ -7632,6 +7658,33 @@ static void PS2_RestoreRouteUpdate(void)
   if (block != 0U) ps2_restore_route_blocked_samples++;
 }
 
+/* After the wheel shaper and steering owner, count SOFTWARE PWM
+ * overlap. A count != 0 confirms only MCU commands, not actual power.
+ */
+static void M8S00_ObserveConcurrent(void)
+{
+  uint16_t l, r;
+  if ((control_mode != CONTROL_MODE_PS2) ||
+      (steer_safety_motion_permit != 1U) ||
+      (steer_safety_trip_latched != 0U) ||
+      (steer_cal_active != 0U) ||
+      (WheelControl_SpinIsActive() != 0U) ||
+      ((steer_manual_active == 0U) && (steer_pos_active == 0U)))
+    return;
+  if ((wheel_pwm_lu == 0) || (wheel_pwm_ld == 0) ||
+      (wheel_pwm_ru == 0) || (wheel_pwm_rd == 0))
+    return;
+  m8_s00_fourwheel_pwm_frames++;
+  l = (uint16_t)__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2);
+  r = (uint16_t)__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1);
+  if ((l == 0U) && (r == 0U)) return;
+  m8_s00_joint_any_steer_frames++;
+  if ((l != 0U) && (r != 0U))
+    m8_s00_joint_both_steer_frames++;
+  m8_s00_joint_last_ccr_l = l;
+  m8_s00_joint_last_ccr_r = r;
+}
+
 static void PS2_DebugObserveRightOutput(void)
 {
   static uint8_t previous_source = 0U;
@@ -9123,7 +9176,8 @@ int main(void)
     wheel_log_m8_s00_ready =
         ((m8_s00_first_stop.valid != 0U) ||
          (m8_s00_first_fault.valid != 0U) ||
-         (M8S00_CalHasSession() != 0U)) ? 1U : 0U;
+         (M8S00_CalHasSession() != 0U) ||
+         (m8_s00_joint_any_steer_frames != 0U)) ? 1U : 0U;
     RamLogger_ButtonUpdate();
     if (wheel_log_m8_s00_button_dump_request != 0U)
     {
@@ -9276,6 +9330,7 @@ int main(void)
       Steering_PositionTelemetryIdleUpdate();
     M8S00_ClearService(); /* read-only S00 diagnostics reset */
     PS2_DebugObserveRightOutput(); /* after all PWM owners have run */
+    M8S00_ObserveConcurrent(); /* PWM commands only; never actuates */
 #if STEER_SAFETY_INCIDENT_LOCKOUT != 0U
     Steering_QuarantineAuditPins(); /* parked pin audit in diagnostic mode */
 #endif
