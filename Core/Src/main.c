@@ -9824,12 +9824,14 @@ int main(void)
     RamLogger_DumpCsvUpdate();
     M8S00_DumpUpdate(); /* explicit VCP export only when fully stopped */
 
-    /* M8-S02: shorten extra idle time so PS2 is polled more often.
-     * Encoder RPM still updates only after >=20 ms; wheel PID consumes
-     * new samples only. Real loop time includes SPI, I2C and services.
-     * Steering settle/quiet windows and all NC ISR gates are unchanged.
+    /* M8-S03 trial: reduce idle pause from 10ms to 5ms for more
+     * responsive PS2 polling. This is only a loop wait, NOT a proven
+     * 5ms command-to-motion time or 200Hz control rate. Encoder RPM
+     * still requires >=20ms; wheel PID consumes only fresh samples.
+     * Do not remove steering settle/quiet, NC IRQ or watchdog guards.
+     * Compare M8S02_INPUT pollLast/pollMax and test all PS2 owners.
      */
-    HAL_Delay(10);
+    HAL_Delay(5);
 
     /* USER CODE END WHILE */
 
