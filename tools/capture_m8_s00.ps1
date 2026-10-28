@@ -54,7 +54,7 @@ $serial = New-Object System.IO.Ports.SerialPort -ArgumentList @(
 $serial.Handshake = [System.IO.Ports.Handshake]::None
 $serial.ReadTimeout = 500
 $serial.WriteTimeout = 1000
-$serial.NewLine = "\`n"
+$serial.NewLine = "`n"
 $serial.Encoding = [System.Text.Encoding]::ASCII
 $serial.DtrEnable = $false
 $serial.RtsEnable = $false
@@ -110,7 +110,7 @@ try {
 }
 
 if ($complete) {
-    $all = $lines -join "\`n"
+    $all = $lines -join "`n"
     if ($all -notmatch 'M8S00_META,STOP|M8S00_EMPTY,STOP') {
         Write-Warning "Da thay marker END, nhung chua duoc STOP hop le. Gui file de kiem tra."
     }
