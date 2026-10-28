@@ -58,7 +58,7 @@ verify("R1 fine retains +/-5 RAW, 8-pulse, 9s bounds",
 verify("fine controller does not increase PWM or pulse cap",
        "if (pwm > 300U) pwm = 300U;" in fine and
        "if (pwm > 100U) pwm = 100U;" in fine and
-       "if (v > 60U) ? 60U : v" in src and
+       "(v > 60U) ? 60U : v" in src and
        "steer_pos_left_fine_pwm = 175U" in src)
 verify("R1 stays active through NC departure, with 120ms quiet",
        "Steering_PositionOwnEscapeIrq(1U, pending)" in position and
