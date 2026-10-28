@@ -2388,8 +2388,9 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   uint8_t mask = steer_angle_wp_hold_mask;
   steer_angle_wp_last_trim_pwm = 0U;
 
-  /* Both coarse: either can be paced. R1 fine: pace ONLY the
-   * opposite coarse motor, never truncate a timed fine pulse.
+  /* Pace only the ordinary (coarse) trajectory. R1 fine CENTER
+   * correction is a separate independent task, not a phase target.
+   * Never change fine pulses, their quiet/capture period or stop time.
    */
   if ((steer_angle_wp_enable != 1U) ||
       ((allow_hold_l == 0U) && (allow_hold_r == 0U)) ||
@@ -2538,19 +2539,13 @@ static void Steering_AngleWaypointWaitProgress(uint8_t mode,
       (steer_angle_wp_owner_mode != mode) ||
       (state_l != moving_state) || (state_r != moving_state))
     return;
-  /* R1 fine includes PWM-OFF settling. A coarse axis deliberately
-   * held for its fine partner must not trip a false 650ms stall.
-   * The fine owner and overall 9000ms run timeout remain active.
+  /* This exception covers only an intentional waypoint hold while
+   * the other motor is powered. R1 fine alignment is independent:
+   * it never requests another motor to wait.
    */
-  if ((steer_angle_wp_hold_mask == 1U) &&
-      ((last_pwm_r != 0U) ||
-       ((mode == 1U) &&
-        (steer_right_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE))))
+  if ((steer_angle_wp_hold_mask == 1U) && (last_pwm_r != 0U))
     *progress_l = now;
-  else if ((steer_angle_wp_hold_mask == 2U) &&
-           ((last_pwm_l != 0U) ||
-            ((mode == 1U) &&
-             (steer_left_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE))))
+  else if ((steer_angle_wp_hold_mask == 2U) && (last_pwm_l != 0U))
     *progress_r = now;
 }
 
@@ -3620,13 +3615,19 @@ static void Steering_PositionUpdate(void)
    * Do not touch R1 short-pulse fine trim or an NC escape.
    * R2 still only declares DONE at its OWN physical MIN contact.
    */
+  /* M8-S00: R1 timing ends at EACH axis's first fine-phase entry.
+   * Fine CENTER correction stays a private servo problem; do not
+   * slow the still-coarse partner to match someone else's trim.
+   */
+  if ((steer_pos_command == 1U) &&
+      ((steer_left_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
+       (steer_right_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE)))
+    steer_angle_wp_hold_mask = 0U;
   if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
-      (steer_pos_right_state == STEER_AXIS_MOVING))
+      (steer_pos_right_state == STEER_AXIS_MOVING) &&
+      (steer_left_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE) &&
+      (steer_right_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE))
   {
-    uint8_t coarse_l =
-        (steer_left_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE);
-    uint8_t coarse_r =
-        (steer_right_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE);
     uint16_t goal_l = (steer_pos_command == 1U) ?
         STEER_POS_LEFT_CENTER_RAW : steer_pos_left_r2_target_raw;
     uint16_t goal_r = (steer_pos_command == 1U) ?
@@ -3636,21 +3637,14 @@ static void Steering_PositionUpdate(void)
     if ((steer_pos_command == 2U) &&
         (goal_r < STEER_POS_RIGHT_MIN_RAW)) goal_r = STEER_POS_RIGHT_MIN_RAW;
     if (steer_angle_wp_enable == 1U)
-    {
-      /* Coarse+fine R1: only reduce the coarse partner's PWM while
-       * the fine motor retains its own pulses, quiet and capture.
-       * Both-fine: leave both independent ±5 RAW servos untouched.
-       */
-      if ((coarse_l != 0U) || (coarse_r != 0U))
-        Steering_AngleWaypointApply(steer_pos_command,
-            steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
-            steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
-            coarse_l, coarse_r,
-            Steering_PositionClampDuty(steer_pos_left_pwm_min),
-            Steering_PositionClampDuty(steer_pos_right_pwm_min),
-            &left_cmd, &right_cmd);
-    }
-    else if ((coarse_l != 0U) && (coarse_r != 0U))
+      Steering_AngleWaypointApply(steer_pos_command,
+          steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
+          steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
+          1U, 1U,
+          Steering_PositionClampDuty(steer_pos_left_pwm_min),
+          Steering_PositionClampDuty(steer_pos_right_pwm_min),
+          &left_cmd, &right_cmd);
+    else
       Steering_PhaseLimit(steer_pos_command,
           steer_left_axis.escape_start_raw, goal_l, debug_as5600_left_raw,
           steer_right_axis.escape_start_raw, goal_r, debug_as5600_right_raw,
