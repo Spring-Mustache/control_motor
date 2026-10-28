@@ -1727,22 +1727,22 @@ volatile uint16_t steer_cal_left_min_runtime = 2297U;
 volatile uint16_t steer_cal_left_max_runtime = 1374U;
 volatile uint16_t steer_cal_right_min_runtime = 166U;
 volatile uint16_t steer_cal_right_max_runtime = 982U;
-/* M8 R2 = a near-MIN parking setpoint INSIDE the physical endstop,
- * not a command to press the NC on every move. Operator observed L_MIN
- * triggering near RAW 2274 (M8 log), and R_MIN near RAW 193 after a
- * mechanical switch adjustment (not yet SELECT-calibrated).
+/* M8: R2 is the physical MIN endstop command, NOT a pre-NC parking
+ * position. In-place L1/L2 pivot rotation requires BOTH own MIN NC
+ * contacts to be physically asserted. Do not accept a merely close
+ * AS5600 position as an R2 success.
  *
- * INITIAL, UNVALIDATED suspended-bench commissioning offsets:
- * LEFT target 2240 (34 RAW inward from observed L_MIN);
- * RIGHT target 223 (30 RAW inward from observed R_MIN).
- * Only motor motion/actual coast testing can establish safe clearance.
- * Live Expressions may tune these two targets separately, but a small
- * RAW gap alone does not prove adequate coast/braking clearance.
- * Keep both NC hardware cutoffs, current hard envelopes and SELECT
- * calibration values independent. Do NOT treat targets as new limits.
+ * These RAW values are bounded approach/NO-NC-fault references, not
+ * the definition of MIN. Left MIN was observed at ~2274 RAW; after a
+ * mechanical adjustment RIGHT MIN contact was observed at ~193 RAW.
+ * Keep separately calibrated hard envelopes (L_MIN=2297, R_MIN=166)
+ * unchanged until an actual completed SELECT scan. Each NC EXTI
+ * independently cuts its own PWM as soon as the physical limit opens.
+ * R2 without the expected NC must fault by the bounded RAW/timeout
+ * limits, never hunt or reverse beyond the known envelope.
  */
-volatile uint16_t steer_pos_left_r2_target_raw = 2240U;
-volatile uint16_t steer_pos_right_r2_target_raw = 223U;
+volatile uint16_t steer_pos_left_r2_target_raw = 2297U;
+volatile uint16_t steer_pos_right_r2_target_raw = 166U;
 #define STEER_POS_LEFT_MIN_RAW       (steer_cal_left_min_runtime)
 #define STEER_POS_LEFT_CENTER_RAW     1873U
 #define STEER_POS_LEFT_MAX_RAW       (steer_cal_left_max_runtime)
@@ -2714,10 +2714,10 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   else steer_pos_right_error = err;
 
   abs_error = (uint16_t)((err < 0) ? -err : err);
-  /* R1: coarse approach to ±35, then independently pulsed ±5 trim.
-   * Never declare R1 DONE merely because error is within Select's
-   * larger 15/20-count coarse acceptance band.
-   * R2 MIN remains its previously validated ±5 controller.
+  /* R1: coarse approach and independent short-pulse ±5 RAW trim.
+   * R2: ONLY the physical, own MIN NC (GPIO or EXTI) completes with
+   * result=3. A close RAW reading must NOT declare pivot-ready before
+   * the steering module has reached its required mechanical angle.
    */
   if (steer_pos_command == 1U)
   {
@@ -2731,13 +2731,19 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
       return;
     }
   }
-  else if (abs_error <= STEER_POS_TOL_RAW)
+  else
   {
-    if (axis->stable_count < STEER_POS_STABLE_SAMPLES)
-      axis->stable_count++;
-    if (axis->stable_count >= STEER_POS_STABLE_SAMPLES)
-      Steering_PositionAxisDone(left, 2U);
-    return;
+    /* NC never arrived by the known MIN approach boundary: STOP the
+     * axis as a local fault rather than reversing to a RAW target or
+     * driving farther into an unknown hardstop. The hard AS5600
+     * safety envelope and timeout/stall checks remain separately live.
+     */
+    if (((left != 0U) && (raw >= goal)) ||
+        ((left == 0U) && (raw <= goal)))
+    {
+      Steering_PositionAxisFault(left, 8U);
+      return;
+    }
   }
 
   axis->stable_count = 0U;
@@ -8105,12 +8111,36 @@ static void PS2_ApplyManualControl(void)
   }
 
   /* L1: LU/LD forward, RU/RD reverse; L2: opposite.
-   * The spin shaper latches until stop; no unrelated wheel mode can
-   * instantly replace the opposite-side target during coast-down.
+   * Physical pivot geometry requires BOTH steering MIN NC switches
+   * actually asserted. A completed R2 by RAW alone is insufficient.
+   * Recheck NC continuously during spin; release of either contact
+   * kills the wheel spin immediately, not a deferred spin ramp.
    */
   if ((PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
       (WheelControl_SpinIsActive() != 0U))
   {
+    uint8_t nc = Steering_TestRawLimitMask();
+    uint8_t pivot_nc = (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_R_MIN_MASK);
+    if ((nc & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_R_MIN_MASK |
+               STEER_LIMIT_L_MAX_MASK | STEER_LIMIT_R_MAX_MASK)) != pivot_nc)
+    {
+      if (WheelControl_SpinIsActive() != 0U)
+      {
+        /* Unexpected endstop release DURING wheel spin: zero all
+         * wheel PWM immediately; operator must reissue spin later.
+         */
+        WheelControl_EmergencyStop();
+      }
+      else
+      {
+        /* A new L1/L2 request without R2 physical geometry cannot
+         * start any wheel spin. Normal wheel braking remains shaped.
+         */
+        WheelControl_SetTargetPWM(0);
+      }
+      Turn_Motors_Stop();
+      return;
+    }
     WheelControl_SetCommandProfile(WHEEL_COMMAND_PROFILE_FIXED);
     if ((PS2_Pad.L1 != 0U) && (PS2_Pad.L2 == 0U))
       WheelControl_SetSpinDirection(1, MOTOR_DPAD_PWM);
