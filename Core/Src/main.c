@@ -1919,6 +1919,8 @@ typedef struct
   int32_t wheel_current_pwm;
   float wheel_pid_target_rpm;
   uint16_t wheel_pwm_lu, wheel_pwm_ld, wheel_pwm_ru, wheel_pwm_rd;
+  uint32_t wheel_pid_update_count;
+  uint8_t wheel_pid_enable, wheel_pid_active, wheel_encoder_available_mask;
   uint32_t guard_flags;
   uint16_t raw_left, raw_right;
   uint16_t left_soft_target, right_soft_target;
@@ -3261,6 +3263,14 @@ static void M8S00_CaptureStop(uint8_t event, uint8_t axis,
   v.wheel_pwm_ld = (uint16_t)wheel_pwm_ld;
   v.wheel_pwm_ru = (uint16_t)wheel_pwm_ru;
   v.wheel_pwm_rd = (uint16_t)wheel_pwm_rd;
+  v.wheel_pid_update_count = wheel_pid_update_count;
+  v.wheel_pid_enable = wheel_pid_enable;
+  v.wheel_pid_active = wheel_pid_active;
+  v.wheel_encoder_available_mask =
+      (uint8_t)(((wheel_encoder_available_lu != 0U) ? 1U : 0U) |
+                ((wheel_encoder_available_ld != 0U) ? 2U : 0U) |
+                ((wheel_encoder_available_ru != 0U) ? 4U : 0U) |
+                ((wheel_encoder_available_rd != 0U) ? 8U : 0U));
   /* Guard bits: 0 cancel_hold, 1 spin latch, 2 voice execution,
    * 3 voice ready, 4 calibration owner, 5 test running, 6 test arm,
    * 7 test request, 8 debug AS5600 poll, 9 manual enabled,
@@ -3350,6 +3360,7 @@ static void M8S00_ClearService(void)
   m8_s00_first_fault = empty;
   m8_s00_clear_request = 0U;
   m8_s00_clear_count++;
+  wheel_log_m8_s00_ready = 0U;
 }
 
 
@@ -3444,6 +3455,14 @@ static uint8_t M8S00_DumpOne(const char *label,
       (unsigned)p->wheel_pwm_ru, (unsigned)p->wheel_pwm_rd,
       (unsigned)p->sync_left_speed, (unsigned)p->sync_right_speed,
       (unsigned long)p->sync_reference_hold_count);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  n = snprintf(line, sizeof(line),
+      "M8S00_PID,%s,enable=%u,active=%u,encoder_mask=%u,update_count=%lu\r\n",
+      label, (unsigned)p->wheel_pid_enable,
+      (unsigned)p->wheel_pid_active,
+      (unsigned)p->wheel_encoder_available_mask,
+      (unsigned long)p->wheel_pid_update_count);
   return M8S00_UartLine(line, n);
 }
 
@@ -8757,8 +8776,15 @@ int main(void)
      * Process it here, before wheel-control, so a manual validation
      * start can enable PID in the same control cycle.
      */
+    wheel_log_m8_s00_ready =
+        ((m8_s00_first_stop.valid != 0U) ||
+         (m8_s00_first_fault.valid != 0U)) ? 1U : 0U;
     RamLogger_ButtonUpdate();
-
+    if (wheel_log_m8_s00_button_dump_request != 0U)
+    {
+      wheel_log_m8_s00_button_dump_request = 0U;
+      m8_s00_dump_request = 1U;
+    }
 
     /*
      * M6 wheel-control module:
