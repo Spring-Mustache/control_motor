@@ -7155,9 +7155,9 @@ static void PS2_DebugShadowSteeringCommands(void)
  * deliberately READ-ONLY. Existing control owners retain their actuating
  * algorithms and existing S13 incident lockdown remains compile-time ON.
  * A decoded/ready route is not proof of PWM or physical motor movement.
- * In restored S10 mapping, RX intent is decoded independently of LY;
- * `ps2_restore_rx_request_direction` exposes combined wheel+RX requests.
- * The actual motor interlock is deliberately still separate.
+ * In M8 PS2 mapping, RX and LY may be actuated concurrently.
+ * `ps2_restore_rx_request_direction` exposes wheel+RX requests.
+ * This observer reports requests; motor gating remains in the owners.
  *
  * Action 0 none; 1 LY forward; 2 LY reverse; 3 D-pad UP; 4 D-pad DOWN;
  * 5 L1 clockwise spin; 6 L2 opposite spin; 7 D-pad LEFT steering;
@@ -7165,9 +7165,9 @@ static void PS2_DebugShadowSteeringCommands(void)
  * 11 R1 CENTER; 12 R2 MIN; 13 SELECT auto-calibration.
  *
  * Block mask: b0 PS2 disconnected/not analog; b1 contradictory buttons;
- * b2 wheel/steering pressed simultaneously; b3 steering power gate closed;
+ * b2 incompatible spin/SELECT + steering; b3 steering power gate closed;
  * b4 latched steering safety; b5 respective steering mode disarmed;
- * b6 reserved (removed RX-enable gate); b7 four wheels not stopped;
+ * b6 reserved (removed RX-enable gate); b7 SELECT needs wheels stopped;
  * b8 STOP/voice handover pending; b9 SELECT not individually armed;
  * b10 reserved (removed RX debounce); b11 neutral rearm required.
  * START/L3/R3/face buttons are observed by debug_ps2_button_mask but have
@@ -7181,7 +7181,7 @@ volatile uint32_t ps2_restore_route_samples = 0U;
 volatile uint32_t ps2_restore_route_blocked_samples = 0U;
 volatile uint8_t ps2_restore_steering_actuation_locked = 1U;
 /* Non-actuating observations of simultaneous wheel + RX input.
- * These do not remove the actual motor command interlock.
+ * Motor owners separately decide the actual PWM on each channel.
  */
 volatile int8_t ps2_restore_rx_request_direction = 0;
 volatile uint32_t ps2_restore_rx_wheel_combined_frames = 0U;
@@ -7229,13 +7229,18 @@ static void PS2_RestoreRouteUpdate(void)
         (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U))))
     block |= (1U << 1);
 
-  if ((steering_button != 0U) && (wheel_button != 0U))
-    block |= (1U << 2);
-
   if (rx_offset < -PS2_RX_DEADZONE_COUNTS) rx_direction = -1;
   else if (rx_offset > PS2_RX_DEADZONE_COUNTS) rx_direction = 1;
-  /* Independent of route_action: LY and RX may be decoded together.
-   * Real steering actuation stays subject to the motor-side interlock.
+  /* Normal wheel + steering input is not inherently a conflict.
+   * SELECT calibration and in-place L1/L2 spin remain exclusive.
+   */
+  if (((steering_button != 0U) || (rx_direction != 0)) &&
+      (wheel_button != 0U) &&
+      ((PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U) ||
+       (PS2_Pad.Select != 0U) ||
+       (WheelControl_SpinIsActive() != 0U)))
+    block |= (1U << 2);
+  /* This observer cannot prove actual motor actuation or safety.
    */
   ps2_restore_rx_request_direction = rx_direction;
   if ((wheel_button != 0U) && (rx_direction != 0))
@@ -7285,7 +7290,7 @@ static void PS2_RestoreRouteUpdate(void)
     else if ((action == 13U) && (steer_cal_arm != 1U))
       block |= (1U << 9);
 
-    if (Steering_PositionWheelsStopped() == 0U)
+    if ((action == 13U) && (Steering_PositionWheelsStopped() == 0U))
       block |= (1U << 7);
     if (steer_safety_neutral_required != 0U)
       block |= (1U << 11);
