@@ -2066,6 +2066,16 @@ static M8S00Arrival_t m8_s05_last_run[5] = {0};
 static uint32_t m8_s05_run_count[5] = {0};
 static uint8_t m8_s05_manual_kind = 3U;
 static uint8_t m8_s05_active_kind = 0U;
+/* Same-clock progress mismatch per PS2 steering mode, including
+ * partial joystick-RX strokes (which have no valid endpoint time).
+ * Monotonic boot counters only; this struct never affects PWM.
+ */
+typedef struct
+{
+  uint32_t frames, sum_gap_permille, over_30permille_frames;
+  uint16_t last_gap_permille, peak_gap_permille;
+} M8S00Track_t;
+static M8S00Track_t m8_s00_track[5] = {0};
 /* PS2 poll-to-poll period, measured on real main-loop timestamps. */
 static uint32_t m8_s02_ps2_prev_poll_ms = 0U;
 static uint32_t m8_s02_ps2_poll_count = 0U;
@@ -2457,6 +2467,28 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   steer_angle_wp_goal_right_cdeg = gr;
   steer_angle_wp_progress_left = pl;
   steer_angle_wp_progress_right = pr;
+  /* Compare both calibrated travel fractions at the SAME time,
+   * without relying on arrival at an endpoint. RX can be released
+   * midway and still yield a measured tracking error.
+   */
+  {
+    uint8_t kind = (mode == 3U) ? m8_s05_manual_kind : mode;
+    if ((kind >= 1U) && (kind <= 4U))
+    {
+      M8S00Track_t *track = &m8_s00_track[kind];
+      uint16_t gap = (pl > pr) ? (pl - pr) : (pr - pl);
+      track->last_gap_permille = gap;
+      if (gap > track->peak_gap_permille)
+        track->peak_gap_permille = gap;
+      if (track->frames != 0xffffffffUL)
+        track->frames++;
+      if ((uint32_t)gap <= (0xffffffffUL - track->sum_gap_permille))
+        track->sum_gap_permille += gap;
+      if ((gap > 30U) &&
+          (track->over_30permille_frames != 0xffffffffUL))
+        track->over_30permille_frames++;
+    }
+  }
   steer_angle_wp_last_mode = mode;
   steer_angle_wp_owner_mode = mode;
   if (steer_angle_wp_frames != 0xffffffffUL) steer_angle_wp_frames++;
@@ -4464,6 +4496,27 @@ static uint8_t M8S05_DumpTiming(void)
         (unsigned long)((finish_valid != 0U) ? finish_skew : 0U),
         (unsigned)p->reached, (unsigned)p->powered,
         (unsigned)p->faults, (unsigned)p->stop_code);
+    if (M8S00_UartLine(line, n) == 0U) return 0U;
+  }
+  /* Even if RX is released before a soft endpoint, per-frame tracking
+   * is measurable during the active, normal dual-axis stroke.
+   * Average and maximum refer to normalized progress gap, not
+   * final mechanical alignment or NC arrival timing.
+   */
+  for (kind = 1U; kind <= 4U; kind++)
+  {
+    const M8S00Track_t *p = &m8_s00_track[kind];
+    uint32_t average = (p->frames != 0U) ?
+        (p->sum_gap_permille / p->frames) : 0U;
+    n = snprintf(line, sizeof(line),
+        "M8S00_TRACK,kind=%u,frames=%lu,meanGap_permille=%lu,"
+        "peakGap_permille=%u,lastGap_permille=%u,"
+        "over30Frames=%lu\r\n",
+        (unsigned)kind, (unsigned long)p->frames,
+        (unsigned long)average,
+        (unsigned)p->peak_gap_permille,
+        (unsigned)p->last_gap_permille,
+        (unsigned long)p->over_30permille_frames);
     if (M8S00_UartLine(line, n) == 0U) return 0U;
   }
   n = snprintf(line, sizeof(line),
