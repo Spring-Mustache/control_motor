@@ -2170,6 +2170,36 @@ static uint8_t Steering_PositionNcDirectionAllowed(uint8_t left,
   return 0U;
 }
 
+/* M8-S00 faster-travel TRIAL. Raises commanded coarse PWM by up to
+ * 20% only with existing validated per-axis cap, and only while at
+ * least 100 RAW from the stop; no change to NC/soft approach, R1 fine
+ * pulses, settling or escape from an already asserted NC.
+ * PWM +20% is NOT proven physical angular speed +20%.
+ */
+volatile uint16_t steer_speed_trial_pct = 120U;
+volatile uint32_t steer_speed_trial_boost_frames = 0U;
+volatile uint32_t steer_speed_trial_saturated_frames = 0U;
+static uint16_t Steering_SpeedTrialPWM(uint16_t base, uint16_t cap,
+                                       uint16_t distance)
+{
+  uint32_t want;
+  uint16_t pct = steer_speed_trial_pct;
+  if ((base == 0U) || (distance <= 100U)) return base;
+  if (pct < 100U) pct = 100U;
+  if (pct > 120U) pct = 120U;
+  want = ((uint32_t)base * pct + 50U) / 100U;
+  if (want > cap)
+  {
+    if (steer_speed_trial_saturated_frames != 0xffffffffUL)
+      steer_speed_trial_saturated_frames++;
+    want = cap;
+  }
+  if ((want > base) &&
+      (steer_speed_trial_boost_frames != 0xffffffffUL))
+    steer_speed_trial_boost_frames++;
+  return (uint16_t)want;
+}
+
 static uint16_t Steering_PositionDuty(int16_t err, uint16_t min_duty,
                                      uint16_t max_duty, uint16_t divisor)
 {
@@ -2179,7 +2209,8 @@ static uint16_t Steering_PositionDuty(int16_t err, uint16_t min_duty,
   max_duty = Steering_PositionClampDuty(max_duty);
   if (max_duty < min_duty) max_duty = min_duty;
   v = (uint32_t)min_duty + (uint32_t)magnitude / divisor;
-  return (uint16_t)((v > max_duty) ? max_duty : v);
+  if (v > max_duty) v = max_duty;
+  return Steering_SpeedTrialPWM((uint16_t)v, max_duty, magnitude);
 }
 
 /* Single bounded HAL transaction. Keep debug RAW/MD/ML/MH fresh both
@@ -5122,6 +5153,12 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
    * Never raise a low joystick PWM to the configured approach floor.
    */
   pwm = Steering_ManualClampPWM(pwm);
+  /* For both D-pad and joystick RX, boost only while safely outside
+   * the existing 100-RAW coast/soft-stop approach window. The cap is
+   * the independently tested 300 LEFT / 100 RIGHT PWM.
+   */
+  pwm = Steering_SpeedTrialPWM(pwm, (left != 0U) ? 300U : 100U,
+                               distance);
   if (distance < STEER_MANUAL_APPROACH_WINDOW_RAW)
   {
     uint16_t floor_pwm = left ? steer_manual_left_rx_min_pwm :
