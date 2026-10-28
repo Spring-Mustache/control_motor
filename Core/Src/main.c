@@ -2035,6 +2035,73 @@ static void M8S00_CaptureStop(uint8_t event, uint8_t axis,
                             uint8_t code, uint8_t abnormal);
 static void M8S00_ClearService(void);
 
+/* M8-S00 arrival telemetry; MAIN-LOOP evidence only, never actuator
+ * commands. mode: 1=R1 CENTER, 2=R2 MIN NC, 3=manual endpoints.
+ * goal: 1=CENTER, 2=MIN NC, 3=soft MIN, 4=soft MAX.
+ * DONE tick is a control-loop classification, NOT a hardware EXTI tick.
+ */
+typedef struct
+{
+  uint32_t run_id, start_ms, finish_ms, tick_l, tick_r;
+  uint16_t raw_l, raw_r;
+  uint8_t active, mode, goal_l, goal_r;
+  uint8_t reached, powered, faults, reason_l, reason_r, stop_code;
+} M8S00Arrival_t;
+static M8S00Arrival_t m8_s00_arrival = {0};
+static uint32_t m8_s00_arrival_run_count = 0U;
+
+static void M8S00_ArrivalBegin(uint8_t mode, uint8_t gl,
+                               uint8_t gr, uint32_t t0)
+{
+  M8S00Arrival_t zero = {0};
+  m8_s00_arrival = zero;
+  m8_s00_arrival.run_id = ++m8_s00_arrival_run_count;
+  m8_s00_arrival.start_ms = t0;
+  m8_s00_arrival.mode = mode;
+  m8_s00_arrival.goal_l = gl;
+  m8_s00_arrival.goal_r = gr;
+  m8_s00_arrival.active = 1U;
+}
+static void M8S00_ArrivalPower(uint8_t left, uint16_t pwm)
+{
+  if ((m8_s00_arrival.active != 0U) && (pwm != 0U))
+    m8_s00_arrival.powered |= (left != 0U) ? 1U : 2U;
+}
+static void M8S00_ArrivalDone(uint8_t left, uint8_t reason)
+{
+  uint8_t bit = (left != 0U) ? 1U : 2U;
+  if ((m8_s00_arrival.active == 0U) ||
+      ((m8_s00_arrival.reached & bit) != 0U))
+    return;
+  m8_s00_arrival.reached |= bit;
+  if (left != 0U)
+  {
+    m8_s00_arrival.tick_l = HAL_GetTick();
+    m8_s00_arrival.raw_l = debug_as5600_left_raw;
+    m8_s00_arrival.reason_l = reason;
+  }
+  else
+  {
+    m8_s00_arrival.tick_r = HAL_GetTick();
+    m8_s00_arrival.raw_r = debug_as5600_right_raw;
+    m8_s00_arrival.reason_r = reason;
+  }
+}
+static void M8S00_ArrivalFault(uint8_t left, uint8_t reason)
+{
+  if (m8_s00_arrival.active == 0U) return;
+  m8_s00_arrival.faults |= (left != 0U) ? 1U : 2U;
+  if (left != 0U) m8_s00_arrival.reason_l = reason;
+  else m8_s00_arrival.reason_r = reason;
+}
+static void M8S00_ArrivalFinish(uint8_t reason)
+{
+  if (m8_s00_arrival.active == 0U) return;
+  m8_s00_arrival.finish_ms = HAL_GetTick();
+  m8_s00_arrival.stop_code = reason;
+  m8_s00_arrival.active = 0U;
+}
+
 static uint16_t Steering_PositionClampDuty(uint16_t value)
 {
   return (value > 400U) ? 400U : value;
@@ -2235,6 +2302,7 @@ static void Steering_PositionFinish(uint8_t result)
   if (steer_pos_active != 0U)
     M8S00_CaptureStop(6U, 3U, result,
                       (result == 2U) ? 0U : 1U);
+  M8S00_ArrivalFinish(result);
   Steering_PositionLeftOff();
   Steering_PositionRightOff();
   if (steer_pos_active != 0U) steer_pos_finish_count++;
@@ -2261,6 +2329,7 @@ static void Steering_PositionOnLimitInterrupt(uint8_t limit_bit)
 
 static void Steering_PositionAxisDone(uint8_t left, uint8_t result)
 {
+  M8S00_ArrivalDone(left, result);
   if (steer_pos_active != 0U)
     M8S00_CaptureStop(4U, (left != 0U) ? 1U : 2U, result, 0U);
   if (left != 0U)
@@ -2279,6 +2348,7 @@ static void Steering_PositionAxisDone(uint8_t left, uint8_t result)
 
 static void Steering_PositionAxisFault(uint8_t left, uint8_t result)
 {
+  M8S00_ArrivalFault(left, result);
   if (steer_pos_active != 0U)
     M8S00_CaptureStop(5U, (left != 0U) ? 1U : 2U, result, 1U);
   if (left != 0U)
@@ -2943,6 +3013,9 @@ static void Steering_PositionUpdate(void)
     steer_pos_command = buttons;
     steer_pos_result = 1U;
     steer_pos_start_ms = now;
+    M8S00_ArrivalBegin((buttons == 1U) ? 1U : 2U,
+                        (buttons == 1U) ? 1U : 2U,
+                        (buttons == 1U) ? 1U : 2U, now);
     steer_pos_irq_pending_mask = 0U;
     steer_pos_limit_trip_mask = 0U;
     steer_pos_left_state = STEER_AXIS_MOVING;
@@ -3221,6 +3294,7 @@ static void Steering_PositionUpdate(void)
         HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port,
                           MOTOR_DIR_TURN_left_Pin, left_dir);
       __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, left_cmd);
+      M8S00_ArrivalPower(1U, left_cmd);
       steer_pos_left_pwm = left_cmd;
     }
   }
@@ -3242,6 +3316,7 @@ static void Steering_PositionUpdate(void)
         HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port,
                           MOTOR_DIR_TURN_right_Pin, right_dir);
       __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, right_cmd);
+      M8S00_ArrivalPower(0U, right_cmd);
       steer_pos_right_pwm = right_cmd;
     }
   }
@@ -3558,6 +3633,7 @@ static void M8S00_ClearService(void)
     return;
   m8_s00_first_stop = empty;
   m8_s00_first_fault = empty;
+  m8_s00_arrival = (M8S00Arrival_t){0};
   m8_s00_clear_request = 0U;
   m8_s00_clear_count++;
   wheel_log_m8_s00_ready = 0U;
@@ -3724,6 +3800,49 @@ static uint8_t M8S00_DumpSync(void)
   return M8S00_UartLine(line, n);
 }
 
+
+/* Last run, independent from sticky first-only STOP/FAULT snapshots.
+ * A valid skew requires both motors powered and both axes DONE.
+ * Contact DONE timestamp is classified by main loop, not EXTI edge.
+ */
+static uint8_t M8S00_DumpArrival(void)
+{
+  const M8S00Arrival_t *p = &m8_s00_arrival;
+  char line[284];
+  uint32_t tl = 0U, tr = 0U, skew = 0U;
+  uint8_t valid;
+  int n;
+  if (p->run_id == 0U)
+  {
+    n = snprintf(line, sizeof(line), "M8S00_ARRIVAL,valid=0\r\n");
+    return M8S00_UartLine(line, n);
+  }
+  if ((p->reached & 1U) != 0U) tl = (uint32_t)(p->tick_l - p->start_ms);
+  if ((p->reached & 2U) != 0U) tr = (uint32_t)(p->tick_r - p->start_ms);
+  valid = (uint8_t)((p->active == 0U) && (p->reached == 3U) &&
+      (p->powered == 3U) && (p->faults == 0U) &&
+      (((p->mode == 3U) && (p->stop_code == 0U)) ||
+       ((p->mode != 3U) && (p->stop_code == 2U))));
+  if (valid != 0U) skew = (tl > tr) ? (tl - tr) : (tr - tl);
+  n = snprintf(line, sizeof(line),
+      "M8S00_ARRIVAL,run=%lu,mode=%u,goalL=%u,goalR=%u,"
+      "start=%lu,finish=%lu,reached=%u,powered=%u,faults=%u,"
+      "stopCode=%u,skewValid=%u,skewMs=%lu\r\n",
+      (unsigned long)p->run_id, (unsigned)p->mode,
+      (unsigned)p->goal_l, (unsigned)p->goal_r,
+      (unsigned long)p->start_ms, (unsigned long)p->finish_ms,
+      (unsigned)p->reached, (unsigned)p->powered, (unsigned)p->faults,
+      (unsigned)p->stop_code, (unsigned)valid, (unsigned long)skew);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+  n = snprintf(line, sizeof(line),
+      "M8S00_ARRIVAL_AXIS,L_tick=%lu,R_tick=%lu,L_ms=%lu,R_ms=%lu,"
+      "L_raw=%u,R_raw=%u,L_reason=%u,R_reason=%u\r\n",
+      (unsigned long)p->tick_l, (unsigned long)p->tick_r,
+      (unsigned long)tl, (unsigned long)tr, (unsigned)p->raw_l,
+      (unsigned)p->raw_r, (unsigned)p->reason_l, (unsigned)p->reason_r);
+  return M8S00_UartLine(line, n);
+}
+
 static uint8_t M8S00_DumpSpinNc(void)
 {
   char line[180];
@@ -3810,6 +3929,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpEscapeCounters() == 0U) ||
       (M8S00_DumpSpinNc() == 0U) ||
       (M8S00_DumpSync() == 0U) ||
+      (M8S00_DumpArrival() == 0U) ||
       (M8S00_DumpConcurrent() == 0U) ||
       (M8S00_DumpCalibration() == 0U) ||
       (HAL_UART_Transmit(&huart3, (uint8_t *)end,
@@ -3880,6 +4000,7 @@ static void Steering_ManualStop(void)
                      (steer_safety_trip_latched != 0U) ||
                      (control_stop_latched != 0U) ||
                      (control_mode != CONTROL_MODE_PS2)) ? 1U : 0U);
+  M8S00_ArrivalFinish(steer_manual_block_reason);
   Steering_ManualLeftOff();
   Steering_ManualRightOff();
   Steering_SyncReset();
@@ -3932,6 +4053,7 @@ static void Steering_ManualOnLimitInterrupt(uint8_t bit)
 
 static void Steering_ManualAxisDone(uint8_t left, uint8_t reason)
 {
+  M8S00_ArrivalDone(left, reason);
   if (steer_manual_active != 0U)
     M8S00_CaptureStop(1U, (left != 0U) ? 1U : 2U, reason, 0U);
   if (left != 0U)
@@ -3954,6 +4076,7 @@ static void Steering_ManualAxisDone(uint8_t left, uint8_t reason)
 
 static void Steering_ManualAxisFault(uint8_t left, uint8_t reason)
 {
+  M8S00_ArrivalFault(left, reason);
   if (steer_manual_active != 0U)
     M8S00_CaptureStop(2U, (left != 0U) ? 1U : 2U, reason, 1U);
   if (left != 0U)
@@ -4627,6 +4750,8 @@ static void Steering_ManualUpdate(void)
     }
 
     steer_manual_begin_ms = now;
+    M8S00_ArrivalBegin(3U, (command < 0) ? 3U : 4U,
+                        (right_direction < 0) ? 3U : 4U, now);
     Steering_SyncReset(); /* new independent speed history per command */
     steer_sync_left_speed_raw_s = 0U;
     steer_sync_right_speed_raw_s = 0U;
@@ -4865,6 +4990,7 @@ static void Steering_ManualUpdate(void)
     HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port, MOTOR_DIR_TURN_left_Pin,
                       (command < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
     __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, la);
+    M8S00_ArrivalPower(1U, la);
     steer_manual_left_pwm = la;
   }
   else Steering_ManualLeftOff();
@@ -4877,6 +5003,7 @@ static void Steering_ManualUpdate(void)
     HAL_GPIO_WritePin(MOTOR_DIR_TURN_right_GPIO_Port, MOTOR_DIR_TURN_right_Pin,
                       (right_direction < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
     __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, ra);
+    M8S00_ArrivalPower(0U, ra);
     steer_manual_right_pwm = ra;
   }
   else Steering_ManualRightOff();
