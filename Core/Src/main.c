@@ -1918,7 +1918,7 @@ typedef struct
   int32_t wheel_target_pwm;
   int32_t wheel_current_pwm;
   float wheel_pid_target_rpm;
-  uint16_t wheel_pwm_lu, wheel_pwm_ld, wheel_pwm_ru, wheel_pwm_rd;
+  int16_t wheel_pwm_lu, wheel_pwm_ld, wheel_pwm_ru, wheel_pwm_rd;
   uint32_t wheel_pid_update_count;
   uint8_t wheel_pid_enable, wheel_pid_active, wheel_encoder_available_mask;
   uint32_t guard_flags;
@@ -3259,10 +3259,10 @@ static void M8S00_CaptureStop(uint8_t event, uint8_t axis,
   v.wheel_target_pwm = (int32_t)wheel_target_pwm;
   v.wheel_current_pwm = (int32_t)wheel_current_pwm;
   v.wheel_pid_target_rpm = wheel_pid_target_rpm;
-  v.wheel_pwm_lu = (uint16_t)wheel_pwm_lu;
-  v.wheel_pwm_ld = (uint16_t)wheel_pwm_ld;
-  v.wheel_pwm_ru = (uint16_t)wheel_pwm_ru;
-  v.wheel_pwm_rd = (uint16_t)wheel_pwm_rd;
+  v.wheel_pwm_lu = wheel_pwm_lu;
+  v.wheel_pwm_ld = wheel_pwm_ld;
+  v.wheel_pwm_ru = wheel_pwm_ru;
+  v.wheel_pwm_rd = wheel_pwm_rd;
   v.wheel_pid_update_count = wheel_pid_update_count;
   v.wheel_pid_enable = wheel_pid_enable;
   v.wheel_pid_active = wheel_pid_active;
@@ -3445,14 +3445,14 @@ static uint8_t M8S00_DumpOne(const char *label,
   n = snprintf(line, sizeof(line),
       "M8S00_WHEEL,%s,rpm10LU=%ld,rpm10LD=%ld,rpm10RU=%ld,rpm10RD=%ld,"
       "wheelTargetPwm=%ld,wheelCurrentPwm=%ld,targetRpm10=%ld,"
-      "pwmLU=%u,pwmLD=%u,pwmRU=%u,pwmRD=%u,"
+      "pwmLU=%d,pwmLD=%d,pwmRU=%d,pwmRD=%d,"
       "syncL=%u,syncR=%u,syncHold=%lu\r\n",
       label, (long)(p->rpm_lu * 10.0f), (long)(p->rpm_ld * 10.0f),
       (long)(p->rpm_ru * 10.0f), (long)(p->rpm_rd * 10.0f),
       (long)p->wheel_target_pwm, (long)p->wheel_current_pwm,
       (long)(p->wheel_pid_target_rpm * 10.0f),
-      (unsigned)p->wheel_pwm_lu, (unsigned)p->wheel_pwm_ld,
-      (unsigned)p->wheel_pwm_ru, (unsigned)p->wheel_pwm_rd,
+      (int)p->wheel_pwm_lu, (int)p->wheel_pwm_ld,
+      (int)p->wheel_pwm_ru, (int)p->wheel_pwm_rd,
       (unsigned)p->sync_left_speed, (unsigned)p->sync_right_speed,
       (unsigned long)p->sync_reference_hold_count);
   if (M8S00_UartLine(line, n) == 0U) return 0U;
