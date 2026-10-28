@@ -4828,6 +4828,23 @@ volatile uint32_t steer_cal_right_noise_unlock_count = 0U;
  */
 volatile uint8_t steer_cal_arm = 0U;
 volatile uint8_t steer_cal_result = 0U;
+/* Read-only diagnostics of last real SELECT result=9 cancellation.
+ * A 2-RPM wheel interlock can see passive rolling during steering.
+ * These counters do not change interlocks or motor behavior.
+ */
+volatile uint32_t steer_cal_abort_count = 0U;
+volatile uint32_t steer_cal_abort_mask = 0U;
+volatile uint32_t steer_cal_abort_age_ms = 0U;
+volatile uint8_t steer_cal_abort_source = 0U; /* 1 SELECT loop, 2 global guard */
+volatile uint16_t steer_cal_abort_raw_l = 0U;
+volatile uint16_t steer_cal_abort_raw_r = 0U;
+volatile int16_t steer_cal_abort_rpm10_lu = 0;
+volatile int16_t steer_cal_abort_rpm10_ld = 0;
+volatile int16_t steer_cal_abort_rpm10_ru = 0;
+volatile int16_t steer_cal_abort_rpm10_rd = 0;
+volatile int16_t steer_cal_abort_target_pwm = 0;
+volatile int16_t steer_cal_abort_current_pwm = 0;
+static void Steering_CalCaptureAbort(void);
 /* SELECT has an independent, deliberate 1.5 s gesture, only after START
  * has armed steering; START does not itself grant SELECT calibration.
  */
@@ -5134,6 +5151,8 @@ static void Steering_CalRightOff(void)
 
 static void Steering_CalStop(uint8_t result)
 {
+  if ((steer_cal_active != 0U) && (result == 9U))
+    Steering_CalCaptureAbort();
   Steering_CalLeftOff();
   Steering_CalRightOff();
   if ((steer_cal_active != 0U) && (result != 2U))
@@ -5997,6 +6016,62 @@ static uint8_t Steering_CalInputsNeutral(void)
  * SELECT edge starts, release does not cancel, any other PS2 command
  * or STOP aborts. This is NOT a background task.
  */
+/* Capture conditions of a SELECT abort before its owner state is cleared.
+ * Bit0 mode, 1 stop, 2 PS2 cancel, 3 RF/spin, 4 nonneutral PS2,
+ * 5 unsolicited cal_arm, 6 other steering owner, 7 bench/debug mode,
+ * 8 wheel-stopped test failed, 9 wheel traction actively commanded,
+ * 10 wheel encoder measured >2 RPM, 11 steering motion permit lost,
+ * 12 safety trip, 13 PS2 disconnected/digital.
+ */
+static void Steering_CalCaptureAbort(void)
+{
+  uint32_t mask = 0U;
+  if (control_mode != CONTROL_MODE_PS2) mask |= 1UL << 0;
+  if (control_stop_latched != 0U) mask |= 1UL << 1;
+  if (ps2_cancel_hold != 0U) mask |= 1UL << 2;
+  if (ps2_spin_rf_latched != 0U) mask |= 1UL << 3;
+  if (Steering_CalInputsNeutral() == 0U) mask |= 1UL << 4;
+  if (steer_cal_arm != 0U) mask |= 1UL << 5;
+  if ((steer_manual_active != 0U) || (steer_pos_active != 0U))
+    mask |= 1UL << 6;
+  if ((steer_test_running != 0U) || (steer_test_arm != 0U) ||
+      (steer_test_request != 0U) || (debug_as5600_poll_enable != 0U) ||
+      (voice_execution_active != 0U) || (voice_command_ready != 0U))
+    mask |= 1UL << 7;
+  if (Steering_PositionWheelsStopped() == 0U) mask |= 1UL << 8;
+  if ((wheel_spin_active != 0U) || (wheel_ff_test_active != 0U) ||
+      (wheel_target_pwm != 0) || (wheel_current_pwm != 0) ||
+      (wheel_pwm_lu != 0) || (wheel_pwm_ld != 0) ||
+      (wheel_pwm_ru != 0) || (wheel_pwm_rd != 0) ||
+      (wheel_pid_target_rpm > 0.5f) || (wheel_pid_target_rpm < -0.5f))
+    mask |= 1UL << 9;
+  if ((Motor_LeftUp.current_rpm > 2.0f) ||
+      (Motor_LeftUp.current_rpm < -2.0f) ||
+      (Motor_LeftDown.current_rpm > 2.0f) ||
+      (Motor_LeftDown.current_rpm < -2.0f) ||
+      (Motor_RightUp.current_rpm > 2.0f) ||
+      (Motor_RightUp.current_rpm < -2.0f) ||
+      (Motor_RightDown.current_rpm > 2.0f) ||
+      (Motor_RightDown.current_rpm < -2.0f))
+    mask |= 1UL << 10;
+  if (steer_safety_motion_permit == 0U) mask |= 1UL << 11;
+  if (steer_safety_trip_latched != 0U) mask |= 1UL << 12;
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
+    mask |= 1UL << 13;
+
+  steer_cal_abort_count++;
+  steer_cal_abort_mask = mask;
+  steer_cal_abort_age_ms = (uint32_t)(HAL_GetTick() - steer_cal_begin_ms);
+  steer_cal_abort_raw_l = steer_cal_left_last_raw;
+  steer_cal_abort_raw_r = steer_cal_right_last_raw;
+  steer_cal_abort_rpm10_lu = (int16_t)(Motor_LeftUp.current_rpm * 10.0f);
+  steer_cal_abort_rpm10_ld = (int16_t)(Motor_LeftDown.current_rpm * 10.0f);
+  steer_cal_abort_rpm10_ru = (int16_t)(Motor_RightUp.current_rpm * 10.0f);
+  steer_cal_abort_rpm10_rd = (int16_t)(Motor_RightDown.current_rpm * 10.0f);
+  steer_cal_abort_target_pwm = (int16_t)wheel_target_pwm;
+  steer_cal_abort_current_pwm = (int16_t)wheel_current_pwm;
+}
+
 static void Steering_CalUpdate(void)
 {
   uint8_t select_now = (PS2_Pad.Connected == 1U &&
@@ -6213,6 +6288,7 @@ static void Steering_CalUpdate(void)
     steer_cal_last_irq_snapshot = 0U;
     steer_cal_last_gpio_snapshot = 0U;
     steer_cal_reject_reason = 0U;
+    steer_cal_abort_source = 0U;
     steer_cal_result = 1U;
     steer_cal_active = 1U;
     steer_cal_start_count++;
@@ -6232,6 +6308,7 @@ static void Steering_CalUpdate(void)
       (steer_test_running != 0U) ||
       (Steering_PositionWheelsStopped() == 0U))
   {
+    steer_cal_abort_source = 1U;
     Steering_CalStop(9U);
     return;
   }
@@ -9110,7 +9187,11 @@ int main(void)
         if (steer_test_running != 0U) Steering_TestFinish(9U);
         if (steer_manual_active != 0U) Steering_ManualStop();
         if (steer_pos_active != 0U) Steering_PositionFinish(9U);
-        if (steer_cal_active != 0U) Steering_CalStop(9U);
+        if (steer_cal_active != 0U)
+        {
+          steer_cal_abort_source = 2U;
+          Steering_CalStop(9U);
+        }
         steer_test_arm = 0U;
         steer_test_request = 0U;
         steer_cal_arm = 0U;
