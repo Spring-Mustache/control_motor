@@ -3461,7 +3461,10 @@ static void M8S00_DumpUpdate(void)
   /* Blocking UART is forbidden during any powered actuator activity or
    * wheel logging/CSV dump; zero CCR alone cannot prove driver isolation.
    */
-  if ((steer_manual_active != 0U) || (steer_pos_active != 0U) ||
+  if ((steer_ps2_manual_armed != 0U) ||
+      (steer_safety_motion_permit != 0U) ||
+      (steer_manual_enable != 0U) || (steer_pos_enable != 0U) ||
+      (steer_manual_active != 0U) || (steer_pos_active != 0U) ||
       (steer_cal_active != 0U) || (steer_test_running != 0U) ||
       (steer_test_arm != 0U) || (steer_test_request != 0U) ||
       (WheelControl_SpinIsActive() != 0U) ||
