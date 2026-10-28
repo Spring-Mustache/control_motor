@@ -136,7 +136,13 @@ check("M8 snapshot UART still requires fully stopped and disarmed",
 check("combined PS2 request debug present",
       "ps2_drive_steer_request_frames++" in ps2 and
       "volatile uint32_t ps2_drive_steer_request_frames = 0U;" in main)
+check("manual dual-AS5600 normalized speed diagnostic kept read-only",
+      "M8S00_SYNC,scope=since_boot,mode=manual_only" in main and
+      "m8_s00_sync_valid_frames++" in main and
+      "m8_s00_sync_abs_error_peak_raw_s = abs_error;" in main and
+      "M8S00_DumpSync() == 0U" in dump and
+      "steer_safety_motion_permit != 0U" in dump)
 
-print(f"\nM8 simultaneous-control static checks: {14-len(errors)}/14 PASS")
+print(f"\nM8 simultaneous-control static checks: {15-len(errors)}/15 PASS")
 print("No MCU build, PWM timing, motor power, load, braking or real PS2 actuation tested.")
 raise SystemExit(1 if errors else 0)
