@@ -1922,6 +1922,13 @@ static volatile uint8_t steer_pos_irq_pending_mask = 0U;
  */
 volatile uint32_t steer_pos_escape_origin_irq_left_count = 0U;
 volatile uint32_t steer_pos_escape_origin_irq_right_count = 0U;
+/* Unlike the sticky first-fault snapshot, these counters track both
+ * sides for an entire boot. Never reset them from a motor ISR.
+ */
+volatile uint32_t steer_pos_axis_fault_left_count = 0U;
+volatile uint32_t steer_pos_axis_fault_right_count = 0U;
+volatile uint8_t steer_pos_axis_fault_left_last_code = 0U;
+volatile uint8_t steer_pos_axis_fault_right_last_code = 0U;
 
 /* M8-S00: read-only first-stop/fault evidence for Live Expressions.
  * These snapshots NEVER grant motion, alter PWM, or replace safety logic.
@@ -2219,12 +2226,16 @@ static void Steering_PositionAxisFault(uint8_t left, uint8_t result)
     Steering_PositionLeftOff();
     steer_pos_left_state = STEER_AXIS_ERROR;
     steer_pos_left_result = result;
+    steer_pos_axis_fault_left_count++;
+    steer_pos_axis_fault_left_last_code = result;
   }
   else
   {
     Steering_PositionRightOff();
     steer_pos_right_state = STEER_AXIS_ERROR;
     steer_pos_right_result = result;
+    steer_pos_axis_fault_right_count++;
+    steer_pos_axis_fault_right_last_code = result;
   }
 }
 
@@ -3543,6 +3554,25 @@ static uint8_t M8S00_DumpOne(const char *label,
   return M8S00_UartLine(line, n);
 }
 
+/* M8: snapshot is first-only; show lifetime per-axis escape IRQ and fault
+ * counters as a separate line so later RIGHT events are not invisible.
+ * Values are read-only and printed only by the disarmed UART service.
+ */
+static uint8_t M8S00_DumpEscapeCounters(void)
+{
+  char line[200];
+  int n = snprintf(line, sizeof(line),
+      "M8S00_ESCAPE,scope=since_boot,origin_irq_L=%lu,origin_irq_R=%lu,"
+      "fault_L=%lu,fault_R=%lu,last_code_L=%u,last_code_R=%u\r\n",
+      (unsigned long)steer_pos_escape_origin_irq_left_count,
+      (unsigned long)steer_pos_escape_origin_irq_right_count,
+      (unsigned long)steer_pos_axis_fault_left_count,
+      (unsigned long)steer_pos_axis_fault_right_count,
+      (unsigned)steer_pos_axis_fault_left_last_code,
+      (unsigned)steer_pos_axis_fault_right_last_code);
+  return M8S00_UartLine(line, n);
+}
+
 /* One-shot request, never queued until conditions later change. Called
  * AFTER the wheel logger's serial dump service in the normal main loop.
  * All motor control, calibration, logger and USB settings are unchanged.
@@ -3594,6 +3624,7 @@ static void M8S00_DumpUpdate(void)
                          (uint16_t)(sizeof(begin)-1U), 1000U) != HAL_OK) ||
       (M8S00_DumpOne("STOP", &m8_s00_first_stop) == 0U) ||
       (M8S00_DumpOne("FAULT", &m8_s00_first_fault) == 0U) ||
+      (M8S00_DumpEscapeCounters() == 0U) ||
       (HAL_UART_Transmit(&huart3, (uint8_t *)end,
                          (uint16_t)(sizeof(end)-1U), 1000U) != HAL_OK))
     return;
