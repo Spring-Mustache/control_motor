@@ -4384,7 +4384,7 @@ static uint8_t M8S05_DumpTiming(void)
         (((kind >= 3U) && (p->stop_code == 0U)) ||
          ((kind <= 2U) && (p->stop_code == 2U))));
     n = snprintf(line, sizeof(line),
-        "M8S05_RUN,kind=%u,trials=%lu,run=%lu,valid=%u,"
+        "M8S00_TIMING,kind=%u,trials=%lu,run=%lu,valid=%u,"
         "L_ms=%lu,R_ms=%lu,skewMs=%lu,Lfine_ms=%lu,Rfine_ms=%lu,"
         "reached=%u,powered=%u,faults=%u,stop=%u\r\n",
         (unsigned)kind, (unsigned long)m8_s05_run_count[kind],
@@ -4397,7 +4397,7 @@ static uint8_t M8S05_DumpTiming(void)
     if (M8S00_UartLine(line, n) == 0U) return 0U;
   }
   n = snprintf(line, sizeof(line),
-      "M8S05_PACE,enable=%u,lead=%u,r1Frames=%lu,r1Holds=%lu,"
+      "M8S00_PACING,enable=%u,lead=%u,r1Frames=%lu,r1Holds=%lu,"
       "r1FineHolds=%lu,r2Frames=%lu,r2Holds=%lu,"
       "manualFrames=%lu,manualHolds=%lu,trimFrames=%lu,trimPWM=%u\r\n",
       (unsigned)steer_angle_wp_enable,
