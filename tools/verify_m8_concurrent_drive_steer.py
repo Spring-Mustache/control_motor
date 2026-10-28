@@ -13,7 +13,7 @@ main = (Path(__file__).resolve().parents[1] / "Core/Src/main.c").read_text(encod
 def function(name):
     # Match the actual definition, not a forward declaration followed
     # much later by some unrelated function's opening brace.
-    pattern = r"\\bstatic\\s+" + re.escape(name) + r"\\s*\\(\\s*void\\s*\\)\\s*\\{"
+    pattern = r"\bstatic\s+" + re.escape(name) + r"\s*\(\s*void\s*\)\s*\{"
     match = re.search(pattern, main)
     if match is None:
         raise AssertionError("Missing definition: " + name)
