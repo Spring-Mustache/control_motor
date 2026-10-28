@@ -44,6 +44,29 @@ checks = [
     ("NC interrupt PWM cutoff retained", "static void Steering_SafetyOnLimitInterrupt(uint8_t bit)" in main and
         "__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);" in main and
         "__HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);" in main),
+    ("explicit VCP export request", "volatile uint8_t m8_s00_dump_request = 0U;" in main and
+        "m8_s00_dump_status = 1U;" in main),
+    ("full stop and fault export", 'M8S00_DumpOne("STOP", &m8_s00_first_stop)' in main and
+        'M8S00_DumpOne("FAULT", &m8_s00_first_fault)' in main),
+    ("distinct framed dump", "#M8S00_BEGIN,1" in main and
+        "#M8S00_END" in main),
+    ("diagnostic dump after wheel dump", main.find("M8S00_DumpUpdate(); /* explicit VCP export") >
+        main.find("RamLogger_DumpCsvUpdate();")),
+    ("one-shot export (no delayed unsafe dump)", re.search(
+        r"static void M8S00_DumpUpdate\(void\)[\s\S]*?m8_s00_dump_request = 0U;",
+        main) is not None),
+    ("dump refuses steering motion", all(k in main for k in
+        ("steer_safety_motion_permit != 0U", "steer_manual_active != 0U",
+         "steer_pos_active != 0U", "steer_cal_active != 0U"))),
+    ("dump refuses non-zero steering CCR", all(k in main for k in
+        ("__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) != 0U",
+         "__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) != 0U"))),
+    ("dump refuses wheel and logger activity", all(k in main for k in
+        ("Steering_PositionWheelsStopped() == 0U",
+         "wheel_log_active != 0U", "wheel_log_dump_active != 0U"))),
+    ("no extra sensor read inside UART dump", re.search(
+        r"static void M8S00_DumpUpdate\(void\)\n\{([\s\S]*?)\n\}",
+        main) is not None),
 ]
 
 failed = []
