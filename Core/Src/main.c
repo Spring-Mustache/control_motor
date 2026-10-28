@@ -2259,7 +2259,7 @@ static void Steering_PhaseLimit(uint8_t mode,
  * Hardware test required: coast distance and NC remain authoritative.
  */
 volatile uint8_t steer_angle_wp_enable = 1U;
-volatile uint16_t steer_angle_wp_lead_permille = 60U; /* 6% stroke */
+volatile uint16_t steer_angle_wp_lead_permille = 30U; /* 3% stroke: test */
 volatile int16_t steer_angle_wp_left_cdeg = 0;
 volatile int16_t steer_angle_wp_right_cdeg = 0;
 volatile int16_t steer_angle_wp_target_left_cdeg = 0;
@@ -2273,6 +2273,13 @@ volatile uint8_t steer_angle_wp_last_mode = 0U; /* sticky last used mode */
 static uint8_t steer_angle_wp_owner_mode = 0U; /* only live owner */
 volatile uint32_t steer_angle_wp_frames = 0U;
 volatile uint32_t steer_angle_wp_hold_frames = 0U;
+volatile uint32_t steer_angle_wp_r1_fine_hold_frames = 0U;
+volatile uint32_t steer_angle_wp_frames_r1 = 0U;
+volatile uint32_t steer_angle_wp_frames_r2 = 0U;
+volatile uint32_t steer_angle_wp_frames_manual = 0U;
+volatile uint32_t steer_angle_wp_holds_r1 = 0U;
+volatile uint32_t steer_angle_wp_holds_r2 = 0U;
+volatile uint32_t steer_angle_wp_holds_manual = 0U;
 
 static void Steering_AngleWaypointReset(void)
 {
@@ -2348,6 +2355,7 @@ static uint16_t Steering_AngleStrokeProgress(int16_t start,
 static void Steering_AngleWaypointApply(uint8_t mode,
     uint16_t start_l, uint16_t goal_l, uint16_t raw_l,
     uint16_t start_r, uint16_t goal_r, uint16_t raw_r,
+    uint8_t allow_hold_l, uint8_t allow_hold_r,
     uint16_t *duty_l, uint16_t *duty_r)
 {
   int16_t sl, gl, al, sr, gr, ar;
@@ -2357,8 +2365,13 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   uint32_t now = HAL_GetTick();
   uint8_t mask = steer_angle_wp_hold_mask;
 
+  /* Both coarse: either can be paced. R1 fine: pace ONLY the
+   * opposite coarse motor, never truncate a timed fine pulse.
+   */
   if ((steer_angle_wp_enable != 1U) ||
-      (*duty_l == 0U) || (*duty_r == 0U) ||
+      ((allow_hold_l == 0U) && (allow_hold_r == 0U)) ||
+      ((allow_hold_l != 0U) && (*duty_l == 0U)) ||
+      ((allow_hold_r != 0U) && (*duty_r == 0U)) ||
       (steer_pos_left_last_sample_ms == 0U) ||
       (steer_pos_right_last_sample_ms == 0U) ||
       ((uint32_t)(now - steer_pos_left_last_sample_ms) > 100U) ||
@@ -2386,8 +2399,8 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   }
 
   lead = steer_angle_wp_lead_permille;
-  if (lead < 20U) lead = 20U;
-  if (lead > 120U) lead = 120U;
+  if (lead < 15U) lead = 15U;
+  if (lead > 80U) lead = 80U;
   slow = (pl < pr) ? pl : pr;
   frontier = (uint16_t)(((uint32_t)slow + lead > 1000U) ?
                          1000U : slow + lead);
@@ -2405,10 +2418,17 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   steer_angle_wp_last_mode = mode;
   steer_angle_wp_owner_mode = mode;
   if (steer_angle_wp_frames != 0xffffffffUL) steer_angle_wp_frames++;
+  if (mode == 1U && steer_angle_wp_frames_r1 != 0xffffffffUL)
+    steer_angle_wp_frames_r1++;
+  else if (mode == 2U && steer_angle_wp_frames_r2 != 0xffffffffUL)
+    steer_angle_wp_frames_r2++;
+  else if (mode == 3U && steer_angle_wp_frames_manual != 0xffffffffUL)
+    steer_angle_wp_frames_manual++;
 
-  /* OFF at >6% lead; ON again at <=3%. Independent hard timeout
-   * bounds any intentional wait; STOP/neutral and NC cuts always win.
-   */
+  /* OFF at >3% lead; ON again below 1.5%. Timeouts/NC win. */
+  if (((mask == 1U) && (allow_hold_l == 0U)) ||
+      ((mask == 2U) && (allow_hold_r == 0U)))
+    mask = 0U;
   if (mask == 1U)
   {
     if ((int32_t)pl <= (int32_t)pr + (int32_t)(lead / 2U))
@@ -2421,14 +2441,30 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   }
   if (mask == 0U)
   {
-    if ((int32_t)pl > (int32_t)pr + (int32_t)lead) mask = 1U;
-    else if ((int32_t)pr > (int32_t)pl + (int32_t)lead) mask = 2U;
+    if ((allow_hold_l != 0U) &&
+        ((int32_t)pl > (int32_t)pr + (int32_t)lead)) mask = 1U;
+    else if ((allow_hold_r != 0U) &&
+             ((int32_t)pr > (int32_t)pl + (int32_t)lead)) mask = 2U;
   }
   if (mask == 1U) *duty_l = 0U;
   else if (mask == 2U) *duty_r = 0U;
   steer_angle_wp_hold_mask = mask;
   if ((mask != 0U) && (steer_angle_wp_hold_frames != 0xffffffffUL))
     steer_angle_wp_hold_frames++;
+  if ((mode == 1U) && (mask != 0U))
+  {
+    if (steer_angle_wp_holds_r1 != 0xffffffffUL)
+      steer_angle_wp_holds_r1++;
+    if (((allow_hold_l == 0U) || (allow_hold_r == 0U)) &&
+        (steer_angle_wp_r1_fine_hold_frames != 0xffffffffUL))
+      steer_angle_wp_r1_fine_hold_frames++;
+  }
+  else if ((mode == 2U) && (mask != 0U) &&
+           (steer_angle_wp_holds_r2 != 0xffffffffUL))
+    steer_angle_wp_holds_r2++;
+  else if ((mode == 3U) && (mask != 0U) &&
+           (steer_angle_wp_holds_manual != 0xffffffffUL))
+    steer_angle_wp_holds_manual++;
 }
 
 /* A controller-induced zero-PWM wait must not look like a jam of the
@@ -2447,9 +2483,19 @@ static void Steering_AngleWaypointWaitProgress(uint8_t mode,
       (steer_angle_wp_owner_mode != mode) ||
       (state_l != moving_state) || (state_r != moving_state))
     return;
-  if ((steer_angle_wp_hold_mask == 1U) && (last_pwm_r != 0U))
+  /* R1 fine includes PWM-OFF settling. A coarse axis deliberately
+   * held for its fine partner must not trip a false 650ms stall.
+   * The fine owner and overall 9000ms run timeout remain active.
+   */
+  if ((steer_angle_wp_hold_mask == 1U) &&
+      ((last_pwm_r != 0U) ||
+       ((mode == 1U) &&
+        (steer_right_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE))))
     *progress_l = now;
-  else if ((steer_angle_wp_hold_mask == 2U) && (last_pwm_l != 0U))
+  else if ((steer_angle_wp_hold_mask == 2U) &&
+           ((last_pwm_l != 0U) ||
+            ((mode == 1U) &&
+             (steer_left_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE))))
     *progress_r = now;
 }
 
