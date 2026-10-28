@@ -82,6 +82,8 @@ extern volatile uint32_t wheel_log_button_press_count;
 extern volatile uint32_t wheel_log_button_last_tick;
 extern volatile uint32_t wheel_log_user_clear_count;
 extern volatile uint8_t wheel_log_user_clear_blocked;
+extern volatile uint8_t wheel_log_m8_s00_ready;
+extern volatile uint8_t wheel_log_m8_s00_button_dump_request;
 extern volatile uint8_t wheel_log_force_pid_on_start;
 extern volatile float wheel_log_kp_lu_snapshot;
 extern volatile float wheel_log_ki_lu_snapshot;
