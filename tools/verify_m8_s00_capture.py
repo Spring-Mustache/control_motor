@@ -39,6 +39,19 @@ checks = [
     ("NC in evidence", "v.nc_mask = Steering_TestRawLimitMask();" in main),
     ("physical CCR evidence", "v.ccr_left = (uint16_t)__HAL_TIM_GET_COMPARE" in main and
         "v.ccr_right = (uint16_t)__HAL_TIM_GET_COMPARE" in main),
+    ("fine R1 subreason captured at stop time", all(k in main for k in (
+        "v.fine_fault_left = steer_pos_left_fine_fault;",
+        "v.fine_fault_right = steer_pos_right_fine_fault;",
+        "v.fine_pulses_left = steer_pos_left_fine_pulses;",
+        "v.fine_pulses_right = steer_pos_right_fine_pulses;",
+        "v.fine_error_left = steer_pos_left_fine_error;",
+        "v.fine_error_right = steer_pos_right_fine_error;"))),
+    ("fine R1 STOP/FAULT serial evidence for both sides", all(k in main for k in (
+        "M8S00_FINE,%s,reasonL=%u,reasonR=%u",
+        "p->fine_fault_left", "p->fine_fault_right",
+        "p->fine_pulses_left", "p->fine_pulses_right",
+        "p->fine_pwm_left", "p->fine_pwm_right",
+        "p->fine_pulse_ms_left", "p->fine_pulse_ms_right"))),
     ("PS2 owner flags retained", "v.guard_flags |= 1UL << 15;" in main),
     ("wheel-stop gate not removed", "Motor_LeftUp.current_rpm > 2.0f" in main and
         "Motor_RightDown.current_rpm < -2.0f" in main),
