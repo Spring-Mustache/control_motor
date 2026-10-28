@@ -1917,6 +1917,9 @@ typedef struct
   float rpm_lu, rpm_ld, rpm_ru, rpm_rd;
   int32_t wheel_target_pwm;
   int32_t wheel_current_pwm;
+  float wheel_pid_target_rpm;
+  uint16_t wheel_pwm_lu, wheel_pwm_ld, wheel_pwm_ru, wheel_pwm_rd;
+  uint32_t guard_flags;
   uint16_t raw_left, raw_right;
   uint16_t left_soft_target, right_soft_target;
   uint16_t manual_pwm_left, manual_pwm_right;
@@ -3248,6 +3251,33 @@ static void M8S00_CaptureStop(uint8_t event, uint8_t axis,
   v.rpm_rd = Motor_RightDown.current_rpm;
   v.wheel_target_pwm = (int32_t)wheel_target_pwm;
   v.wheel_current_pwm = (int32_t)wheel_current_pwm;
+  v.wheel_pid_target_rpm = wheel_pid_target_rpm;
+  v.wheel_pwm_lu = (uint16_t)wheel_pwm_lu;
+  v.wheel_pwm_ld = (uint16_t)wheel_pwm_ld;
+  v.wheel_pwm_ru = (uint16_t)wheel_pwm_ru;
+  v.wheel_pwm_rd = (uint16_t)wheel_pwm_rd;
+  /* Guard bits: 0 cancel_hold, 1 spin latch, 2 voice execution,
+   * 3 voice ready, 4 calibration owner, 5 test running, 6 test arm,
+   * 7 test request, 8 debug AS5600 poll, 9 manual enabled,
+   * 10 position enabled, 11 motion permit, 12 wheel spin,
+   * 13 wheel FF test, 14 PS2 L1, 15 PS2 L2.
+   */
+  if (ps2_cancel_hold != 0U) v.guard_flags |= 1UL << 0;
+  if (ps2_spin_rf_latched != 0U) v.guard_flags |= 1UL << 1;
+  if (voice_execution_active != 0U) v.guard_flags |= 1UL << 2;
+  if (voice_command_ready != 0U) v.guard_flags |= 1UL << 3;
+  if (steer_cal_active != 0U) v.guard_flags |= 1UL << 4;
+  if (steer_test_running != 0U) v.guard_flags |= 1UL << 5;
+  if (steer_test_arm != 0U) v.guard_flags |= 1UL << 6;
+  if (steer_test_request != 0U) v.guard_flags |= 1UL << 7;
+  if (debug_as5600_poll_enable != 0U) v.guard_flags |= 1UL << 8;
+  if (steer_manual_enable != 0U) v.guard_flags |= 1UL << 9;
+  if (steer_pos_enable != 0U) v.guard_flags |= 1UL << 10;
+  if (steer_safety_motion_permit != 0U) v.guard_flags |= 1UL << 11;
+  if (wheel_spin_active != 0U) v.guard_flags |= 1UL << 12;
+  if (wheel_ff_test_active != 0U) v.guard_flags |= 1UL << 13;
+  if (PS2_Pad.L1 != 0U) v.guard_flags |= 1UL << 14;
+  if (PS2_Pad.L2 != 0U) v.guard_flags |= 1UL << 15;
   v.raw_left = debug_as5600_left_raw;
   v.raw_right = debug_as5600_right_raw;
   v.left_soft_target = steer_manual_left_soft_target;
