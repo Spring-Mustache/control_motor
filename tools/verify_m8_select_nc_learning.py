@@ -72,6 +72,30 @@ check("SELECT-only USER capture available only after prior safety guard",
                               "(steer_cal_active != 0U)",
                               "(Steering_PositionWheelsStopped() == 0U)",
                               "(M8S00_DumpCalibration() == 0U)")))
+check("SELECT code9 captures exact reason before stopping motors",
+      "if ((steer_cal_active != 0U) && (result == 9U))" in src and
+      "Steering_CalCaptureAbort();" in src and
+      "steer_cal_abort_source = 1U;" in src and
+      "steer_cal_abort_source = 2U;" in src)
+check("abort identifies passive RPM separately from wheel drive",
+      all(x in src for x in (
+          "if (Steering_PositionWheelsStopped() == 0U) mask |= 1UL << 8;",
+          "mask |= 1UL << 9;",
+          "mask |= 1UL << 10;",
+          "steer_cal_abort_rpm10_lu =",
+          "steer_cal_abort_rpm10_ld =",
+          "steer_cal_abort_rpm10_ru =",
+          "steer_cal_abort_rpm10_rd =")))
+check("cancellation evidence exported only by safely disarmed UART",
+      "M8S00_CAL_ABORT,count=%lu,source=%u,mask=0x%08lx," in src and
+      "steer_cal_abort_age_ms" in src and
+      "(steer_safety_motion_permit != 0U)" in src and
+      "(steer_cal_active != 0U)" in src and
+      "(Steering_PositionWheelsStopped() == 0U)" in src)
+check("original wheel gate and NC probe limits retained",
+      "Steering_PositionWheelsStopped() == 0U))" in src and
+      "#define STEER_CAL_PROBE_MAX_EXTENSION_RAW 64U" in src)
+
 passed = sum(v for _, v in tests)
 print(f"\nSELECT NC learning source checks: {passed}/{len(tests)} PASS")
 print("NOT verified: STM32 build, selector behavior, actual NC switching or safe travel.")
