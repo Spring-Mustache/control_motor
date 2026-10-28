@@ -2045,12 +2045,18 @@ static void M8S00_ClearService(void);
 typedef struct
 {
   uint32_t run_id, start_ms, finish_ms, tick_l, tick_r;
+  uint32_t power_tick_l, power_tick_r;
   uint16_t raw_l, raw_r;
   uint8_t active, mode, goal_l, goal_r;
   uint8_t reached, powered, faults, reason_l, reason_r, stop_code;
 } M8S00Arrival_t;
 static M8S00Arrival_t m8_s00_arrival = {0};
 static uint32_t m8_s00_arrival_run_count = 0U;
+/* PS2 poll-to-poll period, measured on real main-loop timestamps. */
+static uint32_t m8_s02_ps2_prev_poll_ms = 0U;
+static uint32_t m8_s02_ps2_poll_count = 0U;
+static uint32_t m8_s02_ps2_last_period_ms = 0U;
+static uint32_t m8_s02_ps2_max_period_ms = 0U;
 
 static void M8S00_ArrivalBegin(uint8_t mode, uint8_t gl,
                                uint8_t gr, uint32_t t0)
@@ -2066,8 +2072,14 @@ static void M8S00_ArrivalBegin(uint8_t mode, uint8_t gl,
 }
 static void M8S00_ArrivalPower(uint8_t left, uint16_t pwm)
 {
-  if ((m8_s00_arrival.active != 0U) && (pwm != 0U))
-    m8_s00_arrival.powered |= (left != 0U) ? 1U : 2U;
+  uint8_t bit = (left != 0U) ? 1U : 2U;
+  if ((m8_s00_arrival.active == 0U) || (pwm == 0U)) return;
+  if ((m8_s00_arrival.powered & bit) == 0U)
+  {
+    if (left != 0U) m8_s00_arrival.power_tick_l = HAL_GetTick();
+    else m8_s00_arrival.power_tick_r = HAL_GetTick();
+  }
+  m8_s00_arrival.powered |= bit;
 }
 static void M8S00_ArrivalDone(uint8_t left, uint8_t reason)
 {
@@ -3473,11 +3485,12 @@ static void Steering_PositionUpdate(void)
  * PWM=0 is NOT active braking; none of these defaults prove endstop
  * clearance until a suspended chassis test confirms the final RAW.
  */
-/* LEFT MIN observed at RAW 2211 with a 100-RAW margin (calibrated 2297).
- * Stage closer, but keep the previously established >=60 RAW safety
- * floor until measured coast/NC clearance proves another adjustment safe.
+/* M8-S02: user-requested LEFT MIN soft threshold at RAW 2225.
+ * Configured hard MIN=2297; a 72-RAW clearance gives 2297-72=2225.
+ * This is farther from NC than the previous 60-RAW / 2237 threshold.
+ * PWM=0 is not active braking; NC interrupt remains independent.
  */
-volatile uint16_t steer_manual_left_soft_margin_raw = 60U;
+volatile uint16_t steer_manual_left_soft_margin_raw = 72U;
 /* LEFT MAX is independently adjustable: reduce its threshold by 20 RAW
  * in the direction toward the measured 1374 MAX endpoint. */
 volatile uint16_t steer_manual_left_max_soft_margin_raw = 80U;
@@ -3946,6 +3959,30 @@ static uint8_t M8S00_DumpPhase(void)
   return M8S00_UartLine(line, n);
 }
 
+/* First commanded nonzero PWM after the decoded PS2 command was accepted.
+ * Does NOT measure radio air latency, nor prove physical motor rotation.
+ * Last period is one observed poll interval; max is since boot.
+ */
+static uint8_t M8S00_DumpInputResponse(void)
+{
+  const M8S00Arrival_t *p = &m8_s00_arrival;
+  char line[222];
+  uint32_t first_l = (p->powered & 1U) ?
+      (uint32_t)(p->power_tick_l - p->start_ms) : 0U;
+  uint32_t first_r = (p->powered & 2U) ?
+      (uint32_t)(p->power_tick_r - p->start_ms) : 0U;
+  int n = snprintf(line, sizeof(line),
+      "M8S02_INPUT,run=%lu,mode=%u,powered=%u,firstL_ms=%lu,"
+      "firstR_ms=%lu,pollLast_ms=%lu,pollMax_ms=%lu,polls=%lu\r\n",
+      (unsigned long)p->run_id, (unsigned)p->mode,
+      (unsigned)p->powered, (unsigned long)first_l,
+      (unsigned long)first_r,
+      (unsigned long)m8_s02_ps2_last_period_ms,
+      (unsigned long)m8_s02_ps2_max_period_ms,
+      (unsigned long)m8_s02_ps2_poll_count);
+  return M8S00_UartLine(line, n);
+}
+
 static uint8_t M8S00_DumpArrival(void)
 {
   const M8S00Arrival_t *p = &m8_s00_arrival;
@@ -4072,6 +4109,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpSync() == 0U) ||
       (M8S00_DumpPhase() == 0U) ||
       (M8S00_DumpArrival() == 0U) ||
+      (M8S00_DumpInputResponse() == 0U) ||
       (M8S00_DumpConcurrent() == 0U) ||
       (M8S00_DumpCalibration() == 0U) ||
       (HAL_UART_Transmit(&huart3, (uint8_t *)end,
@@ -9579,6 +9617,20 @@ int main(void)
      *
      * PS2 chỉ "được kết nối" nhưng đang neutral sẽ không đè Voice.
      */
+    /* One timestamp per poll; never block or change motor ownership. */
+    {
+      uint32_t poll_ms = HAL_GetTick();
+      if (m8_s02_ps2_poll_count != 0U)
+      {
+        uint32_t period_ms = (uint32_t)(poll_ms - m8_s02_ps2_prev_poll_ms);
+        m8_s02_ps2_last_period_ms = period_ms;
+        if (period_ms > m8_s02_ps2_max_period_ms)
+          m8_s02_ps2_max_period_ms = period_ms;
+      }
+      m8_s02_ps2_prev_poll_ms = poll_ms;
+      if (m8_s02_ps2_poll_count != 0xffffffffUL)
+        m8_s02_ps2_poll_count++;
+    }
     PS2_Read_Data();
     Steering_PS2ManualArmUpdate(); /* START arm/disarm, safe-neutral only */
     PS2_DebugObserveAllInputs();  /* All 16 PS2 buttons; input only */
@@ -9772,7 +9824,12 @@ int main(void)
     RamLogger_DumpCsvUpdate();
     M8S00_DumpUpdate(); /* explicit VCP export only when fully stopped */
 
-    HAL_Delay(20);  /* Chu kỳ điều khiển khoảng 50 Hz */
+    /* M8-S02: shorten extra idle time so PS2 is polled more often.
+     * Encoder RPM still updates only after >=20 ms; wheel PID consumes
+     * new samples only. Real loop time includes SPI, I2C and services.
+     * Steering settle/quiet windows and all NC ISR gates are unchanged.
+     */
+    HAL_Delay(10);
 
     /* USER CODE END WHILE */
 
