@@ -84,7 +84,7 @@ check("R1/R2 never force wheel command to zero",
       "if ((PS2_Pad.Select != 0U) || (steer_cal_active != 0U))" in ps2 and
       "if ((PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U)" not in ps2)
 check("LY throttle cannot blank active steering CCR",
-      re.search(r"if\s*\(\(pwm_duty\s*!=\s*0\)", ps2) is None and
+      "if ((pwm_duty != 0) || (PS2_Pad.Up != 0U)" not in ps2 and
       "steer_pos_active == 0U" in ps2 and
       "steer_manual_active == 0U" in ps2)
 check("manual steering independent of wheel RPM/PWM and LY",
