@@ -48,3 +48,36 @@ Next run CubeIDE **Debug Build**; do not regenerate from the currently divergent
 6. Ground-load validation is a separate stage after stand tests, with a clear test zone, proven independent motor cutoff and restrained low-speed operation; no full-speed racing or uncontrolled turn in this phase.
 
 M8-S00 and concurrent control remain **UNVERIFIED** until the rebuilt image and staged actual motor tests pass.
+
+
+## Nghiệm thu người vận hành mới — 2026-10-28
+
+Phần mô tả chưa thử phần cứng ở đầu tài liệu là trạng thái cũ trước các lượt kiểm tra mới. Người vận hành đã xác nhận:
+
+- PASS: R2 đi đến cả hai công tắc MIN vật lý.
+- PASS: L1/L2 xoay tại chỗ.
+- PASS: D-pad điều khiển đồng thời bốn motor bánh và hai motor đánh lái.
+- R1: cả hai đã tự hoàn thành CENTER sau một lần nhấn, nhưng chưa đạt **độ mượt** khi rời NC từ vị trí R2.
+- Đồng tốc hai motor đánh lái: **chưa đạt**.
+- SELECT: tạm hoãn và không phải điều kiện kết thúc M8-S00 hiện tại.
+
+### R1 rời công tắc theo một chiều, không giật-khựng
+
+Code cũ dùng PWM riêng ở mức tối đa để thoát NC và chặn PWM thêm 120 ms khi NC nhả. Điều này phù hợp triệu chứng giật, khựng rồi mới về CENTER. Bản sửa nguồn hiện tại thực hiện:
+
+1. MIN đang tác động chỉ cho phép DIR1 **rời MIN**; MAX đang tác động chỉ cho phép DIR0 **rời MAX**, áp dụng độc lập cho từng motor trong R1/R2. Công tắc kép trên một motor luôn bị chặn.
+2. Trong trạng thái ESCAPING, PWM dùng cùng bộ điều khiển vị trí bình thường. Khoảng xác nhận NC nhả 120 ms vẫn còn để phân loại rung tiếp điểm, nhưng **không cưỡng bức dừng motor** cả 120 ms.
+3. Ngắt NC vẫn cắt PWM ngay. Ngắt lặp lại từ công tắc xuất phát giữ một lượt xử lý bằng PWM 0 rồi chỉ được chạy rời công tắc sau khi kiểm tra lại. Các lỗi NC đối diện, cảm biến AS5600, quá thời gian, sai chiều và STOP vẫn có hiệu lực.
+4. Giữ nguyên R2 yêu cầu cả hai MIN thật, CENTER, MIN/MAX, PWM trần, SELECT và phần đồng tốc hiện có.
+
+**Trạng thái sửa R1: đã commit mã nguồn, CHƯA Build/flash/chạy phần cứng, CHƯA được nghiệm thu mượt.** Nếu công tắc rung liên tục, ngắt ISR vẫn có thể làm hụt nhịp ngắn; không được bỏ bảo vệ để che sự cố.
+
+### Đồng tốc hai motor lái: cần đo sai lệch thực
+
+Firmware đang có PI RIGHT-master/LEFT-follower cho D-pad/RX, chỉ khi cả hai motor ở trạng thái manual MOVING. Bộ điều khiển so tốc độ AS5600 đã chuẩn hóa theo tỷ lệ hành trình trái 923 RAW, phải 816 RAW, không nhất thiết cùng số RAW/giây. Chưa có bằng chứng PI thực sự đồng tốc tốt. R1/R2 hiện là hai servo vị trí độc lập, **chưa có đồng tốc hai trục trong R1/R2**.
+
+Đã thêm dòng UART M8S00_SYNC, mode=manual_only, gồm: frames; actualL_raw_s; actualR_raw_s; referenceL_raw_s; emaAbsError_raw_s; peakAbsError_raw_s; syncUpdates; referenceHolds; limitCount. Các số này được ghi nhận trong lúc D-pad/RX đang chạy, xuất chỉ sau khi DISARM; không thay đổi PWM/PI.
+
+Bài tiếp theo: kiểm tra R2 rồi R1 trên giá treo, quan sát mất giật nhưng vẫn giữ bảo vệ NC; sau đó thực hiện một lượt D-pad/RX hai motor lái cùng quay, DISARM và xuất TXT để xem M8S00_SYNC. Nếu muốn đồng bộ cả hành trình R1/R2, cần bộ điều khiển riêng cho các pha rời NC và chỉnh tinh; không giả định bộ PI manual có thể dùng nguyên trạng.
+
+**Kết luận S00:** các mục R2, spin và D-pad + 4 bánh + 2 lái đã đạt theo người vận hành; còn hai điểm chặn là R1 từ NC phải mượt và đồng tốc hai motor lái. 
