@@ -1970,6 +1970,15 @@ typedef struct
   uint8_t wheel_stop_gate, nc_mask;
   uint8_t manual_irq_trip_mask, position_limit_trip_mask;
   uint8_t sync_enable, sync_active;
+  /* Fine-position state at the exact first STOP/FAULT event.
+   * A later R1/R2 press resets live fine fields, not this snapshot.
+   */
+  uint8_t fine_fault_left, fine_fault_right;
+  uint8_t fine_phase_left, fine_phase_right;
+  uint8_t fine_pulses_left, fine_pulses_right;
+  int16_t fine_error_left, fine_error_right;
+  uint16_t fine_pwm_left, fine_pwm_right;
+  uint16_t fine_pulse_ms_left, fine_pulse_ms_right;
 } M8S00StopSnapshot_t;
 
 /* Event: 1 manual DONE, 2 manual FAULT, 3 manual STOP,
@@ -3427,6 +3436,18 @@ static void M8S00_CaptureStop(uint8_t event, uint8_t axis,
   v.position_limit_trip_mask = steer_pos_limit_trip_mask;
   v.sync_enable = steer_sync_enable;
   v.sync_active = steer_sync_active;
+  v.fine_fault_left = steer_pos_left_fine_fault;
+  v.fine_fault_right = steer_pos_right_fine_fault;
+  v.fine_phase_left = steer_pos_left_fine_phase;
+  v.fine_phase_right = steer_pos_right_fine_phase;
+  v.fine_pulses_left = steer_pos_left_fine_pulses;
+  v.fine_pulses_right = steer_pos_right_fine_pulses;
+  v.fine_error_left = steer_pos_left_fine_error;
+  v.fine_error_right = steer_pos_right_fine_error;
+  v.fine_pwm_left = steer_pos_left_fine_pwm;
+  v.fine_pwm_right = steer_pos_right_fine_pwm;
+  v.fine_pulse_ms_left = steer_pos_left_fine_pulse_ms;
+  v.fine_pulse_ms_right = steer_pos_right_fine_pulse_ms;
   v.valid = 1U;
   if (m8_s00_first_stop.valid == 0U)
     m8_s00_first_stop = v;
@@ -3528,6 +3549,24 @@ static uint8_t M8S00_DumpOne(const char *label,
       (unsigned)p->sync_enable, (unsigned)p->sync_active,
       (unsigned long)p->manual_left_progress_age_ms,
       (unsigned long)p->manual_right_progress_age_ms);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+
+  /* Fine-fault code 10 in M8S00_META lacks the subreason. Preserve
+   * subreason, last reported error, pulses and actual configured
+   * compare/period separately for both axes, at CAPTURE time.
+   * Subreason: 1 pulses exhausted, 2 overshoot, 3 PWM disabled,
+   * 4 wrong fine-pulse direction, 5 invalid fine phase.
+   */
+  n = snprintf(line, sizeof(line),
+      "M8S00_FINE,%s,reasonL=%u,reasonR=%u,phaseL=%u,phaseR=%u,"
+      "pulsesL=%u,pulsesR=%u,errorL=%d,errorR=%d,"
+      "pwmL=%u,pwmR=%u,pulseMsL=%u,pulseMsR=%u\r\n",
+      label, (unsigned)p->fine_fault_left, (unsigned)p->fine_fault_right,
+      (unsigned)p->fine_phase_left, (unsigned)p->fine_phase_right,
+      (unsigned)p->fine_pulses_left, (unsigned)p->fine_pulses_right,
+      (int)p->fine_error_left, (int)p->fine_error_right,
+      (unsigned)p->fine_pwm_left, (unsigned)p->fine_pwm_right,
+      (unsigned)p->fine_pulse_ms_left, (unsigned)p->fine_pulse_ms_right);
   if (M8S00_UartLine(line, n) == 0U) return 0U;
 
   n = snprintf(line, sizeof(line),
