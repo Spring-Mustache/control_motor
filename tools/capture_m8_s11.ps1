@@ -66,7 +66,7 @@ $readError = ''
 $headerLine = ''
 $writer = $null
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-$utf8 = New-Object System.Text.UTF8Encoding($false)
+$utf8 = [System.Text.UTF8Encoding]::new($false)
 
 try {
     $serial.Open()
@@ -86,7 +86,7 @@ try {
             if ($line -notmatch '^#M8S11_BEGIN,1,period_ms=(\d+)$') { continue }
             $beginLine = $line
             $started = $true
-            $writer = New-Object System.IO.StreamWriter($csvFile, $false, $utf8)
+            $writer = [System.IO.StreamWriter]::new($csvFile, $false, $utf8)
             $writer.AutoFlush = $true
             Write-Host "START: $line"
             continue
@@ -118,6 +118,20 @@ try {
             continue
         }
         if ($seq -le $lastSeq -or $ms -lt $lastMs) {
+            $badRows++
+            continue
+        }
+        # Every remaining field is an integer in this protocol.
+        # Reject corrupt payloads rather than silently changing motor evidence.
+        $numeric = $true
+        for ($j = 2; $j -lt $expectedFields; $j++) {
+            $value = 0L
+            if (-not [long]::TryParse($cells[$j], [ref]$value)) {
+                $numeric = $false
+                break
+            }
+        }
+        if (-not $numeric) {
             $badRows++
             continue
         }
