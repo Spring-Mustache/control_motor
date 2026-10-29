@@ -2158,6 +2158,145 @@ static M8S00Arrival_t m8_s05_last_run[5] = {0};
 static uint32_t m8_s05_run_count[5] = {0};
 static uint8_t m8_s05_manual_kind = 3U;
 static uint8_t m8_s05_active_kind = 0U;
+
+/* M8-S06: read-only eight-stroke history for R2->R1 and
+ * near-soft-MAX RIGHT/LEFT -> R1 validation.
+ * AS5600 and encoder counters are sampled on the SAME main-loop
+ * actuation/arrival events. No new I2C read, PWM or motor command.
+ * Counts are quadrature timer counts, NOT output-shaft revolutions.
+ * A manual neutral release is logged as STOP, not an endpoint PASS.
+ */
+#define M8S06_STROKE_HISTORY 8U
+#define M8S06_END_DONE       1U
+#define M8S06_END_FAULT      2U
+#define M8S06_END_RELEASE    3U
+typedef struct {
+  uint16_t start_raw, end_raw, last_encoder;
+  int32_t encoder_delta;
+  uint32_t start_ms, end_ms, peak_cps, sample_frames;
+  uint8_t started, finished, exit_type, reason;
+  uint8_t encoder_ok, as5600_ok;
+} M8S06StrokeAxis_t;
+typedef struct {
+  M8S06StrokeAxis_t left, right;
+  uint32_t run_id, start_ms, finish_ms;
+  uint8_t active, kind, goal_l, goal_r, stop_code;
+  uint8_t reached, powered, faults;
+} M8S06Stroke_t;
+static M8S06Stroke_t m8_s06_current = {0};
+static M8S06Stroke_t m8_s06_history[M8S06_STROKE_HISTORY] = {0};
+static uint8_t m8_s06_history_next = 0U;
+static uint8_t m8_s06_history_count = 0U;
+
+static void M8S06_StrokeBegin(uint32_t run_id, uint8_t kind,
+                              uint8_t goal_l, uint8_t goal_r,
+                              uint32_t now)
+{
+  m8_s06_current = (M8S06Stroke_t){0};
+  m8_s06_current.active = 1U;
+  m8_s06_current.run_id = run_id;
+  m8_s06_current.kind = kind;
+  m8_s06_current.goal_l = goal_l;
+  m8_s06_current.goal_r = goal_r;
+  m8_s06_current.start_ms = now;
+}
+static void M8S06_StrokeSample(uint8_t left, uint8_t first_power,
+                               uint8_t exit_type, uint8_t reason)
+{
+  M8S06StrokeAxis_t *a;
+  uint16_t cnt, raw;
+  uint32_t now, sample_ms, peak;
+  uint8_t encoder_ok;
+  if (m8_s06_current.active == 0U) return;
+  a = left ? &m8_s06_current.left : &m8_s06_current.right;
+  if (a->finished != 0U) return;
+  now = HAL_GetTick();
+  cnt = left ? (uint16_t)__HAL_TIM_GET_COUNTER(&htim4) :
+               (uint16_t)hlptim1.Instance->CNT;
+  raw = left ? debug_as5600_left_raw : debug_as5600_right_raw;
+  sample_ms = left ? steer_pos_left_last_sample_ms :
+                     steer_pos_right_last_sample_ms;
+  peak = left ? steer_encoder_speed_l.smooth_cps :
+                steer_encoder_speed_r.smooth_cps;
+  encoder_ok = left ? debug_turn_left_start_ok :
+                       debug_turn_right_start_ok;
+  if (a->started == 0U)
+  {
+    /* For a valid stroke, start at FIRST powered PWM with an encoder
+     * and a fresh, already-read AS5600 value. NC-at-start has no
+     * powered travel and will correctly remain an invalid ratio.
+     */
+    if (first_power == 0U) return;
+    a->started = 1U;
+    a->encoder_ok = encoder_ok;
+    a->as5600_ok = (uint8_t)(
+        (sample_ms != 0U) && ((uint32_t)(now - sample_ms) <= 100U));
+    a->start_raw = raw;
+    a->start_ms = now;
+    a->last_encoder = cnt;
+  }
+  else
+  {
+    /* Signed modular delta is valid if the loop increments by <32768
+     * counts between consecutive observations, even across wrap.
+     */
+    a->encoder_delta += (int16_t)(uint16_t)(cnt - a->last_encoder);
+    a->last_encoder = cnt;
+  }
+  if (a->sample_frames < 0xffffffffUL) a->sample_frames++;
+  /* Exclude first 60ms to avoid reporting the filtered sample from
+   * the previous stroke as the new stroke's maximum.
+   */
+  if (((uint32_t)(now - a->start_ms) >= 60U) &&
+      (peak > a->peak_cps))
+    a->peak_cps = peak;
+  if (exit_type != 0U)
+  {
+    a->end_raw = raw;
+    a->end_ms = now;
+    a->exit_type = exit_type;
+    a->reason = reason;
+    if ((sample_ms == 0U) ||
+        ((uint32_t)(now - sample_ms) > 100U) ||
+        (encoder_ok == 0U))
+      a->as5600_ok = 0U;
+    a->finished = 1U;
+  }
+}
+static void M8S06_StrokeFinish(uint8_t reason)
+{
+  M8S06Stroke_t *p = &m8_s06_current;
+  if (p->active == 0U) return;
+  M8S06_StrokeSample(1U, 0U, M8S06_END_RELEASE, reason);
+  M8S06_StrokeSample(0U, 0U, M8S06_END_RELEASE, reason);
+  p->stop_code = reason;
+  p->finish_ms = HAL_GetTick();
+  p->reached = m8_s00_arrival.reached;
+  p->powered = m8_s00_arrival.powered;
+  p->faults = m8_s00_arrival.faults;
+  p->active = 0U;
+  m8_s06_history[m8_s06_history_next] = *p;
+  m8_s06_history_next =
+      (uint8_t)((m8_s06_history_next + 1U) % M8S06_STROKE_HISTORY);
+  if (m8_s06_history_count < M8S06_STROKE_HISTORY)
+    m8_s06_history_count++;
+}
+static uint32_t M8S06_StrokeRatio1000(const M8S06StrokeAxis_t *a)
+{
+  int16_t d;
+  uint32_t counts, raw;
+  if ((a->started == 0U) || (a->finished == 0U) ||
+      (a->encoder_ok == 0U) || (a->as5600_ok == 0U) ||
+      (a->exit_type == M8S06_END_FAULT))
+    return 0U;
+  d = AS5600_ShortestDeltaCounts(a->start_raw, a->end_raw);
+  counts = (uint32_t)((a->encoder_delta < 0) ?
+           -(int64_t)a->encoder_delta : a->encoder_delta);
+  raw = (uint32_t)((d < 0) ? -(int32_t)d : d);
+  if ((raw < 60U) || (counts < 32U) || (a->end_ms == a->start_ms))
+    return 0U;
+  return (uint32_t)(((uint64_t)counts * 1000ULL + raw / 2U) / raw);
+}
 /* R2 physical-MIN only: motor encoder counts vs AS5600 RAW.
  * Soft MAX is NOT a physical reference. Count every main-loop delta
  * in signed 32-bit to survive 16-bit timer wrap over the whole stroke.
@@ -2270,11 +2409,14 @@ static void M8S00_ArrivalBegin(uint8_t mode, uint8_t gl,
   m8_s00_arrival.goal_l = gl;
   m8_s00_arrival.goal_r = gr;
   m8_s00_arrival.active = 1U;
+  M8S06_StrokeBegin(m8_s00_arrival.run_id, m8_s05_active_kind,
+                    gl, gr, t0);
 }
 static void M8S00_ArrivalPower(uint8_t left, uint16_t pwm)
 {
   uint8_t bit = (left != 0U) ? 1U : 2U;
   if ((m8_s00_arrival.active == 0U) || (pwm == 0U)) return;
+  M8S06_StrokeSample(left, 1U, 0U, 0U);
   if ((m8_s00_arrival.powered & bit) == 0U)
   {
     if (left != 0U) m8_s00_arrival.power_tick_l = HAL_GetTick();
@@ -2288,6 +2430,7 @@ static void M8S00_ArrivalDone(uint8_t left, uint8_t reason)
   if ((m8_s00_arrival.active == 0U) ||
       ((m8_s00_arrival.reached & bit) != 0U))
     return;
+  M8S06_StrokeSample(left, 0U, M8S06_END_DONE, reason);
   m8_s00_arrival.reached |= bit;
   if (left != 0U)
   {
@@ -2305,6 +2448,7 @@ static void M8S00_ArrivalDone(uint8_t left, uint8_t reason)
 static void M8S00_ArrivalFault(uint8_t left, uint8_t reason)
 {
   if (m8_s00_arrival.active == 0U) return;
+  M8S06_StrokeSample(left, 0U, M8S06_END_FAULT, reason);
   m8_s00_arrival.faults |= (left != 0U) ? 1U : 2U;
   if (left != 0U) m8_s00_arrival.reason_l = reason;
   else m8_s00_arrival.reason_r = reason;
@@ -2314,6 +2458,7 @@ static void M8S00_ArrivalFinish(uint8_t reason)
   if (m8_s00_arrival.active == 0U) return;
   m8_s00_arrival.finish_ms = HAL_GetTick();
   m8_s00_arrival.stop_code = reason;
+  M8S06_StrokeFinish(reason);
   m8_s00_arrival.active = 0U;
   if ((m8_s05_active_kind >= 1U) && (m8_s05_active_kind <= 4U))
   {
@@ -5099,6 +5244,72 @@ static uint8_t M8S00_DumpR2Encoder(void)
   return M8S00_UartLine(line, n);
 }
 
+/* M8-S06 chronological trace: most recent 8 PS2 steering commands.
+ * Each axis has its OWN first-powered start and independent DONE/FAULT
+ * or neutral RELEASE endpoint. No MAX NC is required or assumed.
+ * ratioValid=1 means only a well-sampled travel ratio, not an
+ * absolute RPM calibration or confirmation of physical endstop.
+ */
+static uint8_t M8S06_DumpStrokes(void)
+{
+  uint8_t i, n_entries = m8_s06_history_count;
+  char line[288];
+  int n;
+  n = snprintf(line, sizeof(line),
+      "M8S06_HISTORY,count=%u,capacity=%u,next=%u\r\n",
+      (unsigned)n_entries, (unsigned)M8S06_STROKE_HISTORY,
+      (unsigned)m8_s06_history_next);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
+  for (i = 0U; i < n_entries; i++)
+  {
+    uint8_t idx = (uint8_t)(
+        (m8_s06_history_next + M8S06_STROKE_HISTORY -
+         n_entries + i) % M8S06_STROKE_HISTORY);
+    const M8S06Stroke_t *p = &m8_s06_history[idx];
+    uint8_t side;
+    n = snprintf(line, sizeof(line),
+        "M8S06_STROKE,id=%lu,kind=%u,goalL=%u,goalR=%u,"
+        "runMs=%lu,reached=%u,powered=%u,faults=%u,stop=%u\r\n",
+        (unsigned long)p->run_id, (unsigned)p->kind,
+        (unsigned)p->goal_l, (unsigned)p->goal_r,
+        (unsigned long)(p->finish_ms - p->start_ms),
+        (unsigned)p->reached, (unsigned)p->powered,
+        (unsigned)p->faults, (unsigned)p->stop_code);
+    if (M8S00_UartLine(line, n) == 0U) return 0U;
+    for (side = 0U; side < 2U; side++)
+    {
+      const M8S06StrokeAxis_t *a = (side == 0U) ? &p->left : &p->right;
+      int16_t raw_delta = (a->started != 0U) ?
+          AS5600_ShortestDeltaCounts(a->start_raw, a->end_raw) : 0;
+      uint32_t duration = (a->finished != 0U) ?
+          (uint32_t)(a->end_ms - a->start_ms) : 0U;
+      uint32_t magnitude = (uint32_t)((a->encoder_delta < 0) ?
+          -(int64_t)a->encoder_delta : a->encoder_delta);
+      uint32_t avg_cps = (duration != 0U) ?
+          (uint32_t)(((uint64_t)magnitude * 1000ULL + duration / 2U) /
+                     duration) : 0U;
+      uint32_t ratio = M8S06_StrokeRatio1000(a);
+      n = snprintf(line, sizeof(line),
+          "M8S06_AXIS,id=%lu,side=%c,started=%u,finish=%u,"
+          "end=%u,reason=%u,raw0=%u,raw1=%u,dRaw=%d,dEnc=%ld,"
+          "ms=%lu,avgCps=%lu,peakCps=%lu,ratio1000=%lu,"
+          "ratioValid=%u,frames=%lu\r\n",
+          (unsigned long)p->run_id,
+          (side == 0U) ? 'L' : 'R',
+          (unsigned)a->started, (unsigned)a->finished,
+          (unsigned)a->exit_type, (unsigned)a->reason,
+          (unsigned)a->start_raw, (unsigned)a->end_raw,
+          (int)raw_delta, (long)a->encoder_delta,
+          (unsigned long)duration, (unsigned long)avg_cps,
+          (unsigned long)a->peak_cps, (unsigned long)ratio,
+          (unsigned)(ratio != 0U),
+          (unsigned long)a->sample_frames);
+      if (M8S00_UartLine(line, n) == 0U) return 0U;
+    }
+  }
+  return 1U;
+}
+
 static uint8_t M8S00_DumpArrival(void)
 {
   const M8S00Arrival_t *p = &m8_s00_arrival;
@@ -5227,6 +5438,7 @@ static void M8S00_DumpUpdate(void)
       (M8S04_DumpAngleWaypoint() == 0U) ||
       (M8S05_DumpTiming() == 0U) ||
       (M8S00_DumpR2Encoder() == 0U) ||
+      (M8S06_DumpStrokes() == 0U) ||
       (M8S00_DumpArrival() == 0U) ||
       (M8S00_DumpInputResponse() == 0U) ||
       (M8S00_DumpConcurrent() == 0U) ||
