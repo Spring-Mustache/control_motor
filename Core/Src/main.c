@@ -1915,6 +1915,15 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
  * NC limit is increased. LEFT only; hardware acceptance still needed.
  */
 #define STEER_POS_FINE_LEFT_ENTER_RAW  15U
+/* M8-S08: LEFT R1 from MIN coasted to 8..9 RAW outside +/-5
+ * when coarse PWM was cut at 15 RAW. Eight 30..45-ms PWM175
+ * pulses did not move the sensor. Keep the tested coarse PWM
+ * active until 10 RAW on MIN-side return, then fine-settle.
+ * MAX-side return stays at its proven 15 RAW threshold.
+ * Set 0 in Live Expressions to restore the original behavior.
+ */
+#define STEER_POS_FINE_LEFT_FROM_MIN_RAW 10U
+volatile uint8_t steer_pos_left_fine_late_from_min_enable = 1U;
 #define STEER_POS_FINE_ABORT_RAW       90U
 #define STEER_POS_FINE_OFF_MIN_MS     200U
 #define STEER_POS_FINE_QUIET_MS       100U
@@ -2035,6 +2044,8 @@ typedef struct
   uint8_t fine_good_pulses;
   uint8_t fine_backtrack_pulses;
   uint16_t fine_max_pulse_ms;
+  uint16_t fine_enter_raw, fine_first_quiet_raw;
+  uint8_t fine_first_quiet_valid;
 } SteeringPositionAxis_t;
 
 static SteeringPositionAxis_t steer_left_axis = {0};
@@ -2199,6 +2210,8 @@ typedef struct {
   uint8_t fine_pulses, fine_weak, fine_good, fine_backtrack;
   uint16_t fine_max_ms;
   int16_t fine_last_move_raw;
+  uint16_t fine_enter_raw, fine_first_quiet_raw, fine_drive_frames;
+  uint8_t fine_first_quiet_valid;
 } M8S06StrokeAxis_t;
 typedef struct {
   M8S06StrokeAxis_t left, right;
@@ -2267,6 +2280,14 @@ static void M8S06_StrokeSample(uint8_t left, uint8_t first_power,
     a->last_encoder = cnt;
   }
   if (a->sample_frames < 0xffffffffUL) a->sample_frames++;
+  if ((first_power != 0U) && (m8_s06_current.kind == 1U))
+  {
+    const SteeringPositionAxis_t *fine = left ?
+        &steer_left_axis : &steer_right_axis;
+    if ((fine->fine_phase == STEER_POS_FINE_PHASE_PULSE) &&
+        (a->fine_drive_frames != 0xffffU))
+      a->fine_drive_frames++;
+  }
   /* Exclude first 60ms to avoid reporting the filtered sample from
    * the previous stroke as the new stroke's maximum.
    */
@@ -2289,6 +2310,9 @@ static void M8S06_StrokeSample(uint8_t left, uint8_t first_power,
       a->fine_backtrack = fine->fine_backtrack_pulses;
       a->fine_max_ms = fine->fine_max_pulse_ms;
       a->fine_last_move_raw = fine->fine_last_move_raw;
+      a->fine_enter_raw = fine->fine_enter_raw;
+      a->fine_first_quiet_raw = fine->fine_first_quiet_raw;
+      a->fine_first_quiet_valid = fine->fine_first_quiet_valid;
     }
     if ((sample_ms == 0U) ||
         ((uint32_t)(now - sample_ms) > 100U) ||
@@ -3607,6 +3631,7 @@ static void Steering_PositionFineUpdate(uint8_t left,
     axis->fine_phase_start_ms = now;
     axis->fine_quiet_since_ms = now;
     axis->fine_quiet_raw = raw;
+    axis->fine_enter_raw = raw;
   }
 
   if (axis->fine_phase == STEER_POS_FINE_PHASE_PULSE)
@@ -3659,6 +3684,12 @@ static void Steering_PositionFineUpdate(uint8_t left,
         ((uint32_t)(now - axis->fine_quiet_since_ms) >=
          STEER_POS_FINE_QUIET_MS))
     {
+      if ((axis->fine_first_quiet_valid == 0U) &&
+          (axis->fine_pulses == 0U))
+      {
+        axis->fine_first_quiet_raw = raw;
+        axis->fine_first_quiet_valid = 1U;
+      }
       /* Evaluate each completed pulse ONCE, after coasting stopped.
        * A stationary LEFT motor gets a slightly longer subsequent
        * pulse; overshoot/backtracking never triggers more energy.
@@ -3995,6 +4026,12 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   {
     uint16_t fine_enter = (left != 0U) ?
         STEER_POS_FINE_LEFT_ENTER_RAW : STEER_POS_FINE_ENTER_RAW;
+    /* LEFT R1 from MIN has negative error. Do not alter its reverse
+     * MAX-side approach or RIGHT, and never raise PWM here.
+     */
+    if ((left != 0U) && (err < 0) &&
+        (steer_pos_left_fine_late_from_min_enable == 1U))
+      fine_enter = STEER_POS_FINE_LEFT_FROM_MIN_RAW;
     if ((axis->fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
         (abs_error <= fine_enter))
     {
@@ -4226,6 +4263,12 @@ static void Steering_PositionUpdate(void)
     steer_right_axis.fine_backtrack_pulses = 0U;
     steer_left_axis.fine_max_pulse_ms = 0U;
     steer_right_axis.fine_max_pulse_ms = 0U;
+    steer_left_axis.fine_enter_raw = 0U;
+    steer_right_axis.fine_enter_raw = 0U;
+    steer_left_axis.fine_first_quiet_raw = 0U;
+    steer_right_axis.fine_first_quiet_raw = 0U;
+    steer_left_axis.fine_first_quiet_valid = 0U;
+    steer_right_axis.fine_first_quiet_valid = 0U;
     steer_pos_run_count++;
 
     if ((raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
@@ -5438,7 +5481,8 @@ static uint8_t M8S06_DumpStrokes(void)
           "end=%u,reason=%u,raw0=%u,raw1=%u,dRaw=%d,dEnc=%ld,"
           "ms=%lu,avgCps=%lu,peakCps=%lu,ratio1000=%lu,"
           "ratioValid=%u,frames=%lu,fP=%u,fWeak=%u,fGood=%u,"
-          "fBack=%u,fMaxMs=%u,fLastMove=%d\r\n",
+          "fBack=%u,fMaxMs=%u,fLastMove=%d,"
+          "fEntry=%u,fQuiet=%u,fQuietValid=%u,fDrive=%u\r\n",
           (unsigned long)p->run_id,
           (side == 0U) ? 'L' : 'R',
           (unsigned)a->started, (unsigned)a->finished,
@@ -5451,7 +5495,11 @@ static uint8_t M8S06_DumpStrokes(void)
           (unsigned long)a->sample_frames,
           (unsigned)a->fine_pulses, (unsigned)a->fine_weak,
           (unsigned)a->fine_good, (unsigned)a->fine_backtrack,
-          (unsigned)a->fine_max_ms, (int)a->fine_last_move_raw);
+          (unsigned)a->fine_max_ms, (int)a->fine_last_move_raw,
+          (unsigned)a->fine_enter_raw,
+          (unsigned)a->fine_first_quiet_raw,
+          (unsigned)a->fine_first_quiet_valid,
+          (unsigned)a->fine_drive_frames);
       if (M8S00_UartLine(line, n) == 0U) return 0U;
     }
   }
