@@ -12,8 +12,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$expectedHeader = 'seq,ms,mode,ly,rx,dleft,dright,r1,r2,pid_en,pid_on,target_l_rpm10,target_r_rpm10,rpm_lu10,rpm_ld10,rpm_ru10,rpm_rd10,pwm_lu,pwm_ld,pwm_ru,pwm_rd,denc_lu,denc_ld,denc_ru,denc_rd,raw_l,raw_r,soft_goal_l,soft_goal_r,req_l,req_r,dir_l,dir_r,ccr_l,ccr_r,manual_state_l,manual_state_r,manual_result_l,manual_result_r,pos_state_l,pos_state_r,pos_result_l,pos_result_r,fine_l,fine_r,nc,trip,stop,spin,manual_active,position_active'
-$expectedFields = 51
+$expectedHeader = 'seq,ms,mode,ly,rx,dleft,dright,r1,r2,pid_en,pid_on,target_l_rpm10,target_r_rpm10,rpm_lu10,rpm_ld10,rpm_ru10,rpm_rd10,pwm_lu,pwm_ld,pwm_ru,pwm_rd,denc_lu,denc_ld,denc_ru,denc_rd,raw_l,raw_r,soft_goal_l,soft_goal_r,req_l,req_r,dir_l,dir_r,ccr_l,ccr_r,manual_state_l,manual_state_r,manual_result_l,manual_result_r,pos_state_l,pos_state_r,pos_result_l,pos_result_r,fine_l,fine_r,nc,trip,stop,spin,manual_active,position_active,pid_ticks,fb_lu10,fb_ld10,fb_ru10,fb_rd10,err_l,err_r,age_l_ms,age_r_ms'
+$expectedFields = 60
 $available = @([System.IO.Ports.SerialPort]::GetPortNames() | Sort-Object)
 if ($available.Count -eq 0) { throw 'No COM ports. Connect the ST-LINK USB VCP.' }
 if ([string]::IsNullOrWhiteSpace($Port)) {
