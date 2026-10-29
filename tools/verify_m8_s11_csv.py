@@ -8,10 +8,23 @@ MAIN = (ROOT / "Core/Src/main.c").read_text(encoding="utf-8")
 IT = (ROOT / "Core/Src/stm32f7xx_it.c").read_text(encoding="utf-8")
 ITH = (ROOT / "Core/Inc/stm32f7xx_it.h").read_text(encoding="utf-8")
 PS = (ROOT / "tools/capture_m8_s11.ps1").read_text(encoding="utf-8")
+WHEEL_H = (ROOT / "Core/Inc/wheel_control.h").read_text(encoding="utf-8")
+WHEEL_C = (ROOT / "Core/Src/wheel_control.c").read_text(encoding="utf-8")
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+# The sampled PI feedback lives in wheel_control.c. Missing externs in
+# wheel_control.h caused M8-S11 main.c to fail compiling with undeclared IDs.
+require('#include "wheel_control.h"' in MAIN, "main.c must include wheel_control.h")
+for wheel in ("lu", "ld", "ru", "rd"):
+    name = f"wheel_pid_feedback_{wheel}_rpm"
+    require(f"extern volatile float {name};" in WHEEL_H,
+            f"missing public declaration: {name}")
+    require(f"volatile float {name} = 0.0f;" in WHEEL_C,
+            f"missing or changed definition: {name}")
+    require(name in MAIN, f"stream not sampling {name}")
 
 header = re.search(r'"%s\\r\\n", "(seq,[^"]+)"', MAIN)
 require(header is not None, "M8-S11 header missing")
