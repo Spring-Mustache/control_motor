@@ -2155,6 +2155,25 @@ volatile uint32_t m8_s00_joint_any_steer_frames = 0U;
 volatile uint32_t m8_s00_joint_both_steer_frames = 0U;
 volatile uint16_t m8_s00_joint_last_ccr_l = 0U;
 volatile uint16_t m8_s00_joint_last_ccr_r = 0U;
+
+/* M8-S11 opt-in six-actuator observation.
+ * ST-LINK VCP USART3 -> PC disk CSV; NO onboard sample history, Flash writes
+ * or control-owner changes. One IRQ-driven TX line buffer, not DMA and not
+ * blocking HAL_UART_Transmit during motion.
+ * UART3 IRQ priority 8 is BELOW EXTI NC and VC-02 USART6 priority 0.
+ * 50..250ms rate clamp. Default OFF; always validate sample gaps on PC.
+ */
+volatile uint8_t m8_s11_stream_enable = 0U;
+volatile uint16_t m8_s11_stream_period_ms = 50U;
+volatile uint8_t m8_s11_stream_state = 0U; /* 0 idle, 1 header, 2 samples, 3 end */
+volatile uint32_t m8_s11_stream_seq = 0U;
+volatile uint32_t m8_s11_stream_missed = 0U;
+volatile uint32_t m8_s11_stream_tx_errors = 0U;
+volatile uint32_t m8_s11_stream_busy = 0U;
+static uint32_t m8_s11_last_tick = 0U;
+static uint8_t m8_s11_tx_line[640];
+static void M8S11_StreamUpdate(void);
+
 static void M8S00_DumpUpdate(void);
 static uint8_t M8S00_CalHasSession(void);
 static uint8_t M8S00_DumpCalibration(void);
@@ -5577,6 +5596,154 @@ static uint8_t M8S00_DumpEscapeCounters(void)
  * AFTER the wheel logger's serial dump service in the normal main loop.
  * All motor control, calibration, logger and USB settings are unchanged.
  */
+
+/* The UART buffer is not modified again until gState becomes READY.
+ * Never call blocking UART print while any actuator can be moving.
+ */
+static uint8_t M8S11_SendLine(int length)
+{
+  if ((length <= 0) || ((uint32_t)length >= sizeof(m8_s11_tx_line)))
+  {
+    m8_s11_stream_tx_errors++;
+    m8_s11_stream_enable = 0U; /* halt malformed / truncated CSV */
+    m8_s11_stream_state = 3U;
+    return 0U;
+  }
+  if (HAL_UART_Transmit_IT(&huart3, m8_s11_tx_line, (uint16_t)length) != HAL_OK)
+  {
+    m8_s11_stream_tx_errors++;
+    return 0U;
+  }
+  return 1U;
+}
+
+/* No motor command, no I2C transaction, no Flash erase/write, no delay.
+ * Snapshot existing values AFTER both actuator owners have run this pass.
+ * Actual seq/time reveals control-loop jitter; some AS5600 values are
+ * cached from the last successful sample and are NOT 50-ms synchronous.
+ */
+static void M8S11_StreamUpdate(void)
+{
+  uint32_t now = HAL_GetTick();
+  uint16_t period = m8_s11_stream_period_ms;
+  int n;
+
+  if (period < 50U) period = 50U;
+  if (period > 250U) period = 250U;
+
+  if (m8_s11_stream_state == 0U)
+  {
+    if ((m8_s11_stream_enable == 0U) ||
+        (wheel_log_dump_active != 0U) ||
+        (wheel_log_dump_request != 0U) ||
+        (m8_s00_dump_request != 0U) ||
+        (huart3.gState != HAL_UART_STATE_READY))
+      return;
+    m8_s11_stream_seq = 0U;
+    m8_s11_stream_missed = 0U;
+    m8_s11_stream_busy = 0U;
+    m8_s11_last_tick = now;
+    n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+                 "#M8S11_BEGIN,1,period_ms=%u\r\n", (unsigned int)period);
+    if (M8S11_SendLine(n) != 0U) m8_s11_stream_state = 1U;
+    return;
+  }
+
+  /* HAL_UART_Transmit_IT sends directly from this static buffer.
+   * Do not reformat it until ISR has completed the previous transfer.
+   */
+  if (huart3.gState != HAL_UART_STATE_READY)
+    return;
+
+  if (m8_s11_stream_state == 1U)
+  {
+    n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+                 "%s\r\n", "seq,ms,mode,ly,rx,dleft,dright,r1,r2,pid_en,pid_on,target_l_rpm10,target_r_rpm10,rpm_lu10,rpm_ld10,rpm_ru10,rpm_rd10,pwm_lu,pwm_ld,pwm_ru,pwm_rd,denc_lu,denc_ld,denc_ru,denc_rd,raw_l,raw_r,soft_goal_l,soft_goal_r,req_l,req_r,dir_l,dir_r,ccr_l,ccr_r,manual_state_l,manual_state_r,manual_result_l,manual_result_r,pos_state_l,pos_state_r,pos_result_l,pos_result_r,fine_l,fine_r,nc,trip,stop,spin,manual_active,position_active");
+    if (M8S11_SendLine(n) != 0U) m8_s11_stream_state = 2U;
+    return;
+  }
+
+  if ((m8_s11_stream_state == 2U) &&
+      (m8_s11_stream_enable == 0U))
+    m8_s11_stream_state = 3U;
+
+  if (m8_s11_stream_state == 3U)
+  {
+    n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+                 "#M8S11_END,rows=%lu,missed=%lu,busy=%lu,tx_errors=%lu\r\n",
+                 (unsigned long)m8_s11_stream_seq,
+                 (unsigned long)m8_s11_stream_missed,
+                 (unsigned long)m8_s11_stream_busy,
+                 (unsigned long)m8_s11_stream_tx_errors);
+    if (M8S11_SendLine(n) != 0U) m8_s11_stream_state = 0U;
+    return;
+  }
+
+  if ((uint32_t)(now - m8_s11_last_tick) < period) return;
+  if ((uint32_t)(now - m8_s11_last_tick) >= (uint32_t)period * 2U)
+    m8_s11_stream_missed +=
+        ((uint32_t)(now - m8_s11_last_tick) / period) - 1U;
+  /* Values scaled to integer RPM*10; printf_float is not required.
+   * Independent PWM and physical DIR pins are sampled, not inferred.
+   */
+  n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+        "%lu,%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%ld,%ld,%ld,%ld,%ld,%ld,%d,%d,%d,%d,%ld,%ld,%ld,%ld,%u,%u,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\r\n",
+        (unsigned long)(m8_s11_stream_seq + 1U),
+        (unsigned long)now,
+        (unsigned int)control_mode,
+        (unsigned int)PS2_Pad.LY,
+        (unsigned int)PS2_Pad.RX,
+        (unsigned int)PS2_Pad.Left,
+        (unsigned int)PS2_Pad.Right,
+        (unsigned int)PS2_Pad.R1,
+        (unsigned int)PS2_Pad.R2,
+        (unsigned int)wheel_pid_enable,
+        (unsigned int)wheel_pid_active,
+        (long)(wheel_pid_target_rpm * 10.0f),
+        (long)(wheel_spin_right_target_rpm * 10.0f),
+        (long)(Motor_LeftUp.current_rpm * 10.0f),
+        (long)(Motor_LeftDown.current_rpm * 10.0f),
+        (long)(Motor_RightUp.current_rpm * 10.0f),
+        (long)(Motor_RightDown.current_rpm * 10.0f),
+        (int)wheel_pwm_lu,
+        (int)wheel_pwm_ld,
+        (int)wheel_pwm_ru,
+        (int)wheel_pwm_rd,
+        (long)Motor_LeftUp.delta_count,
+        (long)Motor_LeftDown.delta_count,
+        (long)Motor_RightUp.delta_count,
+        (long)Motor_RightDown.delta_count,
+        (unsigned int)debug_as5600_left_raw,
+        (unsigned int)debug_as5600_right_raw,
+        (unsigned int)steer_manual_left_soft_target,
+        (unsigned int)steer_manual_right_soft_target,
+        (int)steer_manual_left_requested_direction,
+        (int)steer_manual_right_requested_direction,
+        (unsigned int)(HAL_GPIO_ReadPin(MOTOR_DIR_TURN_left_GPIO_Port, MOTOR_DIR_TURN_left_Pin) == GPIO_PIN_SET),
+        (unsigned int)(HAL_GPIO_ReadPin(MOTOR_DIR_TURN_right_GPIO_Port, MOTOR_DIR_TURN_right_Pin) == GPIO_PIN_SET),
+        (unsigned int)__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2),
+        (unsigned int)__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1),
+        (unsigned int)steer_manual_left_state,
+        (unsigned int)steer_manual_right_state,
+        (unsigned int)steer_manual_left_result,
+        (unsigned int)steer_manual_right_result,
+        (unsigned int)steer_pos_left_state,
+        (unsigned int)steer_pos_right_state,
+        (unsigned int)steer_pos_left_result,
+        (unsigned int)steer_pos_right_result,
+        (unsigned int)steer_pos_left_fine_phase,
+        (unsigned int)steer_pos_right_fine_phase,
+        (unsigned int)Steering_TestRawLimitMask(),
+        (unsigned int)steer_safety_trip_latched,
+        (unsigned int)control_stop_latched,
+        (unsigned int)wheel_spin_active,
+        (unsigned int)steer_manual_active,
+        (unsigned int)steer_pos_active);
+  m8_s11_last_tick = now;
+  if (M8S11_SendLine(n) != 0U) m8_s11_stream_seq++;
+  else m8_s11_stream_busy++;
+}
+
 static void M8S00_DumpUpdate(void)
 {
   static const char begin[] = "#M8S00_BEGIN,1\r\n";
@@ -11396,9 +11563,17 @@ int main(void)
 #endif
     Steering_IncidentTraceUpdate(); /* S14 retained for both operation modes */
 
-    /* CSV dump is accepted only after logging is complete and PWM = 0. */
-    RamLogger_DumpCsvUpdate();
-    M8S00_DumpUpdate(); /* explicit VCP export only when fully stopped */
+    /* Live CSV is nonblocking and opt-in; legacy blocking CSV/M8S00
+     * exports retain their original stopped-only guards and never share
+     * USART3 while an interrupt-driven M8-S11 frame is in flight.
+     */
+    M8S11_StreamUpdate();
+    if ((m8_s11_stream_state == 0U) &&
+        (huart3.gState == HAL_UART_STATE_READY))
+    {
+      RamLogger_DumpCsvUpdate();
+      M8S00_DumpUpdate(); /* explicit VCP export only when fully stopped */
+    }
 
     /* M8-S03 trial: reduce idle pause from 10ms to 5ms for more
      * responsive PS2 polling. This is only a loop wait, NOT a proven
@@ -12219,7 +12394,11 @@ static void MX_USART3_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USART3_Init 2 */
-
+  /* Low-priority asynchronous CSV telemetry. NC EXTI/VC02 IRQ remain
+   * priority 0; default stream OFF. HAL_UART_Transmit_IT needs IRQ.
+   */
+  HAL_NVIC_SetPriority(USART3_IRQn, 8, 0);
+  HAL_NVIC_EnableIRQ(USART3_IRQn);
   /* USER CODE END USART3_Init 2 */
 
 }
