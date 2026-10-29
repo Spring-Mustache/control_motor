@@ -183,29 +183,29 @@ typedef struct
 #define WHEEL_ENCODER_COUNTS_PER_REV_OTHER    3257.0f
 
 /*
- * Đổi riêng từ 0U thành 1U nếu sau khi kiểm tra thực tế một motor
- * quay ngược chiều chuyển động mong muốn.
+ * M8-S09: reverse electrical DIR on all four wheel motors.
+ * Old DIR inversion (LU/RU/LD/RD): 1/1/0/1
+ * New DIR inversion (LU/RU/LD/RD): 0/0/1/0
+ * Motor_SetSpeed_PWM() XORs each signed command with the bit.
+ * Reverses physical rotation without changing signed wheel commands.
+ * Confirm new vehicle FRONT direction with wheels off the ground.
  */
-#define MOTOR_LEFT_UP_DIR_INVERTED          1U
-#define MOTOR_RIGHT_UP_DIR_INVERTED         1U
-#define MOTOR_LEFT_DOWN_DIR_INVERTED        0U
-#define MOTOR_RIGHT_DOWN_DIR_INVERTED       1U
+#define MOTOR_LEFT_UP_DIR_INVERTED          0U
+#define MOTOR_RIGHT_UP_DIR_INVERTED         0U
+#define MOTOR_LEFT_DOWN_DIR_INVERTED        1U
+#define MOTOR_RIGHT_DOWN_DIR_INVERTED       0U
 
 /*
- * Chuẩn hóa dấu encoder theo chiều chuyển động của xe:
- * - Xe chạy TIẾN  -> RPM / total dương.
- * - Xe chạy LÙI   -> RPM / total âm.
- *
- * M6-S02 (kiểm tra trên xe, sau khi đổi cấu hình MOTOR_*_DIR_INVERTED):
- * - Lệnh -40 RPM làm xe LÙI đúng chiều vật lý.
- * - Cả bốn giá trị RPM encoder lại DƯƠNG khi target là -40 RPM.
- * - Vì vậy chỉ đảo dấu encoder của cả bốn bánh, GIỮ NGUYÊN chiều motor.
- * Cần xác nhận dấu RPM bằng Live Expressions sau khi flash lại.
+ * Encoder sign must reverse with the physical wheel polarity.
+ * Old sign inversion: 1/0/1/0; new: 0/1/0/1.
+ * Maintains positive measured RPM and debug_enc_*_total for a
+ * positive signed command (and negative for a negative command).
+ * Raw TIMx->CNT is NEVER modified. Verify under hardware test.
  */
-#define ENCODER_LEFT_UP_DIR_INVERTED         1U
-#define ENCODER_RIGHT_UP_DIR_INVERTED        0U
-#define ENCODER_LEFT_DOWN_DIR_INVERTED       1U
-#define ENCODER_RIGHT_DOWN_DIR_INVERTED      0U
+#define ENCODER_LEFT_UP_DIR_INVERTED         0U
+#define ENCODER_RIGHT_UP_DIR_INVERTED        1U
+#define ENCODER_LEFT_DOWN_DIR_INVERTED       0U
+#define ENCODER_RIGHT_DOWN_DIR_INVERTED      1U
 
 
 
@@ -1743,8 +1743,10 @@ volatile uint32_t steer_manual_irq_count = 0U;
 volatile uint8_t steer_manual_irq_trip_mask = 0U;
 static volatile uint8_t steer_manual_irq_pending_mask = 0U;
 
-/* User steering input meaning for LEFT axis: -1 = LEFT MIN,
- * +1 = LEFT MAX. RIGHT intentionally has the opposite axis target.
+/* PS2 user steering intent: -1 = LEFT, +1 = RIGHT.
+ * LEFT input => physical L_MAX + R_MIN (stop at calibrated SOFT limits).
+ * RIGHT input => physical L_MIN + R_MAX (stop at calibrated SOFT limits).
+ * Do not rename physical NC MIN/MAX or invert AS5600 polarity.
  */
 static int8_t Steering_ManualRequestDirection(void)
 {
@@ -6340,15 +6342,15 @@ static void Steering_SyncApply(uint32_t now, uint16_t left_base,
 
 static void Steering_ManualUpdate(void)
 {
-  /* The PS2 command is the LEFT wheel steering sense.
-   * Opposed kinematics: LEFT turns toward MIN on left input, while
-   * RIGHT turns toward MAX; reverse both targets on right input.
-   * Treat each axis's physical MIN/MAX, encoder sign and NC limit
-   * based on its OWN direction, never reuse the other axis's sign.
+  /* M8-S09: new D-pad and RX kinematics:
+   * user LEFT  (-1) => left axis MAX (+1), right axis MIN (-1)
+   * user RIGHT (+1) => left axis MIN (-1), right axis MAX (+1).
+   * Physical NC, AS5600 sign, soft margins and independent STOP
+   * remain bound to each axis's actual MIN/MAX direction.
    */
   int8_t command = Steering_ManualRequestDirection();
-  int8_t left_direction = command;
-  int8_t right_direction = (int8_t)(-command);
+  int8_t left_direction = (int8_t)(-command);
+  int8_t right_direction = command;
   uint16_t lpwm, rpwm, la = 0U, ra = 0U;
   uint16_t magnitude = 0U;
   uint8_t lstate, rstate, mask, pending;
@@ -6470,7 +6472,7 @@ static void Steering_ManualUpdate(void)
     steer_manual_begin_ms = now;
     m8_s05_manual_kind =
         ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U)) ? 3U : 4U;
-    M8S00_ArrivalBegin(3U, (command < 0) ? 3U : 4U,
+    M8S00_ArrivalBegin(3U, (left_direction < 0) ? 3U : 4U,
                         (right_direction < 0) ? 3U : 4U, now);
     Steering_SyncReset(); /* new independent speed history per command */
     steer_sync_left_speed_raw_s = 0U;
@@ -9267,7 +9269,7 @@ volatile uint8_t debug_ps2_new_mapping_valid = 0U;
 volatile uint8_t debug_ps2_request_center = 0U;
 volatile uint8_t debug_ps2_request_min = 0U;
 volatile int8_t debug_ps2_spin_direction = 0; /* +1 L1, -1 L2 */
-volatile int8_t debug_ps2_steer_direction = 0; /* -1 LEFT->MIN, RIGHT->MAX; +1 LEFT->MAX, RIGHT->MIN */
+volatile int8_t debug_ps2_steer_direction = 0; /* -1 LEFT => L_MAX/R_MIN; +1 RIGHT => L_MIN/R_MAX */
 volatile uint16_t debug_ps2_steer_left_pwm = 0U;
 volatile uint16_t debug_ps2_steer_right_pwm = 0U;
 volatile uint8_t debug_ps2_rx_value = 128U;
@@ -9480,17 +9482,19 @@ static void PS2_DebugShadowSteeringCommands(void)
 
   if (action == 1U || action == 3U)
   {
-    debug_steer_shadow_left_direction = -1;
-    debug_steer_shadow_right_direction = 1;
-    debug_steer_shadow_left_target = STEER_MANUAL_LEFT_SOFT_MIN;
-    debug_steer_shadow_right_target = STEER_MANUAL_RIGHT_SOFT_MAX;
-  }
-  else if (action == 2U || action == 4U)
-  {
+    /* Physical left MAX, right MIN (soft boundaries). */
     debug_steer_shadow_left_direction = 1;
     debug_steer_shadow_right_direction = -1;
     debug_steer_shadow_left_target = STEER_MANUAL_LEFT_SOFT_MAX;
     debug_steer_shadow_right_target = STEER_MANUAL_RIGHT_SOFT_MIN;
+  }
+  else if (action == 2U || action == 4U)
+  {
+    /* Physical left MIN, right MAX (soft boundaries). */
+    debug_steer_shadow_left_direction = -1;
+    debug_steer_shadow_right_direction = 1;
+    debug_steer_shadow_left_target = STEER_MANUAL_LEFT_SOFT_MIN;
+    debug_steer_shadow_right_target = STEER_MANUAL_RIGHT_SOFT_MAX;
   }
   else if (action == 5U)
   {
