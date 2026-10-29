@@ -5393,7 +5393,8 @@ static uint8_t M8S00_DumpR2Encoder(void)
 static uint8_t M8S06_DumpStrokes(void)
 {
   uint8_t i, n_entries = m8_s06_history_count;
-  char line[288];
+  /* Longest axis trace includes bounded R1 pulse diagnostics. */
+  char line[384];
   int n;
   n = snprintf(line, sizeof(line),
       "M8S06_HISTORY,count=%u,capacity=%u,next=%u\r\n",
