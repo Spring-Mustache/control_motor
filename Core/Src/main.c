@@ -3682,7 +3682,10 @@ static void Steering_PositionFineUpdate(uint8_t left,
             axis->fine_weak_streak++;
           if ((left != 0U) &&
               (steer_pos_left_fine_adapt_enable == 1U) &&
-              (axis->fine_weak_streak >= 2U))
+              (axis->fine_weak_streak >= 2U) &&
+              (Steering_PositionFinePulseMs(
+                  steer_pos_left_fine_pulse_ms) <
+               STEER_POS_FINE_LEFT_ADAPT_CAP_MS))
           {
             uint32_t wanted = (uint32_t)
                 Steering_PositionFinePulseMs(steer_pos_left_fine_pulse_ms) +
