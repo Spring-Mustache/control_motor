@@ -2,13 +2,18 @@
 # Built-in Windows PowerShell only; no Tera Term, Python or serial packages.
 # Run in the control_motor repo after flashing the matching firmware:
 # powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\capture_m8_s00.ps1
-# Or specify: -Port COM5 -TimeoutSeconds 180 -OutputDirectory .\logs
+# Or specify: -Port COM5 -TimeoutSeconds 180 -MaxCaptureLines 96 -OutputDirectory .\logs
 [CmdletBinding()]
 param(
     [string]$Port = "",
     [int]$Baud = 115200,
     [ValidateRange(10, 3600)]
     [int]$TimeoutSeconds = 180,
+    # Base M8-S00 is ~39 lines. M8-S06 adds 1 + 3 lines per
+    # stored steering command (up to 8), giving ~64 lines.
+    # A bounded configurable margin avoids truncating valid exports.
+    [ValidateRange(64, 512)]
+    [int]$MaxCaptureLines = 96,
     [string]$OutputDirectory = "."
 )
 
@@ -67,7 +72,7 @@ try {
     $serial.Open()
     $serial.DiscardInBuffer()
     Write-Host ""
-    Write-Host "Dang nghe $Port ($Baud baud, 8N1)..."
+    Write-Host "Dang nghe $Port ($Baud baud, 8N1), toi da $MaxCaptureLines dong..."
     Write-Host "Sau khi hoan thanh test: nha tay cam, disarm START, doi xe dung han."
     Write-Host "BAM-NHA ngan USER MOT LAN (< 3 giay) de xuat M8-S00."
     Write-Host "Khong reset/tat board truoc khi thay '#M8S00_END'."
@@ -91,8 +96,8 @@ try {
         if ($line -eq '#M8S00_END') {
             $complete = $true
         }
-        if ($lines.Count -gt 40) {
-            throw "Qua 40 dong khi chua thay marker ket thuc; dung de tranh ghi log sai."
+        if (-not $complete -and $lines.Count -gt $MaxCaptureLines) {
+            throw "Qua $MaxCaptureLines dong ma chua thay #M8S00_END; dung de tranh ghi log sai."
         }
     }
 } catch {
