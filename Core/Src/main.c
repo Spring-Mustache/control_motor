@@ -1677,7 +1677,7 @@ volatile uint8_t steer_manual_enable = 0U;
  */
 volatile uint8_t steer_cal_active = 0U;
 volatile uint8_t steer_manual_active = 0U;
-volatile int8_t steer_manual_direction = 0; /* -1 toward MIN; +1 toward MAX */
+volatile int8_t steer_manual_direction = 0; /* PS2 intent: -1 LEFT, +1 RIGHT (not physical MIN/MAX) */
 volatile uint8_t steer_manual_neutral_required = 0U;
 /* 0 none, 1 disarmed, 2 priority/diag, 4 wheels not stopped,
  * 5 neutral required, 6 limits not initialized, 7 contradictory D-pad.
@@ -6511,10 +6511,10 @@ static void Steering_ManualUpdate(void)
     if ((mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
           (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK))
       Steering_ManualAxisFault(1U, 9U);
-    else if ((mask & ((command < 0) ? STEER_LIMIT_L_MIN_MASK :
+    else if ((mask & ((left_direction < 0) ? STEER_LIMIT_L_MIN_MASK :
                         STEER_LIMIT_L_MAX_MASK)) != 0U)
       Steering_ManualAxisDone(1U, 3U);
-    else if ((mask & ((command < 0) ? STEER_LIMIT_L_MAX_MASK :
+    else if ((mask & ((left_direction < 0) ? STEER_LIMIT_L_MAX_MASK :
                         STEER_LIMIT_L_MIN_MASK)) != 0U)
     {
       steer_manual_left_state = STEER_MANUAL_ESCAPE;
@@ -6590,7 +6590,7 @@ static void Steering_ManualUpdate(void)
 
   if ((pending & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
   {
-    uint8_t expect = (command < 0) ? STEER_LIMIT_L_MIN_MASK :
+    uint8_t expect = (left_direction < 0) ? STEER_LIMIT_L_MIN_MASK :
                       STEER_LIMIT_L_MAX_MASK;
     if ((pending & expect) != 0U &&
         (pending & (uint8_t)~expect &
@@ -6711,9 +6711,9 @@ static void Steering_ManualUpdate(void)
   {
     uint8_t own = (uint8_t)
         (mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK));
-    uint8_t expected = (command < 0) ?
+    uint8_t expected = (left_direction < 0) ?
         STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_L_MAX_MASK;
-    uint8_t opposite = (command < 0) ?
+    uint8_t opposite = (left_direction < 0) ?
         STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_L_MIN_MASK;
     if (lstate == STEER_MANUAL_ESCAPE)
     {
@@ -6759,7 +6759,7 @@ static void Steering_ManualUpdate(void)
       (steer_manual_left_state == STEER_MANUAL_ESCAPE))
   {
     HAL_GPIO_WritePin(MOTOR_DIR_TURN_left_GPIO_Port, MOTOR_DIR_TURN_left_Pin,
-                      (command < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
+                      (left_direction < 0) ? GPIO_PIN_RESET : GPIO_PIN_SET);
     __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, la);
     M8S00_ArrivalPower(1U, la);
     steer_manual_left_pwm = la;
