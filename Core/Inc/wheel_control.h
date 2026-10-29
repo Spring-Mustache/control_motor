@@ -201,6 +201,15 @@ extern volatile int16_t wheel_pwm_rd;
 extern volatile uint32_t wheel_pid_update_count;
 extern volatile uint32_t wheel_pid_last_sample_tick;
 
+/* Per-wheel feedback actually consumed by the PI controller.
+ * Defined once in wheel_control.c; exposed read-only to M8-S11 telemetry.
+ * Do not write these from main.c or the CSV capture script.
+ */
+extern volatile float wheel_pid_feedback_lu_rpm;
+extern volatile float wheel_pid_feedback_ld_rpm;
+extern volatile float wheel_pid_feedback_ru_rpm;
+extern volatile float wheel_pid_feedback_rd_rpm;
+
 /* Shared tuning controls for Live Expressions.
  * Edit kp/ki/kd/integral_limit, then set apply_tuning = 1.
  * The request auto-clears after all wheel PID objects are updated/reset.
