@@ -56,6 +56,7 @@
 
 /* External variables --------------------------------------------------------*/
 extern UART_HandleTypeDef huart6;
+extern UART_HandleTypeDef huart3;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -244,5 +245,11 @@ void USART6_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
+/* Low-priority asynchronous USART3 TX. Safety EXTI and VC-02 USART6
+ * keep their priority-0 handlers unchanged.
+ */
+void USART3_IRQHandler(void)
+{
+  HAL_UART_IRQHandler(&huart3);
+}
 /* USER CODE END 1 */
