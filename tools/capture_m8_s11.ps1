@@ -170,16 +170,10 @@ try {
 Write-Host "CSV: $csvFile"
 Write-Host "Metadata: $metaFile"
 if (-not $started) { throw "No M8S11 BEGIN marker received; $readError" }
-if ($done -and -not $headerLine) { throw 'END received without CSV header; inspect metadata.' }
-if ($done -and $endLine -match '^#M8S11_END,rows=(\d+),missed=(\d+),busy=(\d+),tx_errors=(\d+)
-if (-not $done) {
-    Write-Warning 'PARTIAL CSV SAVED: END missing. Disable m8_s11_stream_enable.'
+if ($done -and -not $headerLine) {
+    throw 'END received without CSV header; inspect metadata.'
 }
-if ($badRows -ne 0 -or $lostSeq -ne 0) {
-    Write-Warning 'Malformed rows or lost sequence numbers; see metadata.'
-}
-if ($readError) { throw "Serial capture error: $readError" }
-) {
+if ($done -and $endLine -match '^#M8S11_END,rows=(\d+),missed=(\d+),busy=(\d+),tx_errors=(\d+)$') {
     $boardRows = [long]$Matches[1]
     $boardMissed = [long]$Matches[2]
     $boardBusy = [long]$Matches[3]
@@ -189,7 +183,9 @@ if ($readError) { throw "Serial capture error: $readError" }
         Write-Warning 'MCU/PC sample counters do not match or stream had missed periods/errors.'
     }
 }
-if ($done -and $rows -eq 0) { Write-Warning 'Stream ended without data rows.' }
+if ($done -and $rows -eq 0) {
+    Write-Warning 'Stream ended without data rows.'
+}
 if (-not $done) {
     Write-Warning 'PARTIAL CSV SAVED: END missing. Disable m8_s11_stream_enable.'
 }
