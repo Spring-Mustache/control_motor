@@ -5658,7 +5658,7 @@ static void M8S11_StreamUpdate(void)
   if (m8_s11_stream_state == 1U)
   {
     n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
-                 "%s\r\n", "seq,ms,mode,ly,rx,dleft,dright,r1,r2,pid_en,pid_on,target_l_rpm10,target_r_rpm10,rpm_lu10,rpm_ld10,rpm_ru10,rpm_rd10,pwm_lu,pwm_ld,pwm_ru,pwm_rd,denc_lu,denc_ld,denc_ru,denc_rd,raw_l,raw_r,soft_goal_l,soft_goal_r,req_l,req_r,dir_l,dir_r,ccr_l,ccr_r,manual_state_l,manual_state_r,manual_result_l,manual_result_r,pos_state_l,pos_state_r,pos_result_l,pos_result_r,fine_l,fine_r,nc,trip,stop,spin,manual_active,position_active");
+                 "%s\r\n", "seq,ms,mode,ly,rx,dleft,dright,r1,r2,pid_en,pid_on,target_l_rpm10,target_r_rpm10,rpm_lu10,rpm_ld10,rpm_ru10,rpm_rd10,pwm_lu,pwm_ld,pwm_ru,pwm_rd,denc_lu,denc_ld,denc_ru,denc_rd,raw_l,raw_r,soft_goal_l,soft_goal_r,req_l,req_r,dir_l,dir_r,ccr_l,ccr_r,manual_state_l,manual_state_r,manual_result_l,manual_result_r,pos_state_l,pos_state_r,pos_result_l,pos_result_r,fine_l,fine_r,nc,trip,stop,spin,manual_active,position_active,pid_ticks,fb_lu10,fb_ld10,fb_ru10,fb_rd10,err_l,err_r,age_l_ms,age_r_ms");
     if (M8S11_SendLine(n) != 0U) m8_s11_stream_state = 2U;
     return;
   }
@@ -5687,7 +5687,7 @@ static void M8S11_StreamUpdate(void)
    * Independent PWM and physical DIR pins are sampled, not inferred.
    */
   n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
-        "%lu,%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%ld,%ld,%ld,%ld,%ld,%ld,%d,%d,%d,%d,%ld,%ld,%ld,%ld,%u,%u,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\r\n",
+        "%lu,%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%ld,%ld,%ld,%ld,%ld,%ld,%d,%d,%d,%d,%ld,%ld,%ld,%ld,%u,%u,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%ld,%ld,%ld,%ld,%d,%d,%lu,%lu\r\n",
         (unsigned long)(m8_s11_stream_seq + 1U),
         (unsigned long)now,
         (unsigned int)control_mode,
@@ -5738,7 +5738,16 @@ static void M8S11_StreamUpdate(void)
         (unsigned int)control_stop_latched,
         (unsigned int)wheel_spin_active,
         (unsigned int)steer_manual_active,
-        (unsigned int)steer_pos_active);
+        (unsigned int)steer_pos_active,
+        (unsigned long)wheel_pid_update_count,
+        (long)(wheel_pid_feedback_lu_rpm * 10.0f),
+        (long)(wheel_pid_feedback_ld_rpm * 10.0f),
+        (long)(wheel_pid_feedback_ru_rpm * 10.0f),
+        (long)(wheel_pid_feedback_rd_rpm * 10.0f),
+        (int)steer_pos_left_error,
+        (int)steer_pos_right_error,
+        (unsigned long)(now - steer_pos_left_last_sample_ms),
+        (unsigned long)(now - steer_pos_right_last_sample_ms));
   m8_s11_last_tick = now;
   if (M8S11_SendLine(n) != 0U) m8_s11_stream_seq++;
   else m8_s11_stream_busy++;
