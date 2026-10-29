@@ -1920,6 +1920,15 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
 #define STEER_POS_FINE_QUIET_MS       100U
 #define STEER_POS_FINE_CAPTURE_MS     120U
 #define STEER_POS_FINE_MAX_PULSES       8U
+/* R1 LEFT only: when 2+ consecutive pulses cause <=1 RAW of settled
+ * motion, try +5ms per additional weak pulse up to 45ms.
+ * Never raise PWM, bypass NC/STOP, extend the 8-pulse budget, or
+ * accept outside +/-5 RAW. A reversal/overshoot shortens the next
+ * pulse rather than increasing energy blindly.
+ */
+#define STEER_POS_FINE_LEFT_ADAPT_CAP_MS 45U
+#define STEER_POS_FINE_LEFT_ADAPT_STEP_MS 5U
+volatile uint8_t steer_pos_left_fine_adapt_enable = 1U;
 #define STEER_POS_FINE_PHASE_IDLE       0U
 #define STEER_POS_FINE_PHASE_SETTLE     1U
 #define STEER_POS_FINE_PHASE_PULSE      2U
@@ -2015,6 +2024,17 @@ typedef struct
   uint32_t fine_phase_start_ms;
   uint32_t fine_quiet_since_ms;
   uint32_t fine_capture_since_ms;
+  /* Read-only adaptive fine-trim evidence, reset on each R1/R2 press. */
+  uint16_t fine_pulse_start_raw;
+  uint16_t fine_last_pulse_ms;
+  uint16_t fine_next_pulse_ms;
+  int16_t fine_last_move_raw;
+  uint8_t fine_eval_pending;
+  uint8_t fine_weak_streak;
+  uint8_t fine_weak_pulses;
+  uint8_t fine_good_pulses;
+  uint8_t fine_backtrack_pulses;
+  uint16_t fine_max_pulse_ms;
 } SteeringPositionAxis_t;
 
 static SteeringPositionAxis_t steer_left_axis = {0};
@@ -2176,6 +2196,9 @@ typedef struct {
   uint32_t start_ms, end_ms, peak_cps, sample_frames;
   uint8_t started, finished, exit_type, reason;
   uint8_t encoder_ok, as5600_ok;
+  uint8_t fine_pulses, fine_weak, fine_good, fine_backtrack;
+  uint16_t fine_max_ms;
+  int16_t fine_last_move_raw;
 } M8S06StrokeAxis_t;
 typedef struct {
   M8S06StrokeAxis_t left, right;
@@ -2256,6 +2279,17 @@ static void M8S06_StrokeSample(uint8_t left, uint8_t first_power,
     a->end_ms = now;
     a->exit_type = exit_type;
     a->reason = reason;
+    if (m8_s06_current.kind == 1U)
+    {
+      const SteeringPositionAxis_t *fine = left ?
+          &steer_left_axis : &steer_right_axis;
+      a->fine_pulses = fine->fine_pulses;
+      a->fine_weak = fine->fine_weak_pulses;
+      a->fine_good = fine->fine_good_pulses;
+      a->fine_backtrack = fine->fine_backtrack_pulses;
+      a->fine_max_ms = fine->fine_max_pulse_ms;
+      a->fine_last_move_raw = fine->fine_last_move_raw;
+    }
     if ((sample_ms == 0U) ||
         ((uint32_t)(now - sample_ms) > 100U) ||
         (encoder_ok == 0U))
@@ -3511,6 +3545,12 @@ static void Steering_PositionFineUpdate(uint8_t left,
   uint8_t dir0;
   int16_t quiet_drift;
 
+  /* A pulse's length is frozen when it starts, even if a Live
+   * Expression tunable is adjusted during that pulse. */
+  if ((axis->fine_phase == STEER_POS_FINE_PHASE_PULSE) &&
+      (axis->fine_last_pulse_ms != 0U))
+    pulse_ms = axis->fine_last_pulse_ms;
+
   *duty = 0U;
   if (left != 0U)
   {
@@ -3619,6 +3659,67 @@ static void Steering_PositionFineUpdate(uint8_t left,
         ((uint32_t)(now - axis->fine_quiet_since_ms) >=
          STEER_POS_FINE_QUIET_MS))
     {
+      /* Evaluate each completed pulse ONCE, after coasting stopped.
+       * A stationary LEFT motor gets a slightly longer subsequent
+       * pulse; overshoot/backtracking never triggers more energy.
+       * RIGHT keeps its previously tested fixed 40-ms behavior.
+       */
+      if (axis->fine_eval_pending != 0U)
+      {
+        int16_t moved = AS5600_ShortestDeltaCounts(
+            axis->fine_pulse_start_raw, raw);
+        int32_t amplitude = (moved < 0) ? -(int32_t)moved : (int32_t)moved;
+        int32_t improvement = (int32_t)axis->fine_start_error;
+        uint16_t previous_error = (uint16_t)(
+            (improvement < 0) ? -improvement : improvement);
+        axis->fine_last_move_raw = moved;
+        axis->fine_eval_pending = 0U;
+        if ((amplitude <= 1) && (magnitude > tol))
+        {
+          if (axis->fine_weak_pulses < 255U)
+            axis->fine_weak_pulses++;
+          if (axis->fine_weak_streak < 255U)
+            axis->fine_weak_streak++;
+          if ((left != 0U) &&
+              (steer_pos_left_fine_adapt_enable == 1U) &&
+              (axis->fine_weak_streak >= 2U))
+          {
+            uint32_t wanted = (uint32_t)
+                Steering_PositionFinePulseMs(steer_pos_left_fine_pulse_ms) +
+                (uint32_t)(axis->fine_weak_streak - 1U) *
+                STEER_POS_FINE_LEFT_ADAPT_STEP_MS;
+            if (wanted > STEER_POS_FINE_LEFT_ADAPT_CAP_MS)
+              wanted = STEER_POS_FINE_LEFT_ADAPT_CAP_MS;
+            axis->fine_next_pulse_ms = (uint16_t)wanted;
+          }
+        }
+        else
+        {
+          axis->fine_weak_streak = 0U;
+          axis->fine_next_pulse_ms = 0U;
+          if (magnitude < previous_error)
+          {
+            if (axis->fine_good_pulses < 255U)
+              axis->fine_good_pulses++;
+          }
+          else if (magnitude > previous_error)
+          {
+            if (axis->fine_backtrack_pulses < 255U)
+              axis->fine_backtrack_pulses++;
+            /* Reduce pulse length after a moving overshoot/worsening.
+             * No direction is reversed until the next settled update.
+             */
+            if ((left != 0U) &&
+                (steer_pos_left_fine_adapt_enable == 1U))
+            {
+              uint16_t base = Steering_PositionFinePulseMs(
+                  steer_pos_left_fine_pulse_ms);
+              axis->fine_next_pulse_ms =
+                  (base > 17U) ? (uint16_t)(base - 5U) : 12U;
+            }
+          }
+        }
+      }
       if (magnitude <= tol)
       {
         if ((uint32_t)(now - axis->fine_quiet_since_ms) >=
@@ -3652,6 +3753,24 @@ static void Steering_PositionFineUpdate(uint8_t left,
         dir0 = left ? (err > 0) : (err < 0);
         axis->fine_dir0 = dir0;
         axis->fine_start_error = err;
+        axis->fine_pulse_start_raw = raw;
+        axis->fine_eval_pending = 1U;
+        if ((left != 0U) &&
+            (steer_pos_left_fine_adapt_enable == 1U) &&
+            (axis->fine_next_pulse_ms != 0U))
+        {
+          uint16_t adaptive = axis->fine_next_pulse_ms;
+          /* Do not lengthen above 45ms, even if a Live Expression
+           * asks for a larger manual base (manual clamp is 60ms). */
+          if ((adaptive > pulse_ms) &&
+              (pulse_ms < STEER_POS_FINE_LEFT_ADAPT_CAP_MS))
+            pulse_ms = adaptive;
+          else if (adaptive < pulse_ms)
+            pulse_ms = adaptive;
+        }
+        axis->fine_last_pulse_ms = pulse_ms;
+        if (pulse_ms > axis->fine_max_pulse_ms)
+          axis->fine_max_pulse_ms = pulse_ms;
         axis->fine_phase = STEER_POS_FINE_PHASE_PULSE;
         axis->fine_phase_start_ms = now;
         axis->fine_pulses++;
@@ -4083,6 +4202,27 @@ static void Steering_PositionUpdate(void)
     steer_pos_right_fine_fault = 0U;
     steer_pos_left_center_final_raw = 0U;
     steer_pos_right_center_final_raw = 0U;
+    /* A new R1/R2 request must never inherit adaptive pulse history. */
+    steer_left_axis.fine_pulse_start_raw = 0U;
+    steer_right_axis.fine_pulse_start_raw = 0U;
+    steer_left_axis.fine_last_pulse_ms = 0U;
+    steer_right_axis.fine_last_pulse_ms = 0U;
+    steer_left_axis.fine_next_pulse_ms = 0U;
+    steer_right_axis.fine_next_pulse_ms = 0U;
+    steer_left_axis.fine_last_move_raw = 0;
+    steer_right_axis.fine_last_move_raw = 0;
+    steer_left_axis.fine_eval_pending = 0U;
+    steer_right_axis.fine_eval_pending = 0U;
+    steer_left_axis.fine_weak_streak = 0U;
+    steer_right_axis.fine_weak_streak = 0U;
+    steer_left_axis.fine_weak_pulses = 0U;
+    steer_right_axis.fine_weak_pulses = 0U;
+    steer_left_axis.fine_good_pulses = 0U;
+    steer_right_axis.fine_good_pulses = 0U;
+    steer_left_axis.fine_backtrack_pulses = 0U;
+    steer_right_axis.fine_backtrack_pulses = 0U;
+    steer_left_axis.fine_max_pulse_ms = 0U;
+    steer_right_axis.fine_max_pulse_ms = 0U;
     steer_pos_run_count++;
 
     if ((raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
@@ -5293,7 +5433,8 @@ static uint8_t M8S06_DumpStrokes(void)
           "M8S06_AXIS,id=%lu,side=%c,started=%u,finish=%u,"
           "end=%u,reason=%u,raw0=%u,raw1=%u,dRaw=%d,dEnc=%ld,"
           "ms=%lu,avgCps=%lu,peakCps=%lu,ratio1000=%lu,"
-          "ratioValid=%u,frames=%lu\r\n",
+          "ratioValid=%u,frames=%lu,fP=%u,fWeak=%u,fGood=%u,"
+          "fBack=%u,fMaxMs=%u,fLastMove=%d\r\n",
           (unsigned long)p->run_id,
           (side == 0U) ? 'L' : 'R',
           (unsigned)a->started, (unsigned)a->finished,
@@ -5303,7 +5444,10 @@ static uint8_t M8S06_DumpStrokes(void)
           (unsigned long)duration, (unsigned long)avg_cps,
           (unsigned long)a->peak_cps, (unsigned long)ratio,
           (unsigned)(ratio != 0U),
-          (unsigned long)a->sample_frames);
+          (unsigned long)a->sample_frames,
+          (unsigned)a->fine_pulses, (unsigned)a->fine_weak,
+          (unsigned)a->fine_good, (unsigned)a->fine_backtrack,
+          (unsigned)a->fine_max_ms, (int)a->fine_last_move_raw);
       if (M8S00_UartLine(line, n) == 0U) return 0U;
     }
   }
