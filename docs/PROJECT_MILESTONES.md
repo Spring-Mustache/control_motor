@@ -739,3 +739,11 @@ Boot-OFF trial levels 0=300/100, 1=375/150, 2=450/200 CCR. Only D-pad/RX MOVING 
 - Added exact portable C unit tests, static route assertions,
   and M8S00_S142_SYNC telemetry. Source only; no MCU build/flash
   or physical drive test has been performed.
+
+## M8-S14 / M8-S14.2 verifier compatibility on Windows (2026-10-31; source-updated)
+
+- User Windows PowerShell: `git fetch origin` + `git merge --ff-only origin/feature/m7-s15-ps2-controls-restoration-staged` succeeded at `febcd0f13dbe896641aaa4453e7084b960b52d9a`, preserving dirty CubeIDE and log files.
+- The first `python tools/verify_m8_s142_speed.py` stopped at source-reading time with `UnicodeDecodeError` because Windows Python 3.13 used CP1252 default for UTF-8 C source; it did **not** reach any code or host C assertions. Set explicit `encoding='utf-8'` for all three source reads, and use `.exe` on Windows for native host test execution.
+- The first `python tools/verify_m8_s14_sync.py` reported three static mismatches: S14 latch, legacy PI bypass and S14.1 LEFT latch. Checked actual firmware code: S14/S14.1 are intentionally gated by `steer_s142_latched==0` when M8-S14.2 owns manual steering; the old static source-string guards did not account for this. Adjusted those guards to assert exact **new mutually exclusive paths**, not to weaken the controller or ignore failures.
+- All other S14 static markers from the user's run printed PASS. The script exited on the three mismatches **before** any host C test executed.
+- **No MCU source/control-law modification was made by this verifier-only patch**; no CubeIDE build, Flash, bench or hardware PASS established by it. The user's rerun of both Python tools and eventual native C-host test outcome on their Windows PC remain to be observed.

@@ -15,10 +15,21 @@ src = (root / "Core/Src/main.c").read_text(encoding="utf-8")
 math = (root / "Core/Inc/steer_s14_math.h").read_text(encoding="utf-8")
 checks = {
     "optional OFF at boot": "volatile uint8_t steer_s14_manual_enable = 0U;" in src,
-    "mode latched at fresh manual start": "steer_s14_manual_latched = (steer_s14_manual_enable == 1U) ? 1U : 0U;" in src,
+    "mode latched at fresh manual start": bool(re.search(
+        r"Steering_S14ManualReset\(\);\s*"
+        r"steer_s142_latched\s*=\s*Steering_S142Level\(steer_s142_trial_level\);", src)) and
+        bool(re.search(
+        r"steer_s14_manual_latched\s*=\s*"
+        r"\(\(steer_s142_latched\s*==\s*0U\)\s*&&\s*"
+        r"\(steer_s14_manual_enable\s*==\s*1U\)\)\s*\?\s*1U\s*:\s*0U;", src)),
     "S14 exclusive versus S12 waypoint": bool(re.search(
         r"if \(steer_s14_manual_latched == 1U\)\s+Steering_S14ManualApply\(", src)),
-    "old PI bypass for simultaneous S14 moving": "((steer_angle_wp_enable == 1U) ||\n       (steer_s14_manual_latched == 1U))" in src,
+    "old PI bypass for simultaneous S14 moving": bool(re.search(
+        r"else\s+if\s*\(\(\(steer_angle_wp_enable\s*==\s*1U\)\s*\|\|\s*"
+        r"\(steer_s14_manual_latched\s*==\s*1U\)\)\s*&&\s*"
+        r"\(steer_manual_left_state\s*==\s*STEER_MANUAL_MOVING\)\s*&&\s*"
+        r"\(steer_manual_right_state\s*==\s*STEER_MANUAL_MOVING\)\)", src)) and
+        "if(la>300U)la=300U;" in src,
     "stop resets S14 dynamic state": "Steering_S14ManualReset();\n  Steering_ManualLeftOff();" in src,
     "uses already validated AS5600 mapping": src.count("Steering_AngleFromRaw(") >= 10,
     "no S13 equal-angle flag restored": "steer_angle_wp_manual_equal_angle_enable" not in src,
@@ -32,8 +43,12 @@ checks = {
         "trim_left_pwm" in math and "trim_right_pwm" in math and
         "__HAL_TIM_SET_COMPARE" not in math and "HAL_GPIO_WritePin" not in math,
     "S14.1 boot OFF": "volatile uint8_t steer_s141_left_enable = 0U;" in src,
-    "S14.1 LEFT only latch": "(steer_s141_left_enable == 1U) && (command < 0)" in src and
-        "((steer_s14_manual_latched != 0U) &&" in src,
+    "S14.1 LEFT only latch": bool(re.search(
+        r"steer_s141_left_latched\s*=\s*"
+        r"\(\(steer_s142_latched\s*==\s*0U\)\s*&&\s*"
+        r"\(steer_s14_manual_latched\s*!=\s*0U\)\s*&&\s*"
+        r"\(steer_s141_left_enable\s*==\s*1U\)\s*&&\s*"
+        r"\(command\s*<\s*0\)\)\s*\?\s*1U\s*:\s*0U;", src)),
     "S14.1 near-RIGHT-cap gate": "(*duty_r >= STEER_S141_RIGHT_NEAR_CAP_PWM)" in src and
         "#define STEER_S141_RIGHT_NEAR_CAP_PWM 98U" in src,
     "S14.1 original S14 preserved": "baseline_plan = M8S14_Plan(" in src and
