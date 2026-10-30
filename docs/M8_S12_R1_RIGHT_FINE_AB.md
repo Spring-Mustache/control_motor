@@ -56,10 +56,14 @@
 3. Stop all motors/disarm; change ONLY `steer_pos_right_fine_enter_raw=20`.
    Repeat from comparable start RAW locations with the same duty and
    control conditions. Capture M8-S11 CSV to PC at 100ms.
-4. After the stream ends and all axes/owners are disarmed, dump M8-S00
-   text for the last R1 using the existing stopped-only workflow.
-   Save both CSV and M8-S00 TXT, including `M8S00_TIMING`,
-   `M8S00_FINE` and `M8S00_ARRIVAL`.
+4. At the end of each R1, note read-only Live Expressions
+   `steer_pos_left_fine_pulses` and `steer_pos_right_fine_pulses`
+   while the axes are stopped. Once M8-S11 stream has ended and all
+   steering owners are disarmed, export M8-S00 separately, including
+   `M8S00_TIMING` and `M8S00_ARRIVAL`. Its STOP/FAULT `M8S00_FINE`
+   snapshot may belong to an earlier command, not the latest R1;
+   do not falsely attribute it to the final run. M8-S11 100ms CSV
+   does NOT resolve individual 40ms pulse widths.
 5. Acceptance requires BOTH axes reached from ONE R1 press at
    LEFT 1873 +/-5 RAW and RIGHT 662 +/-5 RAW after settle, no
    reverse pulse/overshoot outside acceptance, no code 10, no
