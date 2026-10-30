@@ -15,6 +15,8 @@ checks={
   'NC atomic CCR check':'primask = __get_PRIMASK();\n  __disable_irq();\n  mask = Steering_TestRawLimitMask();' in s,
   'old hard cap retained':'#define STEER_MANUAL_PWM_HARD_MAX     400U' in s,
   'S14 gain bypass':'if (steer_s142_latched != 0U)\n    {\n      /* Speed-priority experiment' in s,
+  'NC escape original ceiling':'if (pwm > escape_cap) pwm = escape_cap;' in s and
+      'uint16_t escape_cap = (left != 0U) ? 300U : 100U;' in s,
   'new telemetry':'M8S00_S142,level=%u,last=%u,' in s,
   'header has no motor IO':'__HAL_TIM_SET_COMPARE' not in h and 'HAL_GPIO_WritePin' not in h
 }

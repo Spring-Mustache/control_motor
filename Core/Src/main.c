@@ -6535,6 +6535,15 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
       Steering_ManualAxisFault(left, STEER_MANUAL_RESULT_STALL);
       return;
     }
+    /* M8-S14.2 must NOT increase power when departing an asserted
+     * NC. Even if the new manual cap was preselected, retain the
+     * original <=300 LEFT / <=100 RIGHT escape envelope.
+     */
+    if (steer_s142_latched != 0U)
+    {
+      uint16_t escape_cap = (left != 0U) ? 300U : 100U;
+      if (pwm > escape_cap) pwm = escape_cap;
+    }
     *apply = Steering_ManualClampPWM(pwm);
     return;
   }
