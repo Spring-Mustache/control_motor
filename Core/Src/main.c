@@ -2918,6 +2918,17 @@ static uint16_t Steering_AngleStrokeProgress(int16_t start,
  */
 volatile uint8_t steer_s14_manual_enable = 0U;
 volatile uint8_t steer_s14_manual_latched = 0U;
+/* Independent S14.1 experimental flag, OFF by default, latched once per
+ * new LEFT manual command. No PWM cap or motor owner authority changes.
+ */
+#define STEER_S141_RIGHT_NEAR_CAP_PWM 98U
+volatile uint8_t steer_s141_left_enable = 0U;
+volatile uint8_t steer_s141_left_latched = 0U;
+volatile uint8_t steer_s141_last_mode = 0U;
+volatile uint8_t steer_s141_last_right_near_cap = 0U;
+volatile uint16_t steer_s141_last_base_trim_l = 0U;
+volatile uint16_t steer_s141_last_plan_trim_l = 0U;
+volatile uint32_t steer_s141_extra_trim_frames = 0U;
 volatile uint8_t steer_s14_last_mode = 0U;
 volatile int16_t steer_s14_last_gap_cdeg = 0;
 volatile int16_t steer_s14_last_predict_cdeg = 0;
@@ -2948,6 +2959,7 @@ static void Steering_S14ManualReset(void)
   steer_s14_trim_l_pwm = 0U;
   steer_s14_trim_r_pwm = 0U;
   steer_s14_manual_latched = 0U;
+  steer_s141_left_latched = 0U;
   /* Keep last-run mode, errors and counters for post-disarm UART. */
 }
 
@@ -2996,7 +3008,7 @@ static void Steering_S14ManualApply(uint16_t start_l, uint16_t goal_l,
   int32_t dl, dr, travel_l, travel_r, gap;
   uint16_t dist_l, dist_r, min_dist, room_l, room_r;
   uint32_t now = HAL_GetTick();
-  M8S14Plan_t plan;
+  M8S14Plan_t plan, baseline_plan;
 
   /* Output-only: never energize a channel that its own owner stopped.
    * Recheck both sensor ages; normal motion/NC guards run separately.
@@ -3066,9 +3078,24 @@ static void Steering_S14ManualApply(uint16_t start_l, uint16_t goal_l,
   gap = travel_l - travel_r;
   if (gap > 9000) gap = 9000;
   if (gap < -9000) gap = -9000;
-  plan = M8S14_Plan((int16_t)gap,
-                    steer_s14_obs_l.speed_cdeg_s,
-                    steer_s14_obs_r.speed_cdeg_s, min_dist);
+  baseline_plan = M8S14_Plan((int16_t)gap,
+                             steer_s14_obs_l.speed_cdeg_s,
+                             steer_s14_obs_r.speed_cdeg_s, min_dist);
+  plan = baseline_plan;
+  if (steer_s141_left_latched != 0U)
+  {
+    uint8_t right_near_cap =
+        (*duty_r >= STEER_S141_RIGHT_NEAR_CAP_PWM) ? 1U : 0U;
+    steer_s141_last_right_near_cap = right_near_cap;
+    plan = M8S141_PlanLeftSaturated((int16_t)gap,
+            steer_s14_obs_l.speed_cdeg_s,
+            steer_s14_obs_r.speed_cdeg_s, min_dist, right_near_cap);
+    steer_s141_last_base_trim_l = baseline_plan.trim_left_pwm;
+    steer_s141_last_plan_trim_l = plan.trim_left_pwm;
+    if ((plan.trim_left_pwm > baseline_plan.trim_left_pwm) &&
+        (steer_s141_extra_trim_frames != 0xffffffffUL))
+      steer_s141_extra_trim_frames++;
+  }
   steer_s14_last_gap_cdeg = (int16_t)gap;
   steer_s14_last_predict_cdeg = plan.predicted_error_cdeg;
   steer_s14_speed_l_cdeg_s = steer_s14_obs_l.speed_cdeg_s;
@@ -5597,6 +5624,19 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned)steer_s14_trim_l_pwm,
       (unsigned)steer_s14_trim_r_pwm);
   if (M8S00_UartLine(line, n) == 0U) return 0U;
+  /* S14.1 A/B diagnostics. last is the previous command's latched mode.
+   * Extra frames count requested taper increase, NOT measured success.
+   */
+  n = snprintf(line, sizeof(line),
+      "M8S00_S141,enable=%u,last=%u,rightNearCap=%u,"
+      "extraFrames=%lu,baseTrimL=%u,planTrimL=%u\r\n",
+      (unsigned)steer_s141_left_enable,
+      (unsigned)steer_s141_last_mode,
+      (unsigned)steer_s141_last_right_near_cap,
+      (unsigned long)steer_s141_extra_trim_frames,
+      (unsigned)steer_s141_last_base_trim_l,
+      (unsigned)steer_s141_last_plan_trim_l);
+  if (M8S00_UartLine(line, n) == 0U) return 0U;
 
   /* Separate encoder RPM from normalized AS5600 travel speed.
    * cpr=0 -> rpmValid=0, with counts/s retained for calibration.
@@ -6891,6 +6931,13 @@ static void Steering_ManualUpdate(void)
     Steering_S14ManualReset();
     steer_s14_manual_latched = (steer_s14_manual_enable == 1U) ? 1U : 0U;
     steer_s14_last_mode = steer_s14_manual_latched;
+    steer_s141_left_latched =
+        ((steer_s14_manual_latched != 0U) &&
+         (steer_s141_left_enable == 1U) && (command < 0)) ? 1U : 0U;
+    steer_s141_last_mode = steer_s141_left_latched;
+    steer_s141_last_right_near_cap = 0U;
+    steer_s141_last_base_trim_l = 0U;
+    steer_s141_last_plan_trim_l = 0U;
     m8_s05_manual_kind =
         ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U)) ? 3U : 4U;
     M8S00_ArrivalBegin(3U, (left_direction < 0) ? 3U : 4U,

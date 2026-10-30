@@ -28,6 +28,29 @@ int main(void)
   assert(M8S14_Slew(80, 0, 8) == 72);
   assert(M8S14_Slew(0, 100, 100) == 12);
   assert(M8S14_Slew(10, 11, 8) == 11);
-  puts("M8-S14 pure C planner: PASS");
+
+  /* M8-S14.1: stronger LEFT taper only under the saturated-RIGHT gate. */
+  {
+    M8S14Plan_t base = M8S14_Plan(150, 1000, 800, 400);
+    M8S14Plan_t tuned = M8S141_PlanLeftSaturated(150, 1000, 800, 400, 1);
+    M8S14Plan_t no_cap = M8S141_PlanLeftSaturated(150, 1000, 800, 400, 0);
+    assert(tuned.trim_left_pwm > base.trim_left_pwm);
+    assert(tuned.trim_right_pwm == base.trim_right_pwm);
+    assert(no_cap.trim_left_pwm == base.trim_left_pwm);
+    assert(no_cap.trim_right_pwm == base.trim_right_pwm);
+    p = M8S141_PlanLeftSaturated(-300, 500, 900, 400, 1);
+    assert(p.trim_left_pwm == 0 && p.trim_right_pwm > 0);
+    p = M8S141_PlanLeftSaturated(150, 1000, 800, 100, 1);
+    assert(p.trim_left_pwm == 0 && p.trim_right_pwm == 0);
+    p = M8S141_PlanLeftSaturated(150, 1000, 800, 150, 1);
+    assert(p.trim_left_pwm > 0 && p.trim_left_pwm < tuned.trim_left_pwm);
+    p = M8S141_PlanLeftSaturated(7000, 6000, 0, 400, 1);
+    assert(p.trim_left_pwm == 96 && p.trim_right_pwm == 0);
+    p = M8S141_PlanLeftSaturated(0, 800, 800, 400, 1);
+    assert(p.trim_left_pwm == 0 && p.trim_right_pwm == 0);
+    p = M8S141_PlanLeftSaturated(0, 1500, 500, 400, 1);
+    assert(p.trim_left_pwm > 0);
+  }
+  puts("M8-S14 and M8-S14.1 C planner: PASS");
   return 0;
 }

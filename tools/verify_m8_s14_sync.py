@@ -31,6 +31,17 @@ checks = {
     "S14 only requests taper": "M8S14_Plan" in math and
         "trim_left_pwm" in math and "trim_right_pwm" in math and
         "__HAL_TIM_SET_COMPARE" not in math and "HAL_GPIO_WritePin" not in math,
+    "S14.1 boot OFF": "volatile uint8_t steer_s141_left_enable = 0U;" in src,
+    "S14.1 LEFT only latch": "(steer_s141_left_enable == 1U) && (command < 0)" in src and
+        "((steer_s14_manual_latched != 0U) &&" in src,
+    "S14.1 near-RIGHT-cap gate": "(*duty_r >= STEER_S141_RIGHT_NEAR_CAP_PWM)" in src and
+        "#define STEER_S141_RIGHT_NEAR_CAP_PWM 98U" in src,
+    "S14.1 original S14 preserved": "baseline_plan = M8S14_Plan(" in src and
+        "plan = baseline_plan;" in src,
+    "S14.1 tapered-only planner": "M8S141_PlanLeftSaturated" in math and
+        "plan.trim_left_pwm = (uint16_t)stronger;" in math and
+        "plan.trim_right_pwm = (uint16_t)stronger;" not in math,
+    "S14.1 diagnostic present": "M8S00_S141,enable=%u,last=%u,rightNearCap=%u," in src,
     "S14 export after disarm": '"M8S00_S14,boot=%u,last=%u,frames=%lu,"' in src,
     "S14 UART line CRLF framing": "\"trimL=%u,trimR=%u\\r\\n\"," in src,
 }

@@ -63,4 +63,32 @@ static inline M8S14Plan_t M8S14_Plan(int16_t error_cdeg,
   }
   return plan;
 }
+
+/* M8-S14.1: opt-in saturation-aware LEFT taper, never PWM boost.
+ * The caller may enable this variant only for a LEFT steering command.
+ */
+static inline M8S14Plan_t M8S141_PlanLeftSaturated(
+    int16_t error_cdeg, uint16_t speed_l_cdeg_s,
+    uint16_t speed_r_cdeg_s, uint16_t distance_min_raw,
+    uint8_t right_near_cap)
+{
+  M8S14Plan_t plan = M8S14_Plan(error_cdeg, speed_l_cdeg_s,
+                                speed_r_cdeg_s, distance_min_raw);
+  uint32_t stronger;
+  if ((right_near_cap == 0U) || (distance_min_raw <= 100U) ||
+      (plan.predicted_error_cdeg <= 30))
+    return plan;
+  /* LEFT leads >0.30 deg and RIGHT is nearly at 100 CCR:
+   * 60 CCR per degree beyond deadband. Original LEFT trim cap
+   * 96 CCR and final 200->100 RAW fade are preserved.
+   */
+  stronger = ((uint32_t)(plan.predicted_error_cdeg - 30) * 60U) / 100U;
+  if (stronger > 96U) stronger = 96U;
+  if (distance_min_raw < 200U)
+    stronger = stronger * (distance_min_raw - 100U) / 100U;
+  if (stronger > plan.trim_left_pwm)
+    plan.trim_left_pwm = (uint16_t)stronger;
+  return plan;
+}
+
 #endif /* STEER_S14_MATH_H */

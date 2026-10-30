@@ -706,3 +706,16 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
   Clean Build/flash, controlled A/B 4 directions with repeats, R1/R2,
   6-motor concurrent regression, physical NC/STOP/power-isolation
   verification and later ground-load Gate A. Do not claim M8 PASS.
+
+## M8-S14.1 — Saturation-aware LEFT taper (2026-10-30; SOURCE-STAGED)
+
+- Archived S14 CSV showed LEFT steering regressed vs S12, with
+  RIGHT saturated at 100 CCR for 84–86% of active LEFT frames.
+- Added boot-OFF experimental S14.1 option, latched only with S14
+  manual LEFT commands; stronger bounded LEFT taper solely when
+  RIGHT nears 100 CCR. RIGHT manual, R1/R2, NC/STOP, wheel
+  control and tested 300/100 PWM limits remain untouched.
+- Added unit cases, static guard, post-DISARM M8S00_S141 data.
+- See docs/M8_S14_1_LEFT_SATURATION_TAPER.md.
+- PENDING: CubeIDE Clean Build, Flash, A/B multi-trial measurements,
+  electrical protections and future whole-vehicle regression.
