@@ -29,6 +29,7 @@
 #include "vc02.h"
 #include "as5600.h"
 #include "steer_s14_math.h"
+#include "steer_s142_speed.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -2923,6 +2924,17 @@ volatile uint8_t steer_s14_manual_latched = 0U;
  */
 #define STEER_S141_RIGHT_NEAR_CAP_PWM 98U
 volatile uint8_t steer_s141_left_enable = 0U;
+/* 0=OFF, 1=375/150, 2=450/200; frozen at next manual command. */
+volatile uint8_t steer_s142_trial_level = 0U;
+volatile uint8_t steer_s142_latched = 0U;
+volatile uint8_t steer_s142_last = 0U;
+volatile uint16_t steer_s142_prev_l = 300U;
+volatile uint16_t steer_s142_prev_r = 100U;
+volatile uint16_t steer_s142_peak_l = 0U;
+volatile uint16_t steer_s142_peak_r = 0U;
+volatile uint32_t steer_s142_high_l_frames = 0U;
+volatile uint32_t steer_s142_high_r_frames = 0U;
+volatile uint32_t steer_s142_soft_frames = 0U;
 volatile uint8_t steer_s141_left_latched = 0U;
 volatile uint8_t steer_s141_last_mode = 0U;
 volatile uint8_t steer_s141_last_right_near_cap = 0U;
@@ -2960,6 +2972,7 @@ static void Steering_S14ManualReset(void)
   steer_s14_trim_r_pwm = 0U;
   steer_s14_manual_latched = 0U;
   steer_s141_left_latched = 0U;
+  steer_s142_latched = 0U;
   /* Keep last-run mode, errors and counters for post-disarm UART. */
 }
 
@@ -5637,6 +5650,18 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned)steer_s141_last_base_trim_l,
       (unsigned)steer_s141_last_plan_trim_l);
   if (M8S00_UartLine(line, n) == 0U) return 0U;
+  /* Owner demand only: not measured physical RPM or stopping distance. */
+  n=snprintf(line,sizeof(line),
+      "M8S00_S142,level=%u,last=%u,higherL=%lu,higherR=%lu,"
+      "soft=%lu,peakL=%u,peakR=%u\r\n",
+      (unsigned)steer_s142_trial_level,
+      (unsigned)steer_s142_last,
+      (unsigned long)steer_s142_high_l_frames,
+      (unsigned long)steer_s142_high_r_frames,
+      (unsigned long)steer_s142_soft_frames,
+      (unsigned)steer_s142_peak_l,
+      (unsigned)steer_s142_peak_r);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
 
   /* Separate encoder RPM from normalized AS5600 travel speed.
    * cpr=0 -> rpmValid=0, with counts/s retained for calibration.
@@ -6141,6 +6166,20 @@ static uint16_t Steering_ManualRXDuty(uint16_t minimum, uint16_t maximum,
   return (uint16_t)scaled;
 }
 
+/* M8-S14.2 applies exclusively to manually owned MOVING output. */
+static uint8_t Steering_S142Level(uint8_t v)
+{
+  return (v<=2U)?v:0U;
+}
+static uint16_t Steering_S142Demand(uint8_t left,uint16_t amount,uint8_t dpad)
+{
+  uint16_t cap=M8S142_Cap(left,steer_s142_latched);
+  uint16_t low=left?steer_manual_left_rx_min_pwm:
+                    steer_manual_right_rx_min_pwm;
+  if(dpad!=0U)return cap;
+  return M8S142_RX(Steering_ManualClampPWM(low),cap,amount);
+}
+
 static void Steering_ManualLeftOff(void)
 {
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
@@ -6552,13 +6591,41 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
    * verify physical stopping distance; increase clearance as needed.
    * Never raise a low joystick PWM to the configured approach floor.
    */
-  pwm = Steering_ManualClampPWM(pwm);
-  /* For both D-pad and joystick RX, boost only while safely outside
-   * the existing 100-RAW coast/soft-stop approach window. The cap is
-   * the independently tested 300 LEFT / 100 RIGHT PWM.
-   */
-  pwm = Steering_SpeedTrialPWM(pwm, (left != 0U) ? 300U : 100U,
-                               distance);
+  if(steer_s142_latched!=0U)
+  {
+    uint16_t old_cap=(left!=0U)?300U:100U;
+    uint16_t cap=M8S142_Envelope(left,steer_s142_latched,distance);
+    uint16_t previous=(left!=0U)?steer_s142_prev_l:steer_s142_prev_r;
+    if(pwm>cap)pwm=cap;
+    pwm=Steering_SpeedTrialPWM(pwm,cap,distance);
+    pwm=M8S142_Rise(pwm,previous,old_cap);
+    if(left!=0U)
+    {
+      steer_s142_prev_l=pwm;
+      if(pwm>old_cap)
+      {
+        if(steer_s142_high_l_frames!=0xffffffffUL)steer_s142_high_l_frames++;
+        if(pwm>steer_s142_peak_l)steer_s142_peak_l=pwm;
+      }
+    }
+    else
+    {
+      steer_s142_prev_r=pwm;
+      if(pwm>old_cap)
+      {
+        if(steer_s142_high_r_frames!=0xffffffffUL)steer_s142_high_r_frames++;
+        if(pwm>steer_s142_peak_r)steer_s142_peak_r=pwm;
+      }
+    }
+    if((cap<M8S142_Cap(left,steer_s142_latched)) &&
+       (steer_s142_soft_frames!=0xffffffffUL))
+      steer_s142_soft_frames++;
+  }
+  else
+  {
+    pwm=Steering_ManualClampPWM(pwm);
+    pwm=Steering_SpeedTrialPWM(pwm,(left!=0U)?300U:100U,distance);
+  }
   if (distance < STEER_MANUAL_APPROACH_WINDOW_RAW)
   {
     uint16_t floor_pwm = left ? steer_manual_left_rx_min_pwm :
@@ -6893,8 +6960,16 @@ static void Steering_ManualUpdate(void)
 
   if ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U))
   {
-    lpwm = Steering_ManualClampPWM(steer_manual_left_dpad_pwm);
-    rpwm = Steering_ManualClampPWM(steer_manual_right_dpad_pwm);
+    if(steer_s142_latched!=0U)
+    {
+      lpwm=Steering_S142Demand(1U,117U,1U);
+      rpwm=Steering_S142Demand(0U,117U,1U);
+    }
+    else
+    {
+      lpwm=Steering_ManualClampPWM(steer_manual_left_dpad_pwm);
+      rpwm=Steering_ManualClampPWM(steer_manual_right_dpad_pwm);
+    }
   }
   else
   {
@@ -6907,10 +6982,18 @@ static void Steering_ManualUpdate(void)
     }
     magnitude -= 10U;
     if (magnitude > 117U) magnitude = 117U;
-    lpwm = Steering_ManualRXDuty(steer_manual_left_rx_min_pwm,
-                                 steer_manual_left_rx_max_pwm, magnitude);
-    rpwm = Steering_ManualRXDuty(steer_manual_right_rx_min_pwm,
-                                 steer_manual_right_rx_max_pwm, magnitude);
+    if(steer_s142_latched!=0U)
+    {
+      lpwm=Steering_S142Demand(1U,magnitude,0U);
+      rpwm=Steering_S142Demand(0U,magnitude,0U);
+    }
+    else
+    {
+      lpwm=Steering_ManualRXDuty(steer_manual_left_rx_min_pwm,
+                                 steer_manual_left_rx_max_pwm,magnitude);
+      rpwm=Steering_ManualRXDuty(steer_manual_right_rx_min_pwm,
+                                 steer_manual_right_rx_max_pwm,magnitude);
+    }
   }
 
   if (steer_manual_active == 0U)
@@ -6929,10 +7012,14 @@ static void Steering_ManualUpdate(void)
 
     steer_manual_begin_ms = now;
     Steering_S14ManualReset();
+    steer_s142_latched = Steering_S142Level(steer_s142_trial_level);
+    steer_s142_last = steer_s142_latched;
+    steer_s142_prev_l=300U; steer_s142_prev_r=100U;
     steer_s14_manual_latched = (steer_s14_manual_enable == 1U) ? 1U : 0U;
     steer_s14_last_mode = steer_s14_manual_latched;
     steer_s141_left_latched =
-        ((steer_s14_manual_latched != 0U) &&
+        ((steer_s142_latched == 0U) &&
+         (steer_s14_manual_latched != 0U) &&
          (steer_s141_left_enable == 1U) && (command < 0)) ? 1U : 0U;
     steer_s141_last_mode = steer_s141_left_latched;
     steer_s141_last_right_near_cap = 0U;
@@ -7111,18 +7198,25 @@ static void Steering_ManualUpdate(void)
    * normal RIGHT completion and all non-waypoint/manual escape modes.
    * Preserve its tested LEFT max-300 PWM envelope when bypassed.
    */
-  if (((steer_angle_wp_enable == 1U) ||
-       (steer_s14_manual_latched == 1U)) &&
-      (steer_manual_left_state == STEER_MANUAL_MOVING) &&
-      (steer_manual_right_state == STEER_MANUAL_MOVING))
+  if(steer_s142_latched!=0U)
   {
-    if (la > 300U) la = 300U;
-    steer_sync_active = 0U;
-    steer_sync_left_pwm_command = la;
-    steer_sync_right_pwm_reference = ra;
+    /* Experimental speed priority, no PI 300 ceiling or leader taper. */
+    steer_sync_active=0U;
+    steer_sync_left_pwm_command=la;
+    steer_sync_right_pwm_reference=ra;
+  }
+  else if (((steer_angle_wp_enable == 1U) ||
+            (steer_s14_manual_latched == 1U)) &&
+           (steer_manual_left_state == STEER_MANUAL_MOVING) &&
+           (steer_manual_right_state == STEER_MANUAL_MOVING))
+  {
+    if(la>300U)la=300U;
+    steer_sync_active=0U;
+    steer_sync_left_pwm_command=la;
+    steer_sync_right_pwm_reference=ra;
   }
   else
-    Steering_SyncApply(HAL_GetTick(), la, ra, &la);
+    Steering_SyncApply(HAL_GetTick(),la,ra,&la);
 
   /* AS5600 two-axis speed/phase feedback may BOOST the slower motor,
    * but only within tested per-axis caps and outside coast clearance.
@@ -7133,7 +7227,11 @@ static void Steering_ManualUpdate(void)
       (steer_manual_left_axis.phase_start_valid != 0U) &&
       (steer_manual_right_axis.phase_start_valid != 0U))
   {
-    if (steer_s14_manual_latched == 1U)
+    if (steer_s142_latched != 0U)
+    {
+      /* Speed-priority experiment: skip S14/S14.1 leader taper. */
+    }
+    else if (steer_s14_manual_latched == 1U)
       Steering_S14ManualApply(
           steer_manual_left_axis.phase_start_raw,
           steer_manual_left_soft_target, debug_as5600_left_raw,

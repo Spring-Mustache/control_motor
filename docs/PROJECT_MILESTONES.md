@@ -719,3 +719,7 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - See docs/M8_S14_1_LEFT_SATURATION_TAPER.md.
 - PENDING: CubeIDE Clean Build, Flash, A/B multi-trial measurements,
   electrical protections and future whole-vehicle regression.
+
+## M8-S14.2 staged manual speed ceiling
+
+Boot-OFF trial levels 0=300/100, 1=375/150, 2=450/200 CCR. Only D-pad/RX MOVING path; speed-priority bypasses S14.1 leader taper but retains independent NC/STOP/SOFT/AS5600/stall guards, earlier R1/R2 and wheel PWM. Trial caps fade back to 300/100 by 180 RAW to SOFT and have 12-CCR rise limit. Need CubeIDE build, power isolation, level-1 bench validation before level 2. See docs/M8_S14_2_SPEED_CEILINGS.md. NOT HARDWARE PASS.
