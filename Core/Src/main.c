@@ -1909,15 +1909,18 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
  * A failed tight ±5 result is reported as error, never claimed as PASS.
  * R2 MIN retains bounded approach PWM, but requires physical NC to finish.
  */
-/* M8-S12: R1 RIGHT fine-entry threshold is an opt-in Live Expressions
- * tuning parameter. Its power-on default remains the measured/accepted
- * M8-S11 baseline 35 RAW; trial 20-30 RAW ONLY while motor is stopped.
- * Clamp the consumed value to 15..35 RAW even if edited out of range.
- * LEFT, R2, fine pulse PWM/duration, ±5 acceptance, NC and STOP unchanged.
+/* M8-S12: operator's best repeat-tested R1 RIGHT Live Expressions
+ * were enter_raw=10 / fine_pwm=85 / pulse_ms=10. Actual consumed values
+ * are enter_raw=15 and pulse_ms=12 due to the EXISTING lower clamps.
+ * Make those EFFECTIVE values the power-on defaults, while preserving
+ * the historical 35 RAW handoff as an in-place A/B rollback.
+ * Residual final trim jerk remains; do not classify as motion-quality PASS.
+ * Only change these tunables while ALL steering PWM is off.
+ * NC/STOP, 8-pulse limit and +/-5 RAW acceptance remain unchanged.
  */
-#define STEER_POS_FINE_ENTER_RAW       35U
+#define STEER_POS_FINE_ENTER_RAW       35U /* legacy upper limit */
 #define STEER_POS_FINE_RIGHT_MIN_RAW   15U
-volatile uint16_t steer_pos_right_fine_enter_raw = STEER_POS_FINE_ENTER_RAW;
+volatile uint16_t steer_pos_right_fine_enter_raw = STEER_POS_FINE_RIGHT_MIN_RAW;
 /* M8: LEFT previously entered short-pulse fine mode at 35 RAW and
  * failed with code=10 still 22 RAW from CENTER. Keep its proven
  * continuous/coarse PWM down to 15 RAW instead of requiring many
@@ -2004,7 +2007,7 @@ volatile uint16_t steer_pos_right_pwm_max = 100U;
 volatile uint16_t steer_pos_left_fine_pwm = 175U;
 volatile uint16_t steer_pos_right_fine_pwm = 85U;
 volatile uint16_t steer_pos_left_fine_pulse_ms = 30U;
-volatile uint16_t steer_pos_right_fine_pulse_ms = 40U;
+volatile uint16_t steer_pos_right_fine_pulse_ms = 12U; /* operator trial effective 10->12 ms clamp */
 volatile uint8_t steer_pos_left_fine_phase = 0U;
 volatile uint8_t steer_pos_right_fine_phase = 0U;
 volatile uint8_t steer_pos_left_fine_pulses = 0U;
