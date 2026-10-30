@@ -1,0 +1,51 @@
+name: Publish versioned context handoff
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: context-handoff-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish-handoff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the exact pushed commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+
+      - name: Build source-grounded handoff bundle
+        run: python3 tools/build_context_release.py --output dist/context-release
+
+      - name: Publish one GitHub prerelease per commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="context-${GITHUB_SHA}"
+          short="${GITHUB_SHA:0:12}"
+          bundle="dist/context-release/context-handoff-${short}.zip"
+          status="dist/context-release/RELEASE_STATUS.md"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            # Idempotent on workflow rerun; update assets with same commit tag.
+            gh release upload "${tag}" "${bundle}" "${status}" --clobber
+          else
+            gh release create "${tag}" \
+              --target "${GITHUB_SHA}" \
+              --title "Context handoff | ${GITHUB_REF_NAME} | ${short}" \
+              --notes-file "${status}" \
+              --prerelease \
+              --latest=false \
+              "${bundle}" "${status}"
+          fi
