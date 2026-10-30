@@ -29,6 +29,10 @@ Workflow `context-handoff-release.yml` theo dõi **push tới tất cả nhánh 
 
 Release được đánh dấu `prerelease` với `--latest=false` để không giả làm phiên bản firmware chính thức. Tên tag `context-<full SHA>` tránh trùng giữa các nhánh, không có lệnh push commit từ workflow nên không tạo vòng lặp vô hạn. Re-run workflow cập nhật ZIP cùng tag. Repository cần cho phép GitHub Actions và `GITHUB_TOKEN` có quyền `contents: write`; nếu chính sách repository chặn, Action sẽ thất bại và **không có bản phát hành**: kiểm tra log, quyền ở Settings → Actions và chạy lại. Không ghi secret/token vào tài liệu.
 
+## Lời nhắn chuyển tiếp dùng trong mọi cuộc hội thoại mới
+
+Dùng [`docs/CHAT_B_START_PROMPT.md`](CHAT_B_START_PROMPT.md) làm lời nhắn đầu tiên trong cuộc hội thoại B (có thể sao chép nguyên văn). Lời nhắn bắt đầu bằng việc xác minh HEAD của nhánh đang làm, tìm `context-<SHA>` đúng với nhánh và mở `RELEASE_STATUS.md`; sau đó đọc **`CONTEXT_HANDOFF.md` tại thư mục gốc** cùng roadmap. Không yêu cầu người dùng phải đính kèm lại file tĩnh khi có thể truy cập release. Workflow cũng đóng gói lời nhắn này vào ZIP để dùng ở các cuộc hội thoại C/D tiếp theo.
+
 ## Checklist của hội thoại B
 
 1. Xác nhận SHA **đúng nhánh** từ `RELEASE_STATUS.md` và GitHub; xác nhận mã trên Windows trùng phiên bản dự kiến.

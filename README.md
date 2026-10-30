@@ -12,6 +12,7 @@ Firmware điều khiển 4 motor bánh + 2 motor đánh lái, PS2, VC-02, AS5600
 4. Gửi link Release cho cuộc hội thoại B. B phải đối chiếu mã nguồn đúng SHA trước khi sửa firmware.
 5. Khi có kết quả thử hoặc quyết định mới từ chat: cập nhật docs/PROJECT_MILESTONES.md và commit/push để bản Release kế tiếp phản ánh thông tin đó.
 
+- [Lời nhắn mở đầu cuộc hội thoại B (sao chép để sử dụng)](docs/CHAT_B_START_PROMPT.md)
 - [Hồ sơ bàn giao 17 mục](CONTEXT_HANDOFF.md)
 - [Roadmap](docs/PROJECT_MILESTONES.md)
 - [Quy tắc phát hành và giới hạn](docs/CONTEXT_RELEASE_POLICY.md)

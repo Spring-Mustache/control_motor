@@ -34,13 +34,13 @@ def main() -> None:
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     handoff = root / "CONTEXT_HANDOFF.md"
     if not handoff.is_file():
-        raise SystemExit("Missing docs/CONTEXT_HANDOFF.md: cannot publish an incomplete handoff")
+        raise SystemExit("Missing CONTEXT_HANDOFF.md at repository root: cannot publish an incomplete handoff")
     if not (root / "docs" / "PROJECT_MILESTONES.md").is_file():
         raise SystemExit("Missing docs/PROJECT_MILESTONES.md")
 
     status = f"""# PROJECT RELEASE HANDOFF — {sha[:12]}
 
-> **Bắt đầu từ đây khi chuyển sang cuộc hội thoại B.** Bản này được tạo tự động từ commit thật. Nội dung chat/kiểm thử ngoài GitHub **không thể tự suy ra**. Xem thêm `docs/CONTEXT_HANDOFF.md` và tài liệu trạng thái mới nhất.
+> **Bắt đầu từ đây khi chuyển sang cuộc hội thoại B.** Bản này được tạo tự động từ commit thật. Nội dung chat/kiểm thử ngoài GitHub **không thể tự suy ra**. Xem thêm `CONTEXT_HANDOFF.md` và tài liệu trạng thái mới nhất.
 
 - Repository: https://github.com/{repo}
 - Nhánh của lần cập nhật: `{branch}`
@@ -50,7 +50,7 @@ def main() -> None:
 - Giờ tạo gói (UTC): {stamp}
 - Mốc nghiên cứu hiện hành tại lần tạo hồ sơ ban đầu: M8-S14.2, cross-coupled steering (đọc lại roadmap và diff để xác minh mốc đã đổi hay chưa).
 - **Trạng thái Build/Flash/hardware của commit này: CHƯA KIỂM CHỨNG trong gói bàn giao**, trừ khi có bằng chứng kiểm thử riêng, ghi rõ trong commit/release. GitHub Actions tạo file này **không** phải build STM32 hoặc thử trên xe.
-- `docs/CONTEXT_HANDOFF.md` là hồ sơ lịch sử chụp tại thời điểm ban đầu; **SHA nằm trong hồ sơ có thể cũ**. Ưu tiên SHA và lịch sử commit nêu trong file release này; không tự nhận văn bản tĩnh đã cập nhật diễn biến chat.
+- `CONTEXT_HANDOFF.md` là hồ sơ lịch sử chụp tại thời điểm ban đầu; **SHA nằm trong hồ sơ có thể cũ**. Ưu tiên SHA và lịch sử commit nêu trong file release này; không tự nhận văn bản tĩnh đã cập nhật diễn biến chat.
 - Trạng thái lỗi FIRST-STOP RIGHT được **người dùng báo đã fix** (xem hồ sơ), không coi là lỗi còn mở chỉ vì tài liệu cũ viết khác; nguồn/commit sửa chi tiết có thể chưa được đối chiếu.
 
 ## Đúng commit này thay đổi những gì
@@ -68,11 +68,12 @@ def main() -> None:
 ## Tài liệu để B kiểm tra theo thứ tự
 
 1. File này: `RELEASE_STATUS.md` (SHA hiện hành và các thay đổi gần nhất).
-2. `docs/CONTEXT_HANDOFF.md` (hồ sơ lịch sử A→B, **không tự cập nhật từ chat**).
-3. `docs/PROJECT_MILESTONES.md` (roadmap tích lũy; ưu tiên mục ghi ngày mới nhất, bảng mở đầu có thể cũ).
-4. `docs/CONTEXT_RELEASE_POLICY.md` (nguyên tắc cập nhật trạng thái và phát hành tự động).
-5. Tài liệu kỹ thuật `docs/M8_*.md`, `docs/M7_*.md` và mã nguồn tại SHA này khi quyết định cách sửa.
-6. Log CSV/TXT chỉ khi đã commit công khai có chủ ý hoặc người dùng cung cấp lại; **không mặc định** có log thử xe trong gói.
+2. `CONTEXT_HANDOFF.md` (hồ sơ lịch sử A→B, **không tự cập nhật từ chat**).
+3. `docs/CHAT_B_START_PROMPT.md` (lời nhắn khởi đầu cho hội thoại mới).
+4. `docs/PROJECT_MILESTONES.md` (roadmap tích lũy; ưu tiên mục ghi ngày mới nhất, bảng mở đầu có thể cũ).
+5. `docs/CONTEXT_RELEASE_POLICY.md` (nguyên tắc cập nhật trạng thái và phát hành tự động).
+6. Tài liệu kỹ thuật `docs/M8_*.md`, `docs/M7_*.md` và mã nguồn tại SHA này khi quyết định cách sửa.
+7. Log CSV/TXT chỉ khi đã commit công khai có chủ ý hoặc người dùng cung cấp lại; **không mặc định** có log thử xe trong gói.
 
 ## Trình tự tiếp quản
 
@@ -84,7 +85,7 @@ def main() -> None:
     status_file = output / "RELEASE_STATUS.md"
     status_file.write_text(status, encoding="utf-8")
     zip_file = output / f"context-handoff-{sha[:12]}.zip"
-    include = [handoff, root / "docs" / "PROJECT_MILESTONES.md", root / "docs" / "CONTEXT_RELEASE_POLICY.md"]
+    include = [handoff, root / "docs" / "PROJECT_MILESTONES.md", root / "docs" / "CONTEXT_RELEASE_POLICY.md", root / "docs" / "CHAT_B_START_PROMPT.md"]
     include += sorted((root / "docs").glob("M7_*.md"))
     include += sorted((root / "docs").glob("M8_*.md"))
     include += sorted((root / "tools").glob("verify_m8_*.py"))
