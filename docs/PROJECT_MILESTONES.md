@@ -686,3 +686,23 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
   parameter tuning. M8-S00 and full Gate A still open.
 - Detailed plan: `docs/M8_S12_STEERING_BASELINE_AND_NEXT_CONTROL.md`.
 
+
+## M8-S14 — Experimental cross-coupled manual steering (2026-10-30; SOURCE-STAGED / NOT HARDWARE PASS)
+
+- Preserve M8-S12 as boot default. Introduce `steer_s14_manual_enable=0`,
+  latched only on new manual D-pad/RX stroke and active only when BOTH
+  steering axes are moving. No M8-S13 shared-goal option is restored.
+- Use calibrated AS5600 cdeg/cdeg-per-second to derive a predictive
+  LEFT-vs-RIGHT angular travel error. Smoothly taper the leading axis
+  only; never increase PWM or change its independently checked
+  NC/soft-stop, STOP, R1 fine or R2 physical-contact completion.
+- Retain 300/100 manual ceilings; the earlier +30% PWM discussion does
+  not authorize changing them. Keep condition-specific R2 headroom
+  logic and all wheel/PS2 functions untouched.
+- Add pure host C planner tests, static routing/safety guard and
+  post-DISARM `M8S00_S14` diagnostics. See
+  `docs/M8_S14_CROSS_COUPLED_MANUAL_STEER.md`.
+- **PENDING:** host verifier execution on target workspace, CubeIDE
+  Clean Build/flash, controlled A/B 4 directions with repeats, R1/R2,
+  6-motor concurrent regression, physical NC/STOP/power-isolation
+  verification and later ground-load Gate A. Do not claim M8 PASS.
