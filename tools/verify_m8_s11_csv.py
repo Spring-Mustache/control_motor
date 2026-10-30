@@ -49,15 +49,24 @@ require(len(re.findall(r"%(?:ld|lu|d|u)", fmt)) == 60, "printf 60 conversion mis
 require(len(args) == 60, "printf 60 argument mismatch")
 require(len(header.group(1)) + 2 < 640, "CSV header exceeds asynchronous TX buffer")
 
-stream_start = MAIN.index("static void M8S11_StreamUpdate(void)\n{")
+# USART3 TX is intentionally isolated in M8S11_SendLine(), called by
+# M8S11_StreamUpdate(). Inspect BOTH bodies rather than falsely requiring
+# HAL_UART_Transmit_IT inside the high-level stream function.
+helper_start = MAIN.index("static uint8_t M8S11_SendLine(int length)\n{")
+stream_start = MAIN.index("static void M8S11_StreamUpdate(void)\n{", helper_start)
 stream_end = MAIN.index("static void M8S00_DumpUpdate(void)\n{", stream_start)
+helper = MAIN[helper_start:stream_start]
 stream = MAIN[stream_start:stream_end]
 for forbidden in ("HAL_UART_Transmit(&huart3", "HAL_Delay(", "HAL_FLASH_",
                   "HAL_GPIO_WritePin(", "__HAL_TIM_SET_COMPARE(",
                   "WheelControl_SetTargetPWM(", "Steering_PositionAxisUpdate(",
                   "AS5600_Read"):
-    require(forbidden not in stream, "stream service must not contain " + forbidden)
-require("HAL_UART_Transmit_IT(&huart3" in stream, "nonblocking UART TX missing")
+    require(forbidden not in helper + stream,
+            "stream service/helper must not contain " + forbidden)
+require("HAL_UART_Transmit_IT(&huart3" in helper,
+        "nonblocking UART TX helper missing")
+require("M8S11_SendLine(n)" in stream,
+        "stream must call the nonblocking TX helper")
 require("m8_s11_stream_enable = 0U" in MAIN, "stream must default OFF")
 require("if (period < 50U) period = 50U;" in stream, "minimum interval changed")
 require("if (period > 250U) period = 250U;" in stream, "maximum interval changed")
