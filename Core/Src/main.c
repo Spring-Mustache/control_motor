@@ -2729,18 +2729,6 @@ static void Steering_PhaseLimit(uint8_t mode,
  * R1 +/-5 RAW fine, stall and timeout remain authoritative.
  */
 volatile uint8_t steer_angle_wp_enable = 1U;
-/* M8-S13 A/B, default OFF: direct D-pad/RX alone can compare the same
- * calibrated angular displacement on both axes. The historic planner
- * compares fractions of two different soft-stop angle spans, which
- * can produce artificial phase error when soft clearances differ.
- * No extra sensor reads, no changes to R1/R2, PWM caps, NC or STOP.
- * Change ONLY at rest; a live manual stroke snapshots this mode.
- */
-volatile uint8_t steer_angle_wp_manual_equal_angle_enable = 0U;
-/* Latched at the START of each manual steering request, so an accidental
- * Live Expressions edit cannot switch geometry half-way through motion.
- */
-static uint8_t steer_angle_wp_manual_equal_angle_latched = 0U;
 volatile uint16_t steer_angle_wp_lead_permille = 30U; /* 3% stroke: test */
 volatile int16_t steer_angle_wp_left_cdeg = 0;
 volatile int16_t steer_angle_wp_right_cdeg = 0;
@@ -2931,7 +2919,7 @@ static void Steering_AngleWaypointApply(uint8_t mode,
     uint16_t floor_l, uint16_t floor_r,
     uint16_t *duty_l, uint16_t *duty_r)
 {
-  int16_t sl, gl, al, sr, gr, ar, planned_gl, planned_gr;
+  int16_t sl, gl, al, sr, gr, ar;
   uint8_t vl, vr;
   uint16_t pl, pr, lead, frontier, slow;
   int32_t target_l, target_r;
@@ -2966,36 +2954,8 @@ static void Steering_AngleWaypointApply(uint8_t mode,
     steer_angle_wp_hold_mask = 0U;
     return;
   }
-  planned_gl = gl;
-  planned_gr = gr;
-  /* In manual mode, both steering actuators should progress through
-   * the SAME change in calibrated angle. One motor's soft target can
-   * be 37deg away while the other's is 41deg away: comparing each as
-   * 100% falsely treats the slower-angle motor as phase leader.
-   * The common signed angular stroke is bounded by the SHORTER of
-   * the two safe remaining soft-target strokes. The independent
-   * per-axis soft stops still decide completion; once either axis
-   * is DONE the waypoint supervisor no longer modifies either PWM.
-   * A wrong-way angle makes progress zero, never positive.
-   */
-  if ((mode == 3U) &&
-      (steer_angle_wp_manual_equal_angle_latched == 1U))
-  {
-    int32_t delta_l = (int32_t)gl - (int32_t)sl;
-    int32_t delta_r = (int32_t)gr - (int32_t)sr;
-    uint32_t travel_l = (uint32_t)((delta_l < 0) ? -delta_l : delta_l);
-    uint32_t travel_r = (uint32_t)((delta_r < 0) ? -delta_r : delta_r);
-    uint32_t common = (travel_l < travel_r) ? travel_l : travel_r;
-    if ((common >= 500U) && (common <= 9000U))
-    {
-      planned_gl = (int16_t)((int32_t)sl +
-          ((delta_l < 0) ? -(int32_t)common : (int32_t)common));
-      planned_gr = (int16_t)((int32_t)sr +
-          ((delta_r < 0) ? -(int32_t)common : (int32_t)common));
-    }
-  }
-  pl = Steering_AngleStrokeProgress(sl, planned_gl, al, &vl);
-  pr = Steering_AngleStrokeProgress(sr, planned_gr, ar, &vr);
+  pl = Steering_AngleStrokeProgress(sl, gl, al, &vl);
+  pr = Steering_AngleStrokeProgress(sr, gr, ar, &vr);
   if ((vl == 0U) || (vr == 0U))
   {
     steer_angle_wp_hold_mask = 0U;
@@ -3008,10 +2968,8 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   slow = (pl < pr) ? pl : pr;
   frontier = (uint16_t)(((uint32_t)slow + lead > 1000U) ?
                          1000U : slow + lead);
-  target_l = (int32_t)sl +
-      ((int32_t)(planned_gl - sl) * frontier) / 1000;
-  target_r = (int32_t)sr +
-      ((int32_t)(planned_gr - sr) * frontier) / 1000;
+  target_l = (int32_t)sl + ((int32_t)(gl - sl) * frontier) / 1000;
+  target_r = (int32_t)sr + ((int32_t)(gr - sr) * frontier) / 1000;
 
   steer_angle_wp_left_cdeg = al;
   steer_angle_wp_right_cdeg = ar;
@@ -6709,8 +6667,6 @@ static void Steering_ManualUpdate(void)
     }
 
     steer_manual_begin_ms = now;
-    steer_angle_wp_manual_equal_angle_latched =
-        (steer_angle_wp_manual_equal_angle_enable == 1U) ? 1U : 0U;
     m8_s05_manual_kind =
         ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U)) ? 3U : 4U;
     M8S00_ArrivalBegin(3U, (left_direction < 0) ? 3U : 4U,

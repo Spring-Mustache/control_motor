@@ -686,24 +686,3 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
   parameter tuning. M8-S00 and full Gate A still open.
 - Detailed plan: `docs/M8_S12_STEERING_BASELINE_AND_NEXT_CONTROL.md`.
 
-## M8-S13 — A/B đồng hành trình theo góc AS5600 cho D-pad/RX (2026-10-30)
-
-- M8-S12 CSV 17:48, 694 rows, stream intact. Comparing own-soft-goal
-  fractions versus equal calibrated angular travel yields different
-  leader/lagger interpretation: D-pad LEFT 45.6→13.9‰, D-pad RIGHT
-  20.7→47.4‰, RX LEFT 44.6→24.1‰, RX RIGHT 19.5→53.7‰ (old-run
-  retrospective calculations, NOT evidence the new controller is better).
-- M8-S13 adds opt-in `steer_angle_wp_manual_equal_angle_enable=0` in the
-  current project; latched at start of a manual D-pad/RX command. When
-  enabled, waypoint progress uses the common shorter calibrated angle
-  stroke rather than each side's differing soft-stop span. Does not
-  change actual per-axis soft targets, NC IRQ, STOP, R1/R2 or PWM caps.
-- Original planner remains the **default** and reversible with Live
-  Expressions flag 0/1 at rest. No new workspace; firmware must be
-  Clean Built/Flashed once before this flag exists on target.
-- New tool `tools/verify_m8_s13_manual_angle.py`, plan
-  `docs/M8_S13_MANUAL_EQUAL_ANGLE_AB.md`.
-- **SOURCE STAGED, NOT HARDWARE PASS.** Need matched A/B on stand,
-  M8-S11 CSV and M8-S00 TXT where available, direct mechanical
-  interpretation, and STOP/NC regression. Gate A/M8-S00 stay open.
-
