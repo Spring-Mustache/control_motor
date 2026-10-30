@@ -2737,6 +2737,10 @@ volatile uint8_t steer_angle_wp_enable = 1U;
  * Change ONLY at rest; a live manual stroke snapshots this mode.
  */
 volatile uint8_t steer_angle_wp_manual_equal_angle_enable = 0U;
+/* Latched at the START of each manual steering request, so an accidental
+ * Live Expressions edit cannot switch geometry half-way through motion.
+ */
+static uint8_t steer_angle_wp_manual_equal_angle_latched = 0U;
 volatile uint16_t steer_angle_wp_lead_permille = 30U; /* 3% stroke: test */
 volatile int16_t steer_angle_wp_left_cdeg = 0;
 volatile int16_t steer_angle_wp_right_cdeg = 0;
@@ -2975,7 +2979,7 @@ static void Steering_AngleWaypointApply(uint8_t mode,
    * A wrong-way angle makes progress zero, never positive.
    */
   if ((mode == 3U) &&
-      (steer_angle_wp_manual_equal_angle_enable == 1U))
+      (steer_angle_wp_manual_equal_angle_latched == 1U))
   {
     int32_t delta_l = (int32_t)gl - (int32_t)sl;
     int32_t delta_r = (int32_t)gr - (int32_t)sr;
@@ -6705,6 +6709,8 @@ static void Steering_ManualUpdate(void)
     }
 
     steer_manual_begin_ms = now;
+    steer_angle_wp_manual_equal_angle_latched =
+        (steer_angle_wp_manual_equal_angle_enable == 1U) ? 1U : 0U;
     m8_s05_manual_kind =
         ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U)) ? 3U : 4U;
     M8S00_ArrivalBegin(3U, (left_direction < 0) ? 3U : 4U,
