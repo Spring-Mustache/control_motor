@@ -45,11 +45,17 @@ output = body("M8S00_DumpConcurrent")
 cal = body("Steering_CalUpdate")
 emergency = body("Wheel_EmergencyStop")
 
-verify("R1 LEFT fine entry 15 RAW, RIGHT remains 35",
+verify("R1 LEFT 10/15 unchanged; RIGHT fine entry runtime 15..35, boots 35",
        re.search(r"#define\s+STEER_POS_FINE_LEFT_ENTER_RAW\s+15U\b", src) and
+       re.search(r"#define\s+STEER_POS_FINE_LEFT_FROM_MIN_RAW\s+10U\b", src) and
        re.search(r"#define\s+STEER_POS_FINE_ENTER_RAW\s+35U\b", src) and
-       "left != 0U" in axis and
-       "STEER_POS_FINE_LEFT_ENTER_RAW : STEER_POS_FINE_ENTER_RAW" in axis)
+       re.search(r"#define\s+STEER_POS_FINE_RIGHT_MIN_RAW\s+15U\b", src) and
+       "volatile uint16_t steer_pos_right_fine_enter_raw = STEER_POS_FINE_ENTER_RAW;" in src and
+       "STEER_POS_FINE_LEFT_ENTER_RAW : steer_pos_right_fine_enter_raw" in axis and
+       "if (left == 0U)" in axis and
+       "if (fine_enter < STEER_POS_FINE_RIGHT_MIN_RAW)" in axis and
+       "if (fine_enter > STEER_POS_FINE_ENTER_RAW)" in axis and
+       "STEER_POS_FINE_LEFT_FROM_MIN_RAW" in axis)
 verify("R1 fine retains +/-5 RAW, 8-pulse, 9s bounds",
        "Steering_CenterFineTolClamp(" in fine and
        "#define STEER_POS_FINE_MAX_PULSES       8U" in src and
