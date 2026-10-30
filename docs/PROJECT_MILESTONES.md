@@ -664,3 +664,25 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 - The firmware already exposes `debug_as5600_left_raw`, `debug_as5600_right_raw` with `*_comm_ok` and `*_magnet_detected`, refreshed by `debug_steer_auto_as5600_idle_observe=1` while stopped. With drive/motor power disconnected, carefully set steering position by non-powered mechanical means **if physically possible without forcing a non-backdrivable gearbox**, then read live RAW values with fresh valid status.
 - Optional existing debug capture mechanism for holding six readings: while ALL motor power is disconnected and the vehicle is stationary, set `debug_as5600_poll_enable=1` ONLY for an offline calibration/capture session; `debug_as5600_cal_command=1` captures LEFT MIN, =2 LEFT CENTER, =3 LEFT MAX, =4 RIGHT MIN, =5 RIGHT CENTER, =6 RIGHT MAX. It is serviced by `AS5600_DebugUpdate()` and capture succeeds only with valid sensor status. Check `debug_as5600_cal_last_result=1` and `debug_as5600_..._raw` / `..._valid`. These are observational RAM snapshots and do NOT update runtime calibrated MIN/MAX or authorize motor outputs. Return `debug_as5600_poll_enable=0` afterwards to avoid adding blocking I2C work in the wheel-control loop.
 - If either actuator cannot be repositioned safely without its driver energized, sensor-only sampling cannot discover MIN/MAX by itself. A dedicated limited-motion commissioning design would require known working independent physical motor-supply cutoff, correct NC polarity/limit checks and a bounded setup mode; powered joystick movement with stale positional guards cannot be recommended. **No powered hardware tests, firmware parameter auto-arming or center code patch performed in this entry.**
+
+## M8-S12 — R1 RIGHT refined baseline and dual-steering control next (2026-10-30)
+
+- Operator reports R1 RIGHT best among tested settings with Live Expressions
+  `steer_pos_right_fine_enter_raw=10`, `steer_pos_right_fine_pwm=85`,
+  `steer_pos_right_fine_pulse_ms=10`; RIGHT now typically needs one small
+  final trim but still has slight jerk. Smoothness is **not 10/10 PASS**.
+- Existing firmware clamps entered RIGHT threshold 10→**15 RAW** and pulse
+  10→**12 ms**. Effective accepted starting baseline is **15 / PWM85 / 12ms**.
+  M8-S12 sets these as the persistent default on the existing main branch;
+  no clamping limits, NC, STOP, R1 ±5 tolerance or 8-pulse budget changed.
+- Existing dual-axis controller already uses `steer_angle_wp_enable=1`
+  with normalized progress and AS5600 speed compensation. The earlier
+  RIGHT-master/LEFT-follower PI is not the active primary controller while
+  both manual axes are MOVING in waypoint mode. Focus next on actual
+  D-pad/RX two-axis phase gap `M8S00_TRACK` and R1/R2 timing, not
+  creating another controller without an observed reason.
+- Status: **SOURCE UPDATED, POWER-ON DEFAULTS NOT YET REBUILT/FLASH-VERIFIED**;
+  repeat on a supported stand. No new workspace/worktree for minor
+  parameter tuning. M8-S00 and full Gate A still open.
+- Detailed plan: `docs/M8_S12_STEERING_BASELINE_AND_NEXT_CONTROL.md`.
+
