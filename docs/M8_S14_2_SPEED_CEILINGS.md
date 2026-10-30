@@ -40,3 +40,44 @@ trials before isolated steering-level acceptance.
 CAUTION: prior RIGHT R2 NC fault and the earlier FIRST-STOP
 electrical power anomaly are not resolved by increasing PWM.
 No motor-powered validation is claimed.
+
+## S14.2 cross-coupled synchronization revision
+
+Speed mode must NOT run open-loop. The default-OFF selection of
+S14.2 level=1/2 now activates cross-coupled angle+velocity tracking
+in addition to higher PWM, replacing the earlier speed-only draft.
+Do not call this a verified high-speed controller until physical tests.
+
+Keep 300/100 legacy baseline with level=0. At level=1 (375/150 cap)
+start from D-pad base LEFT 330 / RIGHT 125; at level=2 (450/200 cap)
+base LEFT 405 / RIGHT 175. Both motor bases exceed the old baseline
+but reserve headroom for lagger. RX scales from legacy minimum
+(175/50) up to these new base values. The old +20% feedforward
+speed-trial multiplier is disabled only in level=1/2, because it
+would consume reserved headroom before feedback could act.
+
+For each new AS5600 sample, direction-align travel in calibrated
+centidegrees, compute filtered cdeg/s per sensor and predict error:
+  e_pred = travelL - travelR + 0.120*(speedL - speedR).
+If LEFT leads (>0.40deg), boost RIGHT up to its available
+dynamic ceiling. RIGHT leads => boost LEFT. Only when the follower
+has saturated, the predicted gap exceeds 1.50deg AND follower
+is not already catching up sufficiently, optionally taper leader,
+bounded to 48 CCR and never below its prior minimum drive floor.
+No extra PWM boost or leader taper when either axis is <=180 RAW
+from own SOFT. Other independent safety guards remain authoritative.
+This is a P+D candidate with no integral windup. The output
+PWM increase after correction also obeys the 12-CCR/per-pass
+S14.2 rise limiter; decreases are immediate.
+
+Live M8S00 diagnostic M8S00_S142_SYNC provides frames, skipped,
+boostL/R frames, trimL/R frames, saturation flags counts and
+most recent angle gap/predicted error (centidegrees). The existing
+M8-S11 CSV remains 60 columns; CCR shows actual command requests.
+The old S14/S14.1 run only when level=0.
+
+Validation must compare three states with separate captures:
+(1) level0 baseline; (2) level1 new sync; (3) level2 ONLY after
+level1 physical SOFT clearance/current/electrical STOP checks.
+Run at least five repeats per D-pad/RX direction and verify
+six-motor concurrent LY only after steering-alone acceptance.

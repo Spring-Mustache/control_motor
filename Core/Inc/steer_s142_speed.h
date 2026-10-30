@@ -16,6 +16,15 @@ static inline uint16_t M8S142_Envelope(uint8_t left,uint8_t level,uint16_t remai
   if(remaining>=320U)return high;
   return (uint16_t)(original+((uint32_t)(high-original)*(remaining-180U))/140U);
 }
+/* Reserve ceiling headroom for angular-error correction.
+ * Both baseline demands exceed the old 300/100 at full D-pad.
+ */
+static inline uint16_t M8S142_Base(uint8_t left,uint8_t level)
+{
+  if(level==1U)return (left!=0U)?330U:125U;
+  if(level==2U)return (left!=0U)?405U:175U;
+  return (left!=0U)?300U:100U;
+}
 static inline uint16_t M8S142_RX(uint16_t minimum,uint16_t maximum,uint16_t amount)
 {
   if(maximum<minimum)maximum=minimum;

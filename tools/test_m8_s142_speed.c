@@ -7,6 +7,9 @@ int main(void)
   assert(M8S142_Cap(1,1)==375&&M8S142_Cap(0,1)==150);
   assert(M8S142_Cap(1,2)==450&&M8S142_Cap(0,2)==200);
   assert(M8S142_Cap(1,3)==300);
+  assert(M8S142_Base(1,1)==330&&M8S142_Base(0,1)==125);
+  assert(M8S142_Base(1,2)==405&&M8S142_Base(0,2)==175);
+  assert(M8S142_Base(1,0)==300&&M8S142_Base(0,0)==100);
   for(unsigned left=0;left<2;left++)
     for(unsigned level=0;level<3;level++)
       for(unsigned d=0;d<1000;d++)

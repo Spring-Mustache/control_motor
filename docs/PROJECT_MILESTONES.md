@@ -723,3 +723,19 @@ Quan sát Live Expressions bản cũ của người dùng: `steer_test_last_comm
 ## M8-S14.2 staged manual speed ceiling
 
 Boot-OFF trial levels 0=300/100, 1=375/150, 2=450/200 CCR. Only D-pad/RX MOVING path; speed-priority bypasses S14.1 leader taper but retains independent NC/STOP/SOFT/AS5600/stall guards, earlier R1/R2 and wheel PWM. Trial caps fade back to 300/100 by 180 RAW to SOFT and have 12-CCR rise limit. Need CubeIDE build, power isolation, level-1 bench validation before level 2. See docs/M8_S14_2_SPEED_CEILINGS.md. NOT HARDWARE PASS.
+
+## M8-S14.2 cross-coupled high-ceiling follow-up (2026-10-31, SOURCE-STAGED)
+
+- Corrected the speed-only draft: opt-in levels 1/2 now run an
+  AS5600 calibrated angle + velocity P+D cross-coupled coordinator.
+  Default OFF mode 0 keeps original S14/S14.1 behavior.
+- Reserve PWM headroom for lagging motor (375/150 cap with
+  330/125 base, 450/200 cap with 405/175 base) and disable
+  120%-PWM pre-boost only in this trial.
+- Boost follower within dynamic per-axis SOFT envelope FIRST.
+  Taper leader only on follower saturation + persistent lag,
+  while respecting output floors and final 12 CCR rise slew.
+- R1/R2/NC escape/STOP/IRQ/per-axis fault gates remain unchanged.
+- Added exact portable C unit tests, static route assertions,
+  and M8S00_S142_SYNC telemetry. Source only; no MCU build/flash
+  or physical drive test has been performed.
