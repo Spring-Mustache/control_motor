@@ -747,3 +747,10 @@ Boot-OFF trial levels 0=300/100, 1=375/150, 2=450/200 CCR. Only D-pad/RX MOVING 
 - The first `python tools/verify_m8_s14_sync.py` reported three static mismatches: S14 latch, legacy PI bypass and S14.1 LEFT latch. Checked actual firmware code: S14/S14.1 are intentionally gated by `steer_s142_latched==0` when M8-S14.2 owns manual steering; the old static source-string guards did not account for this. Adjusted those guards to assert exact **new mutually exclusive paths**, not to weaken the controller or ignore failures.
 - All other S14 static markers from the user's run printed PASS. The script exited on the three mismatches **before** any host C test executed.
 - **No MCU source/control-law modification was made by this verifier-only patch**; no CubeIDE build, Flash, bench or hardware PASS established by it. The user's rerun of both Python tools and eventual native C-host test outcome on their Windows PC remain to be observed.
+
+## M8-S14 / M8-S14.2 — Windows verifier rerun (2026-10-31; operator log)
+
+- Người vận hành xác nhận `git merge --ff-only origin/feature/m7-s15-ps2-controls-restoration-staged` **fast-forward thành công** từ `febcd0f` đến `8d73d6f` trên máy Windows (các chỉnh sửa local CubeIDE và log không bị yêu cầu xóa).
+- `python tools/verify_m8_s142_speed.py`: toàn bộ các điều kiện **kiểm tra tĩnh PASS**, không còn lỗi đọc CP1252/UTF-8; xuất `SKIP C host tests: no compiler`. Các bài thử C thuần **CHƯA CHẠY** trên máy người vận hành.
+- `python tools/verify_m8_s14_sync.py`: toàn bộ các điều kiện **kiểm tra tĩnh PASS** (bao gồm ba điều kiện đã sửa theo cơ chế loại trừ S14/S14.2); xuất `SKIP: host C planner execution (no C compiler)`. Các bài thử C thuần **CHƯA CHẠY** trên máy người vận hành.
+- Kết quả này chỉ xác nhận script Python/static guards chạy thành công trên bản local sau merge. **Chưa có bằng chứng CubeIDE Clean Build, Flash, đánh lái motor ở trần cao hoặc nghiệm thu phần cứng**. Bước tiếp theo: Clean Build target, kiểm tra bản được flash và nghiệm thu M8-S14.2 có kiểm soát; không biến `SKIP` thành `PASS`.
