@@ -20,8 +20,14 @@ jobs:
       - name: Checkout the exact pushed commit
         uses: actions/checkout@v4
         with:
-          fetch-depth: 30
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Enforce verbatim specification and fresh handoff for code updates
+        env:
+          HANDOFF_BEFORE: ${{ github.event.before }}
+        run: |
+          python3 tools/verify_context_handoff_contract.py --before "$HANDOFF_BEFORE" --head "$GITHUB_SHA"
 
       - name: Build source-grounded handoff bundle
         run: python3 tools/build_context_release.py --output dist/context-release

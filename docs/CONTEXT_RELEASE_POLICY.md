@@ -15,6 +15,20 @@ Chuyển giao dự án `Spring-Mustache/control_motor` giữa nhiều hội tho�
 
 **Các thay đổi trong chat, kết quả thử nghiệm chỉ được người dùng gửi qua chat và chưa commit sẽ KHÔNG tự xuất hiện trong release.** Sau những thay đổi ấy cần cập nhật `.md` và commit. Không lầm `git push` với việc firmware đã được Flash; không suy từ unit test sang PASS cơ khí.
 
+## Đặc tả bàn giao NGUYÊN VĂN của người vận hành — bắt buộc
+
+Đây là **hai tài liệu khác nhau**, không thay thế hoặc viết lại cho nhau:
+- `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md`: **toàn bộ văn bản gốc 386 dòng do người vận hành cung cấp**, giữ nguyên byte và ngữ nghĩa, SHA-256: `13d8976ec0d74057af94bf84c8445bddbb48715b308964e22eb6684711f708a4`. Đây là **yêu cầu bắt buộc áp dụng mỗi khi xuất hồ sơ bàn giao mới**, không phải bản tóm tắt và không phải lời nhắn cho B.
+- `docs/CHAT_B_START_PROMPT.md`: lời nhắn giúp AI B truy cập đúng nhánh, commit và Release. Có thể biên tập hướng dẫn này khi cách bàn giao thay đổi, **nhưng không được thay đổi yêu cầu gốc theo nó**.
+
+**Mỗi khi có phiên bản code mới:** phải áp dụng NGUYÊN VĂN đặc tả gốc để rà soát các nguồn còn truy cập được, tạo/cập nhật hồ sơ `CONTEXT_HANDOFF.md` **đủ 17 mục 0–16, không bỏ hoặc viết gọn thông tin có giá trị để tiếp tục**, cập nhật `docs/PROJECT_MILESTONES.md`, rồi mới commit/push cùng code. Phân biệt thông tin mới từ chat, nguồn thực sự đọc được và phần chưa kiểm chứng. Khi lịch sử chat bị rút gọn, ghi rõ thay vì tự dựng.
+
+GitHub Actions thực thi `tools/verify_context_handoff_contract.py` trước khi tạo Release:
+- Kiểm tra văn bản gốc còn **đúng từng byte** và hồ sơ có các mục 0–16 cùng dòng kết thúc bắt buộc.
+- Nếu lần push có thay đổi mã firmware/source/scripts, **bắt buộc** có cả `CONTEXT_HANDOFF.md` và `docs/PROJECT_MILESTONES.md` thay đổi trong lần push; nếu thiếu thì job **FAIL, không phát hành Release**. Đây là kiểm soát tự động để tránh bàn giao file cũ như file mới.
+- Kiểm tra máy không thể tự chứng minh tất cả 17 mục đã đủ ý nghĩa/đúng sự thật. Người cập nhật/AI có quyền truy cập nguồn phải thực sự làm đủ theo văn bản nguyên gốc; GitHub Actions **không thể tự đọc hội thoại ChatGPT, hồi phục lịch sử đã mất hoặc tự viết trung thực nội dung chỉ có trong chat**.
+- Workflow có thể đánh dấu thất bại sau khi push; nó không tự chặn Git commit hay ghi lại hội thoại. Khi thất bại, sửa hồ sơ và push commit bổ sung có nội dung phù hợp, chạy lại workflow. Đối chiếu các commit đã thiếu tài liệu trong lịch sử, không xóa đi.
+
 ## Bước duy trì ngữ cảnh khi có thay đổi
 
 - Trước khi commit tính năng: cập nhật phần trạng thái mới nhất và điều còn thiếu trong `docs/PROJECT_MILESTONES.md`; thêm/cập nhật tài liệu riêng cho milestone đang làm.

@@ -23,6 +23,7 @@ Bạn có thể xem trước hồ sơ tại [GitHub Releases](https://github.com
 ## Tài liệu tham chiếu
 
 - [Lời nhắn đầu tiên để sao chép vào B](docs/CHAT_B_START_PROMPT.md)
+- [Yêu cầu gốc NGUYÊN VĂN để tạo hồ sơ bàn giao](docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md)
 - [Hồ sơ bàn giao lịch sử 17 mục](CONTEXT_HANDOFF.md)
 - [Roadmap và trạng thái dự án](docs/PROJECT_MILESTONES.md)
 - [Quy tắc phát hành và giới hạn](docs/CONTEXT_RELEASE_POLICY.md)

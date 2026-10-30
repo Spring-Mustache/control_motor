@@ -33,6 +33,9 @@ def main() -> None:
     changed = git("diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "HEAD")
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     handoff = root / "CONTEXT_HANDOFF.md"
+    original_spec = root / "docs" / "CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md"
+    if not original_spec.is_file():
+        raise SystemExit("Missing verbatim original handoff requirements")
     if not handoff.is_file():
         raise SystemExit("Missing CONTEXT_HANDOFF.md at repository root: cannot publish an incomplete handoff")
     if not (root / "docs" / "PROJECT_MILESTONES.md").is_file():
@@ -71,9 +74,10 @@ def main() -> None:
 2. `CONTEXT_HANDOFF.md` (hồ sơ lịch sử A→B, **không tự cập nhật từ chat**).
 3. `docs/CHAT_B_START_PROMPT.md` (lời nhắn khởi đầu cho hội thoại mới).
 4. `docs/PROJECT_MILESTONES.md` (roadmap tích lũy; ưu tiên mục ghi ngày mới nhất, bảng mở đầu có thể cũ).
-5. `docs/CONTEXT_RELEASE_POLICY.md` (nguyên tắc cập nhật trạng thái và phát hành tự động).
-6. Tài liệu kỹ thuật `docs/M8_*.md`, `docs/M7_*.md` và mã nguồn tại SHA này khi quyết định cách sửa.
-7. Log CSV/TXT chỉ khi đã commit công khai có chủ ý hoặc người dùng cung cấp lại; **không mặc định** có log thử xe trong gói.
+5. `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md` (bản gốc nguyên văn 386 dòng, không thay chữ; yêu cầu cho TỪNG lần bàn giao).
+6. `docs/CONTEXT_RELEASE_POLICY.md` (nguyên tắc cập nhật trạng thái và phát hành tự động).
+7. Tài liệu kỹ thuật `docs/M8_*.md`, `docs/M7_*.md` và mã nguồn tại SHA này khi quyết định cách sửa.
+8. Log CSV/TXT chỉ khi đã commit công khai có chủ ý hoặc người dùng cung cấp lại; **không mặc định** có log thử xe trong gói.
 
 ## Trình tự tiếp quản
 
@@ -85,7 +89,7 @@ def main() -> None:
     status_file = output / "RELEASE_STATUS.md"
     status_file.write_text(status, encoding="utf-8")
     zip_file = output / f"context-handoff-{sha[:12]}.zip"
-    include = [handoff, root / "docs" / "PROJECT_MILESTONES.md", root / "docs" / "CONTEXT_RELEASE_POLICY.md", root / "docs" / "CHAT_B_START_PROMPT.md"]
+    include = [handoff, original_spec, root / "docs" / "PROJECT_MILESTONES.md", root / "docs" / "CONTEXT_RELEASE_POLICY.md", root / "docs" / "CHAT_B_START_PROMPT.md", root / "tools" / "verify_context_handoff_contract.py"]
     include += sorted((root / "docs").glob("M7_*.md"))
     include += sorted((root / "docs").glob("M8_*.md"))
     include += sorted((root / "tools").glob("verify_m8_*.py"))
