@@ -1909,7 +1909,15 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
  * A failed tight ±5 result is reported as error, never claimed as PASS.
  * R2 MIN retains bounded approach PWM, but requires physical NC to finish.
  */
-#define STEER_POS_FINE_ENTER_RAW       35U /* RIGHT unchanged */
+/* RIGHT legacy handoff used 35 RAW, creating long bounded fine sequences.
+ * M8-S12 A/B: default 20 RAW; 35 RAW restores original. No higher
+ * PWM, no increased pulse budget, and no safety or acceptance changes.
+ */
+#define STEER_POS_FINE_ENTER_RAW       35U /* RIGHT legacy upper bound */
+#define STEER_POS_FINE_RIGHT_TRIAL_RAW 20U
+#define STEER_POS_FINE_RIGHT_MIN_RAW   15U
+volatile uint16_t steer_pos_right_fine_enter_raw =
+    STEER_POS_FINE_RIGHT_TRIAL_RAW;
 /* M8: LEFT previously entered short-pulse fine mode at 35 RAW and
  * failed with code=10 still 22 RAW from CENTER. Keep its proven
  * continuous/coarse PWM down to 15 RAW instead of requiring many
@@ -4046,7 +4054,17 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   if (steer_pos_command == 1U)
   {
     uint16_t fine_enter = (left != 0U) ?
-        STEER_POS_FINE_LEFT_ENTER_RAW : STEER_POS_FINE_ENTER_RAW;
+        STEER_POS_FINE_LEFT_ENTER_RAW : steer_pos_right_fine_enter_raw;
+    /* RIGHT A/B handoff bounded between 15 and historic 35 RAW.
+     * Prevent coasting with coarse PWM too close to CENTER.
+     */
+    if (left == 0U)
+    {
+      if (fine_enter < STEER_POS_FINE_RIGHT_MIN_RAW)
+        fine_enter = STEER_POS_FINE_RIGHT_MIN_RAW;
+      if (fine_enter > STEER_POS_FINE_ENTER_RAW)
+        fine_enter = STEER_POS_FINE_ENTER_RAW;
+    }
     /* LEFT R1 from MIN has negative error. Do not alter its reverse
      * MAX-side approach or RIGHT, and never raise PWM here.
      */
