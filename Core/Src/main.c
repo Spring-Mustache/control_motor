@@ -1909,7 +1909,15 @@ static uint16_t Steering_CenterTolClamp(uint16_t value)
  * A failed tight ±5 result is reported as error, never claimed as PASS.
  * R2 MIN retains bounded approach PWM, but requires physical NC to finish.
  */
-#define STEER_POS_FINE_ENTER_RAW       35U /* RIGHT unchanged */
+/* M8-S12: R1 RIGHT fine-entry threshold is an opt-in Live Expressions
+ * tuning parameter. Its power-on default remains the measured/accepted
+ * M8-S11 baseline 35 RAW; trial 20-30 RAW ONLY while motor is stopped.
+ * Clamp the consumed value to 15..35 RAW even if edited out of range.
+ * LEFT, R2, fine pulse PWM/duration, ±5 acceptance, NC and STOP unchanged.
+ */
+#define STEER_POS_FINE_ENTER_RAW       35U
+#define STEER_POS_FINE_RIGHT_MIN_RAW   15U
+volatile uint16_t steer_pos_right_fine_enter_raw = STEER_POS_FINE_ENTER_RAW;
 /* M8: LEFT previously entered short-pulse fine mode at 35 RAW and
  * failed with code=10 still 22 RAW from CENTER. Keep its proven
  * continuous/coarse PWM down to 15 RAW instead of requiring many
@@ -4046,7 +4054,17 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   if (steer_pos_command == 1U)
   {
     uint16_t fine_enter = (left != 0U) ?
-        STEER_POS_FINE_LEFT_ENTER_RAW : STEER_POS_FINE_ENTER_RAW;
+        STEER_POS_FINE_LEFT_ENTER_RAW : steer_pos_right_fine_enter_raw;
+    /* RIGHT opt-in fine-entry: preserve 35 RAW as boot baseline.
+     * A/B adjustment never bypasses the bounded coarse/fine handoff.
+     */
+    if (left == 0U)
+    {
+      if (fine_enter < STEER_POS_FINE_RIGHT_MIN_RAW)
+        fine_enter = STEER_POS_FINE_RIGHT_MIN_RAW;
+      if (fine_enter > STEER_POS_FINE_ENTER_RAW)
+        fine_enter = STEER_POS_FINE_ENTER_RAW;
+    }
     /* LEFT R1 from MIN has negative error. Do not alter its reverse
      * MAX-side approach or RIGHT, and never raise PWM here.
      */
