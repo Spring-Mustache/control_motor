@@ -32,6 +32,7 @@ checks = {
         "trim_left_pwm" in math and "trim_right_pwm" in math and
         "__HAL_TIM_SET_COMPARE" not in math and "HAL_GPIO_WritePin" not in math,
     "S14 export after disarm": '"M8S00_S14,boot=%u,last=%u,frames=%lu,"' in src,
+    "S14 UART line CRLF framing": "\"trimL=%u,trimR=%u\\r\\n\"," in src,
 }
 for label, okay in checks.items():
     print(("PASS" if okay else "FAIL") + ": " + label)

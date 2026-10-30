@@ -5583,7 +5583,7 @@ static uint8_t M8S05_DumpTiming(void)
       "M8S00_S14,boot=%u,last=%u,frames=%lu,"
       "trimLframes=%lu,trimRframes=%lu,skipped=%lu,"
       "gap_cdeg=%d,predict_cdeg=%d,spdL_cdeg_s=%u,spdR_cdeg_s=%u,"
-      "trimL=%u,trimR=%u\\r\\n",
+      "trimL=%u,trimR=%u\r\n",
       (unsigned)steer_s14_manual_enable,
       (unsigned)steer_s14_last_mode,
       (unsigned long)steer_s14_valid_frames,
