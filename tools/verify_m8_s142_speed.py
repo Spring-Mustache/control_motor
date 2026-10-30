@@ -15,6 +15,8 @@ checks={
   'R1/R2 caps retained':'steer_pos_left_pwm_max = 300U;' in s and 'steer_pos_right_pwm_max = 100U;' in s,
   'NC atomic CCR check':'primask = __get_PRIMASK();\n  __disable_irq();\n  mask = Steering_TestRawLimitMask();' in s,
   'old hard cap retained':'#define STEER_MANUAL_PWM_HARD_MAX     400U' in s,
+  'S142 output continuity': '*pwm_l=M8S142_Rise(plan.left_pwm,steer_s142_prev_final_l,300U);' in s and
+       '*pwm_r=M8S142_Rise(plan.right_pwm,steer_s142_prev_final_r,100U);' in s,
   'S142 angle+speed active': 'Steering_S142SyncApply(' in s and
        'M8S142_SyncPlan(' in s,
   'old S14.1 never runs in speed mode': '((steer_s142_latched == 0U) &&' in s,

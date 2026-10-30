@@ -3247,11 +3247,14 @@ static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
    * owner rise limits even if P+D asks for all remaining headroom.
    * The cap can fall immediately when SOFT is approaching.
    */
-  if((steer_s14_obs_l.updated!=0U)||(steer_s14_obs_r.updated!=0U))
-  {
-    *pwm_l=M8S142_Rise(plan.left_pwm,steer_s142_prev_final_l,300U);
-    *pwm_r=M8S142_Rise(plan.right_pwm,steer_s142_prev_final_r,100U);
-  }
+  /* Apply the last validated prediction on EVERY owner-control pass.
+   * AS5600 observations are updated only at their own timestamps.
+   * Without continuous command application the boosted PWM would fall
+   * to owner baseline between samples, producing avoidable oscillation.
+   * At >100ms age or <=180 RAW the coordinator is not used.
+   */
+  *pwm_l=M8S142_Rise(plan.left_pwm,steer_s142_prev_final_l,300U);
+  *pwm_r=M8S142_Rise(plan.right_pwm,steer_s142_prev_final_r,100U);
   /* Never exceed each independent envelope after slew / telemetry. */
   if(*pwm_l>cap_l)*pwm_l=cap_l;
   if(*pwm_r>cap_r)*pwm_r=cap_r;

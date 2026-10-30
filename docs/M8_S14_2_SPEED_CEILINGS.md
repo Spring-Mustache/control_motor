@@ -81,3 +81,11 @@ Validation must compare three states with separate captures:
 level1 physical SOFT clearance/current/electrical STOP checks.
 Run at least five repeats per D-pad/RX direction and verify
 six-motor concurrent LY only after steering-alone acceptance.
+
+## Command continuity clarification
+
+Controller output is recomputed and applied at every manual-owner
+service tick using the most recent *fresh, bounded* AS5600 rate
+estimate. This avoids returning to the unsynchronized owner PWM
+between distinct I2C samples. The 12 CCR per-pass upward slew
+still applies to final commanded PWM; a drop in SOFT cap is immediate.
