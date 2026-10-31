@@ -49,6 +49,15 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### M8-S14.9 telemetry fix after controller-ON trial 18:05 (2026-10-31)
+
+[TEST ON-ONLY] 845 CSV samples, complete no missed/invalid. Five fully qualified MAX→SOFT D-pad LEFT Level2+PI+S149 ON strokes versus four prior S14.8 Level2+PI ON: LEFT mean 1541.7ms vs1562.2ms; RIGHT 1838.3ms vs1917.6ms (79.3ms faster), RIGHT-minus-LEFT skew 296.6ms vs355.4ms (58.9ms lower). RIGHT lag at 180RAW -34.4ms (leads) versus +18.4ms. Values interpolated at ~52-57ms UART cadence; uncontrolled between-session variance remains, no coast/current PASS. S149 counters enable1,last1,frames466,requests359,wins254; no NC/trip/STOP during matched strokes; R2 NC seen in separate position mode, not a S149 manual fault.
+
+[BUG] All M8S00_S149_BIN bins zero because read-only telemetry condition previously required `left_direction<0` and `right_direction<0` simultaneously. Source computes `left_direction=-command`, `right_direction=command`; D-pad LEFT actual signs +1/-1, so impossible. Restore guard `left_direction>0 && right_direction<0`; add exact static regression to S149 verifier. The controller's PI/PD/lead calculation, duty caps, cutoff and atomic safety gates are untouched by this fix. Existing 18:05 diagnostic bin counters cannot be reconstructed from M8S00; use CSV and S149 aggregate counters. New bins require re-build/flash of fix after hardware gate.
+
+[STATUS] Source/host CI must PASS at new SHA, CubeIDE/Flash/Level2 current/clearance/coast still unverified, no Release required. User wants only controller ON trials, no more OFF baseline.
+
+
 ### M8-S14.9 — hiện hành: RIGHT early terminal-lag forecast opt-in, chỉ ON (2026-10-31)
 
 [USER] Chỉ thử bộ điều khiển ON, không bắt lặp PI OFF. Người dùng yêu cầu cập nhật firmware theo báo cáo riêng tư ON Level2 phiên 17:22. Báo cáo cho thấy RIGHT vs LEFT skew tại 180RAW **+18.4ms**, tại SOFT **+355.4ms**, phần xuất hiện trong đoạn cuối **337.1ms**, RIGHT 180→SOFT **782.8ms** và LEFT **445.7ms**. Đây là bốn lượt ON; không suy ra dòng/coast/NC clearance.
@@ -913,5 +922,25 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 
 
 [HOST TEST FIX2] SHA 1def13e: M8S149 pure GCC C host expectation for Level1 used cap150 instead of calculated 125+23=148; adjust test to expect 148 (cap still150), no firmware/limits modification. Need rerun exact-SHA CI.
+
+### M8-S14.9 read-only telemetry bugfix — 17-section audit note
+
+0. Source evidence: ON-only CSV 18:05 + M8S00 18:07 private; prior ON 17:22 comparison.
+1. Current task: fix impossible sign condition for S149_BIN, no motor behavior change.
+2. Goal: retain measured RIGHT arrival improvement and restore diagnosability of four RAW bins.
+3. Requirement: no further OFF tests; Level2 default and PI/S149 opt-in unchanged.
+4. Milestone: S149 diagnostics correction, new host CI; target Build/Flash pending.
+5. Done in source: passive bin condition + static regression.
+6. Pending: CI PASS at fix SHA, target build and refreshed M8S00 on safe stand.
+7. Files: main.c, verify_m8_s149_terminal_lead.py, handoff, roadmap, S149 doc.
+8. Decision: change direction guard only; do not touch PI/PD/lead gain or 180RAW taper.
+9. Error: bins all zero although S149 frames466, requests359, wins254.
+10. Risk: old M8S00 bins do not provide per-bin readings; no inferred correction for missing evidence.
+11. Next: CI exact SHA, Windows safe fast-forward, CubeIDE Clean Build; only after current/coast/NC gate ON-only trial.
+12. Missing: source-to-flash proof, Level2 current/clearance/coast, next post-fix 4-bin diagnostic.
+13. Chronology: 2026-10-31 18:05 ON trial after S149 build, same-date passive fix.
+14. Metrics: ON S149 R1838.3ms L1541.7ms skew296.6ms, prior S148 ON R1917.6ms L1562.2ms skew355.4ms.
+15. Resumption: inspect latest HEAD and Actions, no automatic Release, no private CSV push.
+16. Validation: CI static/GCC not MCU build/flash or hardware acceptance.
 
 END OF CONTEXT HANDOFF

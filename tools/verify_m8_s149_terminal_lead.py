@@ -31,6 +31,15 @@ checks={
      'steer_pos_right_pwm_max = 100U;' in s,
  'bin snapshots and pilot counters':'M8S00_S149_BIN,bin=%u,frames=%lu' in s and
      'M8S00_S149,enable=%u,last=%u,frames=%lu' in s,
+ 'S149 passive bins match actual Dpad LEFT axis signs':
+     'int8_t left_direction = (int8_t)(-command);' in s and
+     'int8_t right_direction = command;' in s and
+     '(left_direction>0) && (right_direction<0) &&' in
+     s.split('/* M8-S14.9 passive, post-atomic bin snapshots.',1)[1]
+      .split('  /* Do not re-arm automatically',1)[0] and
+     '(left_direction<0) && (right_direction<0)' not in
+     s.split('/* M8-S14.9 passive, post-atomic bin snapshots.',1)[1]
+      .split('  /* Do not re-arm automatically',1)[0],
  'pure header no HAL motor access':all(w not in h for w in
       ('HAL_GPIO','__HAL_TIM','GPIO_Pin','I2C','printf(','malloc(')),
 }

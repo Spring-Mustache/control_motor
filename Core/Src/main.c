@@ -7989,8 +7989,13 @@ static void Steering_ManualUpdate(void)
    * ACTUAL independent owner's applied value, including any late
    * NC/STOP cut. This never writes a duty/IRQ/GPIO register.
    */
+  /* For D-pad LEFT: left_direction=+1, right_direction=-1.
+   * The earlier two-negative test was impossible and suppressed all
+   * four read-only telemetry bins (despite the S149 pilot running).
+   * This fix ONLY restores passive snapshots, not motor control.
+   */
   if((steer_s147_latched!=0U) && (steer_manual_active!=0U) &&
-     (left_direction<0) && (right_direction<0) &&
+     (left_direction>0) && (right_direction<0) &&
      (steer_manual_right_soft_target!=0U))
   {
     uint16_t rnow=debug_as5600_right_raw;
