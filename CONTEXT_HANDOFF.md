@@ -49,6 +49,19 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### CURRENT M8-S15 — một thời gian hoàn thành cho hai góc TARGET độc lập (2026-10-31)
+
+[USER — thiết kế cốt lõi milestone] Dù LEFT/RIGHT đánh lái hai góc KHÁC NHAU, chúng phải dùng **cùng một thời gian hoàn thành T chung**, làm nền cho động học Ackermann. Không đồng nhất góc hay tốc độ giữa hai bên. Thay tầng điều khiển đồng bộ S14 PI/P+D/S149 bằng một bộ bám quỹ đạo có hai đầu ra độc lập; không bỏ nền tảng AS5600->±45°, NC/STOP, calibration, vị trí R1/R2, wheel PI/FF và log.
+
+[BRANCH] Tạo nhánh NEW `feature/m8-s15-dual-target-common-time` từ S14.10 HEAD 0bdb4412a1b37c6397391eb5dd9802d921df32ff để giữ lịch sử. Nhánh OLD `feature/m7-s15-ps2-controls-restoration-staged` dự kiến quay về **chính xác commit trước PI M8-S14.7** `bcf6c2a4e122de91ee8fdb864f5fe7cfd10cca5d` (parent của S14.7 first commit 21e3f353...). Khi tiếp quản PHẢI xác minh refs thực tế; không suy cũ là HEAD mới. Lịch sử S14.7–S14.10 vẫn được giữ trên nhánh S15, không xóa tag/release.
+
+[IMPLEMENTED SOURCE PILOT] `Core/Inc/steer_s15_common_time.h`: pure C M8S15_Init(startL,goalL,startR,goalR,requestedT)/M8S15_Step; cùng normalized cubic clock cho L/R nhưng góc vận tốc tham chiếu riêng. Thời gian T do yêu cầu hoặc auto dựa trên 6500 cdeg/s model + 150ms, từ chối T không khả thi theo giả định, clamp 1200-4200ms; đây chỉ là mô hình tĩnh chứ không chứng minh khả năng motor. Từng axis dùng lỗi góc/AS5600 timestamp speed để tính PWM từ owner/feedforward rồi giới hạn cap, +12 rise, **không boost trong 180 RAW cuối**, cho phép giảm tốc trục dẫn; không bật 2 controller đồng thời. `steer_s15_common_time_enable=0` boot và chỉ latch trong D-pad LEFT Level2 tại stroke mới sau neutral. Trường hợp còn lại giữ firmware legacy. S15 session bắt đầu khi BOTH MOVING và sensor speed hợp lệ, dùng hiện trạng góc từ AS5600 hai bên, owner SOFT goals; không tạo quyền chạy motor mới, không override owner NC/STOP. Đường phát lệnh góc bất kỳ từ động học **chưa route trực tiếp tới actuator**, pure planner đã xử lý mục tiêu ±45° độc lập — cần tích hợp owner có stopping target tương ứng trong milestone sau khi pilot an toàn.
+
+[OBSERVATION] M8S00_S15 report enable/last/T/phase/ref/error/candidate/applied. M8S05/M8S06/M8S11 vẫn đo thời điểm kết thúc từng axis. S14.10 shadow không chạy khi S149 OFF trong stroke S15. Test trên HOST C với goals LEFT35 RIGHT30 cùng T và góc trái/phải khác dấu, stale, no motor IO, cap/180 RAW protection; GitHub CI exact SHA kiểm tra sau commit.
+
+[STATUS] New branch firmware pilot is SOURCE-STAGED, not STM32CubeIDE Clean Build, flashed SHA or hardware PASS. No current/coast/clearance/independent supply cutoff verified. S15 **không bảo đảm** về T chung nếu motor bị giới hạn; yêu cầu đánh giá lỗi bám và arrival skew; nếu không đạt T, phải giữ lỗi và cải tiến logic sau bằng chứng. Người dùng chỉ test controller ON, KHÔNG lặp PI OFF.
+
+
 ### CURRENT M8-S14.10 — RIGHT velocity-based terminal taper SHADOW-ONLY (2026-10-31)
 
 **User goal:** "hãy thực hiện" đề xuất cải thiện RIGHT 180RAW cuối theo tốc độ đo AS5600. User chỉ thử controller ON, không lặp OFF. ON 18:13: 3 full MAX→SOFT D-pad LEFT Level2+PI/S149 ON strokes LEFT~1560ms RIGHT~1801ms skew~241ms, RIGHT dẫn~44ms ở 180RAW nhưng vẫn đến SOFT sau LEFT; improvement vs S14.8 ON remains observational only. In S149 logs bins (100,180] frames83 active0, <=100 frames185 active0, final sample after stop; legacy 180RAW exclusion, owner 100RAW taper. No measured coast/current/NC clearance.
@@ -972,5 +985,25 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 14. **Giới hạn:** Level2 boot2, cap L450 R200, PI/S149 boot OFF, boost cutoff180RAW, owner taper100RAW, shadow 180RAW and <=40RAW no raise.
 15. **Tiếp quản:** đọc doc S1410 và diff mới, không chọn release cũ làm HEAD; raw logs riêng tư.
 16. **Xác minh:** SOURCE/HOST/CI chỉ mô phỏng logic; không có hardware safety PASS hoặc active S14.10 speed improvement.
+
+### M8-S15 — 17 mục bàn giao riêng về thiết kế bám quỹ đạo chung
+
+0. Repo/current HEAD: verify independent NEW S15 and OLD rolled-back branches, never assume one SHA for both.
+1. Goal: independent LEFT/RIGHT angle targets sharing ONE completion time, future Ackermann support.
+2. User intent: S15 NEW branch; OLD branch pre M8-S14.7 PI exactly; only controller ON tests.
+3. Inputs: two angles in calibrated centidegrees ±4500, two independent AS5600 feedback/timestamps; common T.
+4. Done: pure one-clock cubic trajectory, per-axis position/velocity law, source opt-in pilot, docs/host CI.
+5. Preserved: M0-M6 wheel controller, M7 NC/limit/state, AS5600 ±45 mapping, calibration, R1/R2, arbitration.
+6. Replaced only on S15 pilot: S14.2/S147/S148/S149 coordination is bypassed, not combined.
+7. Hardware pilot: Dpad LEFT Level2 SOFT owner targets, not arbitrary external kinematics command.
+8. Future: expose independent target ownership with correct stop for internal angles and validated dynamic trajectories.
+9. Safety: no increase inside 180RAW; cap Level2 L450/R200, +12 rise, owner SOFT/NC/STOP and atomic CCR remain.
+10. Test: C unit covers 35°/30° common T, opposite-signed goals, reject infeasible T, missing sensor, PWM0, terminal no boost.
+11. Risks: fixed-angle-trajectory model does not guarantee real-time physical arrival; motor/slew/stall/clearance constrained.
+12. Missing: CubeIDE Clean Build and flash exact SHA, electrical current, coast, NC clearance, independent cutoff.
+13. Timing evidence: S14.10 ON 18:37 L1540ms R1795ms skew255ms; not S15 outcome.
+14. Telemetry: M8S00_S15 plus M8S05/M8S06/M8S11; compare SOFT arrival, angle and phase error, NC/trip.
+15. Recovery: OLD branch target bcf6c2a4...; S15 branch includes original history so nothing discarded; lease-safe Git actions.
+16. Acceptance: one T completion for two independent targets, measured tolerance required, not claimed achieved by CI.
 
 END OF CONTEXT HANDOFF

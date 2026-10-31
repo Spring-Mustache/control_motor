@@ -73,6 +73,9 @@ jobs:
       - name: Test M8-S14.10 read-only terminal velocity shadow regression
         run: python3 tools/verify_m8_s1410_right_terminal_shadow.py
 
+      - name: Test M8-S15 dual independent targets one common clock
+        run: python3 tools/verify_m8_s15_common_time.py
+
       - name: Validate passive RIGHT low-PWM A/B analyzer
         run: python3 tools/analyze_m8_right_low_pwm.py --self-test
 

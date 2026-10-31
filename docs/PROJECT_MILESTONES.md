@@ -2,6 +2,9 @@
 
 ## TRẠNG THÁI HIỆN HÀNH để tiếp quản (bổ sung 2026-10-31)
 
+**M8-S15 [NEW BRANCH, SOURCE PILOT]:** two independent calibrated steering goals, ONE completion time T. Branch `feature/m8-s15-dual-target-common-time` branched from S14.10. Existing OLD branch `feature/m7-s15-ps2-controls-restoration-staged` to be restored to `bcf6c2a4e122de91ee8fdb864f5fe7cfd10cca5d` (immediately pre S14.7 PI). S15 pure plan supports different targets and shared clock; opt-in hardware routing currently only validated D-pad LEFT Level2 SOFT owner, future external kinematics target routing pending. No S147/S148/S149 stacking, boot OFF, unchanged safety/atomic/NC/STOP. Source/host CI ≠ CubeIDE/FLASH/hardware pass. `docs/M8_S15_DUAL_TARGET_COMMON_TIME.md`.
+
+
 **M8-S14.10 [SOURCE-STAGED SHADOW ONLY]:** RIGHT terminal velocity profiling (S14.9 D-pad LEFT ON) from existing AS5600 RAW/s. Candidate bounded but never applied to PWM, no motor behavior change; 4 bin averages, 50ms RAW travel proxy is NOT coast. CI/CubeIDE/Flash/current/clearance need separate evidence. Refer `docs/M8_S14_10_RIGHT_TERMINAL_SHADOW.md`. No OFF tests.
 
 
@@ -914,3 +917,12 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 - [SOURCE] Add pure `M8S1410_Plan` bounded hypothetical target `150+2*remaining` RAW/s and <=20CCR candidate within old owner cap, <=40RAW no boost, stale100ms guard. Reuse existing RIGHT AS5600 filtered RAW/s; no second I2C. Passive M8S00_S1410 + 4 bins 180/140/100/60/0 RAW with sample counts, means, proxy and last values.
 - [NO ACTUATION] S1410 candidate NEVER fed to owner, CCR, PI, S149 or other motor controllers. No modification to independent STOP/NC/SOFT, existing owner taper, Level2 450/200, PI/S149 boot OFF, startup arm, wheel or R1/R2.
 - [GATES] GitHub Actions exact SHA C/static HOST test, handoff17/386 preserved. MCU Clean Build/Flashed SHA, independent power cutoff, current, true post-PWM coast/NC clearance not verified. User wants ON-only safe review when gates met; never claim S1410 improved physical timing yet.
+
+## M8-S15 — kiến trúc điều khiển hai TARGET độc lập trong cùng T (2026-10-31)
+
+- [USER invariant] T LEFT = T RIGHT at a COMMON completion time, angles need NOT be equal; trajectory generator future input from vehicle kinematics. Never confuse one phase parameter with same angle, velocity or PWM.
+- [BRANCH] S15 branch `feature/m8-s15-dual-target-common-time` from previous S14.10 HEAD `0bdb4412...`; old branch explicitly requested returned to exact **pre-PI** `bcf6c2a4e122de91ee8fdb864f5fe7cfd10cca5d` (parent of first PI commit), preserve modern history via S15.
+- [KEEP] MCU/wheel PI/FF/Voice/PS2 arbitration, steering AS5600 sensors + M8-S00 piecewise calibrated ±45°, limit switches NC, independent STOP/SOFT/stall/direction faults, R1/R2 owners and diagnostics/logger. No automatic change to wheel motion.
+- [REPLACE ON S15 PILOT] Single common smoothstep clock and two individually feedback-controlled CCR candidates; old PI/P+D/S149 NOT run in parallel. Same T computed from the slower modeled angle demand; requested too short rejected. Two independent end-goals from existing manual SOFT owner for D-pad LEFT only, generic pure C supports disparate targets. Current real motion owner cannot accept arbitrary external targets yet; future kinematics integration requires validated owner stop-at-interior-angle routing.
+- [PRESERVE GATES] 450/200 Level2 cap, +12 CCR rise, 180 RAW no boost, 100 RAW owner coast taper, NC/STOP/EXTI atomic check. Actuation disabled at boot unless all original safety gates and explicit opt-in.
+- [TEST] Exact production C host regression, static routing check, 17-section handoff spec; CI after source commit, then CubeIDE Clean Build, flashed SHA and physical stop/current/coast/clearance under independent supply cutoff. Only ON controller tests, no OFF replay.
