@@ -70,6 +70,9 @@ jobs:
       - name: Test M8-S14.9 bounded terminal anticipation and no-motor host guards
         run: python3 tools/verify_m8_s149_terminal_lead.py
 
+      - name: Test M8-S14.10 read-only terminal velocity shadow regression
+        run: python3 tools/verify_m8_s1410_right_terminal_shadow.py
+
       - name: Validate passive RIGHT low-PWM A/B analyzer
         run: python3 tools/analyze_m8_right_low_pwm.py --self-test
 

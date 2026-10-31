@@ -36,6 +36,7 @@
 #include "steer_s147_velocity_pi.h"
 #include "steer_s148_level2_hybrid.h"
 #include "steer_s149_terminal_lead.h"
+#include "steer_s1410_right_terminal_shadow.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -3016,6 +3017,20 @@ static uint16_t steer_s149_trace_pi_r = 0U;
 static uint16_t steer_s149_trace_pd_r = 0U;
 static uint16_t steer_s149_trace_lead_r = 0U;
 static uint8_t steer_s149_trace_active = 0U;
+/* M8-S14.10: read-only hypothesis recorder. No assignment to owner or CCR.
+ * Speed sampled independently by the already-existing manual AS5600 reader.
+ */
+typedef struct {
+  uint32_t frames, valid_frames, hypothetical_boost_frames;
+  uint32_t proxy_warning_frames, sum_speed, sum_owner, sum_candidate;
+  uint16_t peak_speed, last_remaining, last_speed, last_owner;
+  uint16_t last_candidate, last_target, last_50ms_raw;
+} M8S1410TraceBin_t;
+static M8S1410TraceBin_t steer_s1410_bins[4] = {{0}};
+volatile uint32_t steer_s1410_frames = 0U;
+volatile uint32_t steer_s1410_valid_frames = 0U;
+volatile uint32_t steer_s1410_would_boost_frames = 0U;
+volatile uint32_t steer_s1410_proxy_warning_frames = 0U;
 volatile uint32_t steer_s142_sync_sat_l_frames = 0U;
 volatile uint32_t steer_s142_sync_sat_r_frames = 0U;
 volatile int16_t steer_s142_sync_gap_cdeg = 0;
@@ -6182,6 +6197,42 @@ static uint8_t M8S05_DumpTiming(void)
       if(M8S00_UartLine(line,n)==0U)return 0U;
     }
   }
+  /* S14.10 SHADOW-ONLY. Averaged fresh AS5600 speeds and hypothetical
+   * candidates are NOT actual stopping distances/NC clearance.
+   */
+  n=snprintf(line,sizeof(line),
+      "M8S00_S1410,mode=shadow,frames=%lu,valid=%lu,"
+      "would=%lu,proxy50=%lu\r\n",
+      (unsigned long)steer_s1410_frames,
+      (unsigned long)steer_s1410_valid_frames,
+      (unsigned long)steer_s1410_would_boost_frames,
+      (unsigned long)steer_s1410_proxy_warning_frames);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
+  {
+    uint8_t bi;
+    for(bi=0U;bi<4U;bi++)
+    {
+      const M8S1410TraceBin_t *b=&steer_s1410_bins[bi];
+      uint32_t count=b->valid_frames;
+      n=snprintf(line,sizeof(line),
+          "M8S00_S1410_BIN,band=%u,frames=%lu,valid=%lu,"
+          "would=%lu,proxy50=%lu,avgV=%lu,avgOwner=%lu,"
+          "avgShadow=%lu,peakV=%u,lastRemain=%u,lastV=%u,"
+          "lastOwner=%u,lastShadow=%u,lastTarget=%u,last50=%u\r\n",
+          (unsigned)bi,(unsigned long)b->frames,
+          (unsigned long)b->valid_frames,
+          (unsigned long)b->hypothetical_boost_frames,
+          (unsigned long)b->proxy_warning_frames,
+          (unsigned long)((count!=0U)?b->sum_speed/count:0U),
+          (unsigned long)((count!=0U)?b->sum_owner/count:0U),
+          (unsigned long)((count!=0U)?b->sum_candidate/count:0U),
+          (unsigned)b->peak_speed,(unsigned)b->last_remaining,
+          (unsigned)b->last_speed,(unsigned)b->last_owner,
+          (unsigned)b->last_candidate,(unsigned)b->last_target,
+          (unsigned)b->last_50ms_raw);
+      if(M8S00_UartLine(line,n)==0U)return 0U;
+    }
+  }
 
   /* Separate encoder RPM from normalized AS5600 travel speed.
    * cpr=0 -> rpmValid=0, with counts/s retained for calibration.
@@ -8016,6 +8067,72 @@ static void Steering_ManualUpdate(void)
     b->target_r=steer_s149_trace_active?steer_s147_target_r_pms:0U;
     b->measured_r=steer_s149_trace_active?steer_s147_measured_r_pms:0U;
     b->error_r=steer_s149_trace_active?steer_s147_error_r_pms:0;
+  }
+
+  /* M8-S14.10 passive, RIGHT terminal observation. DO NOT write CCR.
+   * Filtered speed is already updated on this axis's fresh AS5600
+   * read in Steering_ManualAxisUpdate; no extra sensor bus traffic.
+   * No shadow candidate is copied to ra, PWM or the owner.
+   */
+  if((steer_s149_latched!=0U) &&
+     (left_direction>0) && (right_direction<0) &&
+     (steer_manual_right_state==STEER_MANUAL_MOVING) &&
+     (steer_manual_right_soft_target!=0U))
+  {
+    uint16_t goal=steer_manual_right_soft_target;
+    uint16_t rnow=debug_as5600_right_raw;
+    uint16_t remain=(rnow>goal)?(rnow-goal):(goal-rnow);
+    if(remain<=180U)
+    {
+      uint32_t sample_now=HAL_GetTick();
+      uint32_t age=(uint32_t)(sample_now-
+           steer_manual_right_axis.speed_sample_ms);
+      uint8_t bi=(remain>140U)?0U:((remain>100U)?1U:
+                ((remain>60U)?2U:3U));
+      M8S1410TraceBin_t *b=&steer_s1410_bins[bi];
+      uint16_t owner=steer_manual_right_pwm;
+      uint16_t cap=M8S142_Envelope(0U,steer_s142_latched,remain);
+      M8S1410Shadow_t shadow=M8S1410_Plan(remain,
+          steer_manual_right_axis.speed_filtered_raw_s,
+          owner,cap,steer_manual_right_axis.speed_valid,
+          age,1U);
+      if(steer_s1410_frames!=0xffffffffUL)steer_s1410_frames++;
+      if(b->frames!=0xffffffffUL)b->frames++;
+      if(shadow.valid!=0U)
+      {
+        if(steer_s1410_valid_frames!=0xffffffffUL)
+          steer_s1410_valid_frames++;
+        if(b->valid_frames!=0xffffffffUL)b->valid_frames++;
+        if(shadow.would_raise!=0U)
+        {
+          if(steer_s1410_would_boost_frames!=0xffffffffUL)
+            steer_s1410_would_boost_frames++;
+          if(b->hypothetical_boost_frames!=0xffffffffUL)
+            b->hypothetical_boost_frames++;
+        }
+        if(shadow.distance_proxy_warning!=0U)
+        {
+          if(steer_s1410_proxy_warning_frames!=0xffffffffUL)
+            steer_s1410_proxy_warning_frames++;
+          if(b->proxy_warning_frames!=0xffffffffUL)
+            b->proxy_warning_frames++;
+        }
+        if(b->sum_speed<=0xffffffffUL-shadow.measured_raw_s)
+          b->sum_speed+=shadow.measured_raw_s;
+        if(b->sum_owner<=0xffffffffUL-owner)
+          b->sum_owner+=owner;
+        if(b->sum_candidate<=0xffffffffUL-shadow.candidate_pwm)
+          b->sum_candidate+=shadow.candidate_pwm;
+        if(shadow.measured_raw_s>b->peak_speed)
+          b->peak_speed=shadow.measured_raw_s;
+        b->last_remaining=remain;
+        b->last_speed=shadow.measured_raw_s;
+        b->last_owner=owner;
+        b->last_candidate=shadow.candidate_pwm;
+        b->last_target=shadow.target_raw_s;
+        b->last_50ms_raw=shadow.forecast_50ms_raw;
+      }
+    }
   }
 
   /* Do not re-arm automatically if held against a stop or stalled.

@@ -49,6 +49,16 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### CURRENT M8-S14.10 — RIGHT velocity-based terminal taper SHADOW-ONLY (2026-10-31)
+
+**User goal:** "hãy thực hiện" đề xuất cải thiện RIGHT 180RAW cuối theo tốc độ đo AS5600. User chỉ thử controller ON, không lặp OFF. ON 18:13: 3 full MAX→SOFT D-pad LEFT Level2+PI/S149 ON strokes LEFT~1560ms RIGHT~1801ms skew~241ms, RIGHT dẫn~44ms ở 180RAW nhưng vẫn đến SOFT sau LEFT; improvement vs S14.8 ON remains observational only. In S149 logs bins (100,180] frames83 active0, <=100 frames185 active0, final sample after stop; legacy 180RAW exclusion, owner 100RAW taper. No measured coast/current/NC clearance.
+
+**Decision:** preserve exact tested actuator behavior. Stage `Core/Inc/steer_s1410_right_terminal_shadow.h`: pure C hypothetical velocity-adaptive RIGHT terminal taper within 180RAW, using EXISTING `steer_manual_right_axis.speed_filtered_raw_s` and independent valid timestamp, no extra I2C. Target `150+2*remaining RAW/s`; shadow extra <=20CCR and <=original envelope, no hypothesized boost within 40RAW. 50ms travel proxy NOT coast measurement. Only D-pad LEFT RMIN with S149 latch ON, right MOVING; M8S00_S1410 and four bin means (140/100/60 RAW cuts), counts/last values, no UART while energized. **No shadow candidate is applied to PWM/CCR/owner, ever.** Caps450/200, Level2=2 boot, PI/S149 boot OFF, existing 180/100RAW owner, atomic NC/STOP, arming, R1/R2/RX remain unchanged. M8-S14.10 can quantify whether an eventual active taper would be requested; cannot improve arrival without a later gate-based motor change.
+
+**STATE:** SOURCE-STAGED until exact commit CI. Host tests verify pure helper and no actuation. No STM32CubeIDE Clean Build/Flash verified for S14.10, no current/coast/NC clearances/physical power cutoff verified; not HARDWARE PASS. No private CSV on GitHub. Future ON-only log after safe gate, review avgSpeed/avgOwner/avgShadow and actual coast/current before any active change. Documentation: `docs/M8_S14_10_RIGHT_TERMINAL_SHADOW.md`.
+
+
+
 ### M8-S14.9 telemetry fix after controller-ON trial 18:05 (2026-10-31)
 
 [TEST ON-ONLY] 845 CSV samples, complete no missed/invalid. Five fully qualified MAX→SOFT D-pad LEFT Level2+PI+S149 ON strokes versus four prior S14.8 Level2+PI ON: LEFT mean 1541.7ms vs1562.2ms; RIGHT 1838.3ms vs1917.6ms (79.3ms faster), RIGHT-minus-LEFT skew 296.6ms vs355.4ms (58.9ms lower). RIGHT lag at 180RAW -34.4ms (leads) versus +18.4ms. Values interpolated at ~52-57ms UART cadence; uncontrolled between-session variance remains, no coast/current PASS. S149 counters enable1,last1,frames466,requests359,wins254; no NC/trip/STOP during matched strokes; R2 NC seen in separate position mode, not a S149 manual fault.
@@ -942,5 +952,25 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 14. Metrics: ON S149 R1838.3ms L1541.7ms skew296.6ms, prior S148 ON R1917.6ms L1562.2ms skew355.4ms.
 15. Resumption: inspect latest HEAD and Actions, no automatic Release, no private CSV push.
 16. Validation: CI static/GCC not MCU build/flash or hardware acceptance.
+
+### M8-S14.10 — bổ sung bàn giao 17 mục (2026-10-31)
+
+0. **Nguồn:** repo HEAD đúng branch phải đọc lại, log S14.9 ON 18:13 riêng tư, S14.10 docs.
+1. **Điểm dừng:** S14.10 pure shadow no-actuation, chỉ đề xuất PWM trên dữ liệu cũ, chưa active control.
+2. **Mục tiêu:** định lượng tốc độ terminal RIGHT và đánh giá taper có khả năng thay đổi timing an toàn hay không.
+3. **Ý người dùng:** thực hiện hướng S14.10, chỉ test controller ON, không yêu cầu PI OFF.
+4. **Milestone:** S14.9 ON đã cải thiện 241ms skew tại 18:13 vs S14.8 355ms; S14.10 thu nhận velocity shadow trước kiểm tra điện/cơ.
+5. **Làm xong trong code:** header pure shadow, 4-bin summary, UART S1410, host C/unit/static, CI, docs.
+6. **Còn thiếu:** CI exact SHA, MCU Clean Build, Flash ELF SHA, đo quãng trôi/dòng/clearance/ngắt nguồn cơ khí.
+7. **Files:** Core/Inc/steer_s1410_right_terminal_shadow.h, Core/Src/main.c, tools/test_m8_s1410_right_terminal_shadow.c, tools/verify_m8_s1410_right_terminal_shadow.py, docs/M8_S14_10_RIGHT_TERMINAL_SHADOW.md, workflow, handoff, milestones.
+8. **Quyết định:** KHÔNG đưa candidate của S14.10 vào CCR; target giả định 150+2*RAW/s, extra <=20CCR, zero window <=40RAW, stale guard100ms.
+9. **Bằng chứng:** S149 bin 100-180 inactive, RIGHT đến SOFT chậm 241ms dù dẫn 44ms tại 180RAW; không có bằng chứng vật lý cho tăng PWM gần SOFT.
+10. **Rủi ro:** Tăng PWM vùng 180RAW có thể vượt quãng trôi NC dù cap thấp; proxy50 chỉ đại lượng tốc độ*50ms.
+11. **Bước tiếp:** verify CI exact new SHA; git fetch/ff-only; CubeIDE Build/Flash với gate; ON-only log S1410 4 bins và kiểm đo vật lý rồi quyết định.
+12. **Thiếu:** khả năng ngắt nguồn động lực độc lập, dòng, nhiệt, quãng trôi thực sau PWM=0, clearance NC, Flash/Build proof.
+13. **Thời gian:** 2026-10-31 17:22 S148 ON, 18:05 và 18:13 S149 ON; 18:13 chẩn đoán terminal.
+14. **Giới hạn:** Level2 boot2, cap L450 R200, PI/S149 boot OFF, boost cutoff180RAW, owner taper100RAW, shadow 180RAW and <=40RAW no raise.
+15. **Tiếp quản:** đọc doc S1410 và diff mới, không chọn release cũ làm HEAD; raw logs riêng tư.
+16. **Xác minh:** SOURCE/HOST/CI chỉ mô phỏng logic; không có hardware safety PASS hoặc active S14.10 speed improvement.
 
 END OF CONTEXT HANDOFF

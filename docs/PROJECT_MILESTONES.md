@@ -2,6 +2,9 @@
 
 ## TRẠNG THÁI HIỆN HÀNH để tiếp quản (bổ sung 2026-10-31)
 
+**M8-S14.10 [SOURCE-STAGED SHADOW ONLY]:** RIGHT terminal velocity profiling (S14.9 D-pad LEFT ON) from existing AS5600 RAW/s. Candidate bounded but never applied to PWM, no motor behavior change; 4 bin averages, 50ms RAW travel proxy is NOT coast. CI/CubeIDE/Flash/current/clearance need separate evidence. Refer `docs/M8_S14_10_RIGHT_TERMINAL_SHADOW.md`. No OFF tests.
+
+
 **M8-S14.9 [SOURCE-STAGED]:** RIGHT terminal-lag forecast opt-in từ 4 lượt ON Level2 log 17:22 (337ms terminal skew), trước 180RAW, không đổi cap450/200, PI/P+D MAX, +12CCR, NC/STOP/SOFT. Flags PI và S149 đều boot OFF; Level2 boot=2. M8S00_S149 và 4 bin chẩn đoán. Chưa CubeIDE Build/Flash/current/coast/clearance/HARDWARE PASS. User chỉ muốn test ON, không yêu cầu PI OFF. Đọc `docs/M8_S14_9_TERMINAL_LEAD_ON_ONLY.md`.
 
 
@@ -903,3 +906,11 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 - Aggregate S149 active frames466, requests359, wins254; **all four M8S00_S149_BIN counters zero** due impossible passive condition left_direction<0 AND right_direction<0. D-pad LEFT is left_direction=+1, right_direction=-1. Fix only telemetry guard to >0,<0; add static invariant test, no change to PI/P+D, early lead forecast, CCR/NC/STOP/180RAW/caps.
 - Position R2 NC events occurred outside the matched manual D-pad LEFT strokes and did not cause global trip. Do not misdiagnose NC as S149 fault. Keep raw CSV/TXT private.
 - CI check must be verified on new fix SHA; current Level2 motor clearance/coast/current independent power cutoff not measured here. CubeIDE clean build/flash and ON-only test require hardware gates; never request repeating OFF.
+
+## M8-S14.10 — speed-adaptive RIGHT terminal SHADOW-ONLY (2026-10-31)
+
+- [USER] Explicitly asked to implement next improvement after S149 ON, and to test controller ON only. No more PI OFF comparisons needed.
+- [DATA] 18:13 ON three full LEFT strokes: mean L1560ms, R1801ms, skew241ms; R leads44ms at180RAW but finishes later. S149 terminal 100-180RAW is unboosted; case supports investigating speed-dependent RIGHT taper but DOES NOT establish physical permission to raise PWM near SOFT.
+- [SOURCE] Add pure `M8S1410_Plan` bounded hypothetical target `150+2*remaining` RAW/s and <=20CCR candidate within old owner cap, <=40RAW no boost, stale100ms guard. Reuse existing RIGHT AS5600 filtered RAW/s; no second I2C. Passive M8S00_S1410 + 4 bins 180/140/100/60/0 RAW with sample counts, means, proxy and last values.
+- [NO ACTUATION] S1410 candidate NEVER fed to owner, CCR, PI, S149 or other motor controllers. No modification to independent STOP/NC/SOFT, existing owner taper, Level2 450/200, PI/S149 boot OFF, startup arm, wheel or R1/R2.
+- [GATES] GitHub Actions exact SHA C/static HOST test, handoff17/386 preserved. MCU Clean Build/Flashed SHA, independent power cutoff, current, true post-PWM coast/NC clearance not verified. User wants ON-only safe review when gates met; never claim S1410 improved physical timing yet.

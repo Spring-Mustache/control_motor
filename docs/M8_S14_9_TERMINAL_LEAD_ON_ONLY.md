@@ -29,3 +29,7 @@
 User's ON-only test showed full UART capture 845/845 rows, 5 MAX→SOFT D-pad LEFT Level2/PI/S149 strokes. Mean RIGHT arrival 1838.3ms, LEFT1541.7ms, skew296.6ms versus S14.8 Level2/PI ON means RIGHT1917.6ms, LEFT1562.2ms, skew355.4ms (4 strokes). Compared within approximate UART interpolation, RIGHT improves79.3ms and skew58.9ms. S149 enable1,last1,frames466,requests359,wins254. No confirmed current/coast/clearance safety; comparisons do not isolate all external variables.
 
 **Diagnostic source bug identified:** four M8S00_S149_BIN lines all report zero because the telemetry-only guard checked both left_direction<0 and right_direction<0. In main.c command sign logic, left_direction=-command and right_direction=command; D-pad LEFT uses +1/-1. Guard corrected to left_direction>0 and right_direction<0; exact routing static regression added. Does not alter motor PWM behavior, gates, cutoff, target, max caps, S149 enable default or latch. Historic BIN=0 lines remain invalid; re-test ON-only after correct Build/Flash and safety gate if finer diagnosis is needed.
+
+## Successor S14.10 — never confuse shadow with new motor control
+
+See `docs/M8_S14_10_RIGHT_TERMINAL_SHADOW.md`: Speed-based candidate in 180 RAW last is only read-only diagnosis from existing AS5600/CCR, **NOT** a new PWM setting. S149 actuation untouched; no grounds to increase near-SOFT energy without physical coast, current and NC clearance evidence. Only ON-only data collection, not OFF.
