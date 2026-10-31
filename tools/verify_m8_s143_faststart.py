@@ -34,7 +34,16 @@ checks={
     '((settle_ms >= min_ms) &&' in s and
     '((uint32_t)(now-axis->settle_quiet_since_ms) >=' in s
  ),
- 'NC/soft checks retained':'Steering_TestRawLimitMask() == 0U' in s and 'STEER_MANUAL_RESULT_SOFT' in s,
+  'NC/soft checks retained':(
+    # The new S14.3 diagnostic gate rejects asserted NC via nonzero
+    # raw/active mask bits. SOFT still independently stops the axis.
+    'if (Steering_TestRawLimitMask() != 0U)' in s and
+    'if (debug_limit_active_mask != 0U)' in s and
+    'missing |= 0x10U;' in s and
+    'missing |= 0x20U;' in s and
+    'if (at_soft != 0U)' in s and
+    'Steering_ManualAxisDone(left, STEER_MANUAL_RESULT_SOFT);' in s
+ ),
  'no I2C or motor IO in helper':'HAL_' not in h and 'Steering_PositionReadOne' not in h,
  'diagnostic':'M8S00_S143,enable=%u,grants=%lu' in s,
  'caps unchanged':'375U:150U' in (root/'Core/Inc/steer_s142_speed.h').read_text(encoding='utf-8')

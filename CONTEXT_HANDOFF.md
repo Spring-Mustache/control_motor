@@ -692,4 +692,12 @@ Người vận hành chạy `python tools/verify_m8_s143_faststart.py` trên Win
 
 [NEXT] Sau cập nhật SHA mới Windows, chạy verifier và CubeIDE Clean Build/Flash; treo xe, ở Level1, Fast=1, neutral >=300ms, vài xung ngắn; nếu `grants` vẫn 0, gửi missing mask + S00. Không thử Level2 dưới đất trước khi STOP/coast/current đạt.
 
+### B 2026-10-31: False-negative NC/soft verifier and CI guard
+
+User ran python tools/verify_m8_s143_faststart.py from commit 7cae7b13 and got FAIL: NC/soft checks retained. Source inspection shows S14.3 changed grant check to if (Steering_TestRawLimitMask() != 0U), recording missing bit 0x10, plus if (debug_limit_active_mask != 0U), bit 0x20. The old verifier expected an equality-to-zero expression which was removed during diagnostic refactor. SOFT protection still calls Steering_ManualAxisDone(left, STEER_MANUAL_RESULT_SOFT) when at_soft is nonzero. This failure is a verifier false negative, not evidence of missing firmware safety gates.
+
+Changes in this follow-up: update only tools/verify_m8_s143_faststart.py, plus GitHub Actions workflow to execute the verifier including native GCC C helper tests before releasing a new context handoff; preserve all motor source and PWM constants unchanged. Update both 17-section handoff and milestone log in same commit. GitHub Actions success means source checks and GCC unit tests passed, NOT CubeIDE Build, Flash or physical acceptance.
+
+Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE files; verify new HEAD; rerun Python verifier; CubeIDE Clean Build/Flash. First physical test remains Level1 on suspended stand, no ground/Level2 until current, coast and independent STOP validation. Monitor fast_grants, fast_starts and steer_s143_last_gate_missing_mask from fresh firmware, without guessing safety from counter values.
+
 END OF CONTEXT HANDOFF

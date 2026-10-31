@@ -29,6 +29,12 @@ jobs:
         run: |
           python3 tools/verify_context_handoff_contract.py --before "$HANDOFF_BEFORE" --head "$GITHUB_SHA"
 
+      - name: Check S14.3 guard verifier and pure C host regression
+        run: |
+          if [ -f tools/verify_m8_s143_faststart.py ]; then
+            python3 tools/verify_m8_s143_faststart.py
+          fi
+
       - name: Build source-grounded handoff bundle
         run: python3 tools/build_context_release.py --output dist/context-release
 
