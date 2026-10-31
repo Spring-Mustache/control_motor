@@ -1006,4 +1006,9 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 15. Recovery: OLD branch target bcf6c2a4...; S15 branch includes original history so nothing discarded; lease-safe Git actions.
 16. Acceptance: one T completion for two independent targets, measured tolerance required, not claimed achieved by CI.
 
+
+### M8-S15 CI gate maintenance (2026-10-31)
+
+M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14.7 and S14.8 historical static verifiers originally required PI latch start with an exact pre-S15 substring and were misleadingly FAIL after adding the deliberate `steer_s15_latched==0U` guard. Update both verifiers to require this mutual exclusion plus original Level1/2 and other safety checks. **No motor-code change in this gate-maintenance commit**. CI exact SHA must be rechecked. Branch S15 separate from legacy pre-PI rollback.
+
 END OF CONTEXT HANDOFF

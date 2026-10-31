@@ -11,7 +11,9 @@ checks={
  'PI remains opt-in OFF':'volatile uint8_t steer_s147_velocity_pi_enable = 0U;' in s,
  'disarmed manual and PS2':'volatile uint8_t steer_manual_enable = 0U;' in s and
     'volatile uint8_t steer_ps2_manual_armed = 0U;' in s,
- 'both Level1 and Level2 can latch':'steer_s147_latched = (((steer_s142_latched == 1U) ||' in s and
+ 'both Level1 and Level2 can latch unless S15 owns':
+    'steer_s147_latched = ((steer_s15_latched==0U) &&' in s and
+    '((steer_s142_latched == 1U) ||' in s and
     '(steer_s142_latched == 2U)) &&' in s,
  'S14.5 remains mutually exclusive':'(steer_s144_rmin_catchup_enable == 0U)' in s,
  'Dpad LEFT pilot only':'(PS2_Pad.Left != 0U) && (PS2_Pad.Right == 0U)' in s,
