@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the operator's VERBATIM context-handoff specification on every release.
+"""Enforce the operator's VERBATIM context-handoff specification on every push.
 
 This checks source integrity, 17-section structure and required document
 updates whenever firmware/code changes. It CANNOT reconstruct ChatGPT chats,
@@ -37,8 +37,12 @@ def updated_code(path: str) -> bool:
         return True
     if p.suffix.lower() in {".ioc", ".ld"}:
         return True
+    # Changes to the checker, packaging script and workflow itself are
+    # changes to project behavior: require updated context documents too.
     if path.startswith("tools/") and p.suffix.lower() in {".py", ".c", ".h"}:
-        return p.name not in {"build_context_release.py", "verify_context_handoff_contract.py"}
+        return True
+    if path.startswith(".github/workflows/") and p.suffix.lower() in {".yml", ".yaml"}:
+        return True
     return False
 
 
@@ -74,11 +78,23 @@ def check_structure() -> list[str]:
 
 
 def diff_files(before: str, head: str) -> set[str]:
+    """Check the push range, or the commit's parent on manual dispatch.
+
+    Never silently skip the update gate merely because workflow_dispatch
+    does not provide github.event.before.
+    """
     if not before:
-        return set()
+        try:
+            before = git("rev-parse", f"{head}^")
+        except subprocess.CalledProcessError as exc:
+            raise ValueError("no previous SHA and cannot resolve head parent") from exc
     if set(before) == {"0"}:
-        # First push of new branch: check the current commit against its parent.
-        return set(git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines())
+        # First push of a branch: use the commit parent (if available).
+        # Missing parent must fail closed, rather than silently skip.
+        try:
+            before = git("rev-parse", f"{head}^")
+        except subprocess.CalledProcessError as exc:
+            raise ValueError("branch creation without resolvable head parent") from exc
     return set(git("diff", "--name-only", before, head).splitlines())
 
 
@@ -88,30 +104,30 @@ def main() -> None:
     parser.add_argument("--head", default="HEAD", help="current release SHA")
     args = parser.parse_args()
     errors = check_structure()
-    if args.before:
-        try:
-            changed = diff_files(args.before, args.head)
-        except (subprocess.CalledProcessError, ValueError) as exc:
-            errors.append(f"cannot inspect code changes; refusing to publish: {exc}")
-            changed = set()
-        code_changes = sorted(x for x in changed if updated_code(x))
-        if code_changes:
-            print("CODE CHANGES DETECTED:", ", ".join(code_changes))
-            for required in ("CONTEXT_HANDOFF.md", "docs/PROJECT_MILESTONES.md"):
-                if required not in changed:
-                    errors.append(
-                        f"code updated without revising {required} in the same push. "
-                        "Update it under the original 17-section specification first."
-                    )
-        else:
-            print("No code updates in this push; keep the historical handoff intact.")
+    # Run the content-update gate for BOTH push and manual dispatch.
+    try:
+        changed = diff_files(args.before, args.head)
+    except (subprocess.CalledProcessError, ValueError) as exc:
+        errors.append(f"cannot inspect code changes; refusing to verify: {exc}")
+        changed = set()
+    code_changes = sorted(x for x in changed if updated_code(x))
+    if code_changes:
+        print("CODE/WORKFLOW/TOOL CHANGES DETECTED:", ", ".join(code_changes))
+        for required in ("CONTEXT_HANDOFF.md", "docs/PROJECT_MILESTONES.md"):
+            if required not in changed:
+                errors.append(
+                    f"code updated without revising {required} in the checked range. "
+                    "Update it under the original 17-section specification first."
+                )
+    else:
+        print("No code updates in checked range; historical material is retained.")
     if errors:
         for error in errors:
             print("FAIL:", error, file=sys.stderr)
         raise SystemExit(1)
     print("PASS: exact 386-line original specification SHA-256")
     print("PASS: full 0-16 structured handoff and required footer")
-    print("PASS: code-change handoff/roadmap update gate (when push event has before SHA)")
+    print("PASS: code/workflow/tool changes require handoff + roadmap updates (push/dispatch)")
     print("NOTE: source checks do NOT establish full prose accuracy or hardware PASS")
 
 

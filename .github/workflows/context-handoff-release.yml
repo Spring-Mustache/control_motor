@@ -1,33 +1,53 @@
-name: Publish versioned context handoff
+name: Verify context handoff; publish ZIP only on explicit request
 
 on:
   push:
     branches:
       - '**'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish an immutable SHA-matched context prerelease (milestone/manual handoff)"
+        required: true
+        type: boolean
+        default: false
 
+# Normal pushes only need READ permission. Publication is a separate,
+# explicitly requested job, never a prerequisite for verifying the source.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: context-handoff-${{ github.sha }}
+  group: context-handoff-${{ github.ref }}-${{ github.sha }}-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
-  publish-handoff:
+  verify-handoff:
+    name: Verify full context contract at exact SHA
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout the exact pushed commit
+      - name: Checkout the exact pushed/dispatched commit
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Enforce verbatim specification and fresh handoff for code updates
+      - name: Verify current branch and SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "Verified $GITHUB_REF_NAME @ $GITHUB_SHA"
+
+      - name: Enforce unchanged 386-line specification and updated 17-section handoff
         env:
           HANDOFF_BEFORE: ${{ github.event.before }}
         run: |
           python3 tools/verify_context_handoff_contract.py --before "$HANDOFF_BEFORE" --head "$GITHUB_SHA"
+
+      - name: Test handoff workflow invariants and no-Release resume
+        run: python3 tools/test_context_handoff_process.py
 
       - name: Check S14.3 guard verifier and pure C host regression
         run: |
@@ -41,10 +61,30 @@ jobs:
             python3 tools/verify_m8_s142_speed.py
           fi
 
-      - name: Build source-grounded handoff bundle
+  publish-release:
+    name: Optional milestone / offline context package
+    # A push NEVER publishes. A manual run with the boolean checked does,
+    # and only after the same exact SHA passed all required checks.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release == true }}
+    needs: verify-handoff
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact SHA after successful verification
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert checkout SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Build optional SHA-grounded context bundle
         run: python3 tools/build_context_release.py --output dist/context-release
 
-      - name: Publish one GitHub prerelease per commit
+      - name: Publish SHA-bound prerelease (idempotent)
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -56,8 +96,9 @@ jobs:
           bundle="dist/context-release/context-handoff-${short}.zip"
           status="dist/context-release/RELEASE_STATUS.md"
           if gh release view "${tag}" >/dev/null 2>&1; then
-            # Idempotent on workflow rerun; update assets with same commit tag.
-            gh release upload "${tag}" "${bundle}" "${status}" --clobber
+            # Idempotent WITHOUT mutating historical assets or tags.
+            # If this tag predates the new process, preserve it exactly.
+            echo "Context release ${tag} already exists; preserving prior assets."
           else
             gh release create "${tag}" \
               --target "${GITHUB_SHA}" \

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a versioned, source-grounded handoff for GitHub Releases.
+"""Package an OPTIONAL versioned, source-grounded handoff for milestones.
 
 Do not infer hardware PASS, regenerate private ChatGPT history, or alter git.
 No third-party packages required.
@@ -32,13 +32,16 @@ def main() -> None:
     recent = git("log", "-n", "20", "--date=iso-strict", "--pretty=format:%h | %ad | %s")
     changed = git("diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "HEAD")
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    # Files are always read from the exact COMMITTED tree, never a dirty
+    # working copy, so local manual packaging cannot silently mix versions.
+    tracked = set(git("ls-tree", "-r", "--name-only", sha).splitlines())
     handoff = root / "CONTEXT_HANDOFF.md"
     original_spec = root / "docs" / "CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md"
-    if not original_spec.is_file():
+    if "docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md" not in tracked or not original_spec.is_file():
         raise SystemExit("Missing verbatim original handoff requirements")
-    if not handoff.is_file():
+    if "CONTEXT_HANDOFF.md" not in tracked or not handoff.is_file():
         raise SystemExit("Missing CONTEXT_HANDOFF.md at repository root: cannot publish an incomplete handoff")
-    if not (root / "docs" / "PROJECT_MILESTONES.md").is_file():
+    if "docs/PROJECT_MILESTONES.md" not in tracked or not (root / "docs" / "PROJECT_MILESTONES.md").is_file():
         raise SystemExit("Missing docs/PROJECT_MILESTONES.md")
 
     status = f"""# PROJECT RELEASE HANDOFF — {sha[:12]}
@@ -51,9 +54,9 @@ def main() -> None:
 - Mã nguồn tại commit: https://github.com/{repo}/tree/{sha}
 - Bản diff: https://github.com/{repo}/commit/{sha}
 - Giờ tạo gói (UTC): {stamp}
-- Mốc nghiên cứu hiện hành tại lần tạo hồ sơ ban đầu: M8-S14.2, cross-coupled steering (đọc lại roadmap và diff để xác minh mốc đã đổi hay chưa).
+- Mốc hiện hành: xem **mục 1 của CONTEXT_HANDOFF.md**, phần cập nhật mới nhất của roadmap, code và commit diff ở SHA này. Không suy từ release hoặc ghi chú lịch sử.
 - **Trạng thái Build/Flash/hardware của commit này: CHƯA KIỂM CHỨNG trong gói bàn giao**, trừ khi có bằng chứng kiểm thử riêng, ghi rõ trong commit/release. GitHub Actions tạo file này **không** phải build STM32 hoặc thử trên xe.
-- `CONTEXT_HANDOFF.md` là hồ sơ lịch sử chụp tại thời điểm ban đầu; **SHA nằm trong hồ sơ có thể cũ**. Ưu tiên SHA và lịch sử commit nêu trong file release này; không tự nhận văn bản tĩnh đã cập nhật diễn biến chat.
+- `CONTEXT_HANDOFF.md` gồm **lịch sử gốc được giữ nguyên + cập nhật tích lũy 17 mục**; những SHA trong phần lịch sử có thể cũ. Luôn đối chiếu HEAD thực của đúng nhánh và trạng thái hiện hành ở đầu hồ sơ. Release này là bản tùy chọn, không phải điều kiện để tiếp quản.
 - Trạng thái lỗi FIRST-STOP RIGHT được **người dùng báo đã fix** (xem hồ sơ), không coi là lỗi còn mở chỉ vì tài liệu cũ viết khác; nguồn/commit sửa chi tiết có thể chưa được đối chiếu.
 
 ## Đúng commit này thay đổi những gì
@@ -70,8 +73,8 @@ def main() -> None:
 
 ## Tài liệu để B kiểm tra theo thứ tự
 
-1. File này: `RELEASE_STATUS.md` (SHA hiện hành và các thay đổi gần nhất).
-2. `CONTEXT_HANDOFF.md` (hồ sơ lịch sử A→B, **không tự cập nhật từ chat**).
+1. Xác minh nhánh và HEAD SHA độc lập trên GitHub; không dùng release cũ để chọn HEAD.
+2. `CONTEXT_HANDOFF.md` (lịch sử + mục cập nhật do người thực hiện commit; không tự nhập chat).
 3. `docs/CHAT_B_START_PROMPT.md` (lời nhắn khởi đầu cho hội thoại mới).
 4. `docs/PROJECT_MILESTONES.md` (roadmap tích lũy; ưu tiên mục ghi ngày mới nhất, bảng mở đầu có thể cũ).
 5. `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md` (bản gốc nguyên văn 386 dòng, không thay chữ; yêu cầu cho TỪNG lần bàn giao).
@@ -84,27 +87,39 @@ def main() -> None:
 - Xác minh repo/nhánh/SHA trên GitHub (không đồng nhất SHA trong hồ sơ tĩnh với HEAD mới).
 - Đọc commit diff cùng milestone mới nhất, phân biệt code-staged với build, flash và hardware PASS.
 - Chốt vấn đề chưa làm và test cần có; không tự suy dữ liệu ngoài repo.
-- Sau mỗi lần có kết quả thử thực tế, cập nhật tài liệu trạng thái/roadmap và commit để phiên bản release kế tiếp mang bằng chứng mới.
+- Sau kết quả thử hoặc quyết định quan trọng, cập nhật tài liệu và commit; không cần Release cho mỗi push. Khi cần mốc offline, chạy workflow_dispatch với publish_release=true.
 """
     status_file = output / "RELEASE_STATUS.md"
     status_file.write_text(status, encoding="utf-8")
     zip_file = output / f"context-handoff-{sha[:12]}.zip"
-    include = [handoff, original_spec, root / "docs" / "PROJECT_MILESTONES.md", root / "docs" / "CONTEXT_RELEASE_POLICY.md", root / "docs" / "CHAT_B_START_PROMPT.md", root / "tools" / "verify_context_handoff_contract.py"]
-    include += sorted((root / "docs").glob("M7_*.md"))
-    include += sorted((root / "docs").glob("M8_*.md"))
-    include += sorted((root / "tools").glob("verify_m8_*.py"))
-    include += sorted((root / "tools").glob("test_m8_s*.c"))
-    seen: set[str] = set()
+    required = {
+        "README.md",
+        "CONTEXT_HANDOFF.md",
+        "docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md",
+        "docs/PROJECT_MILESTONES.md",
+        "docs/CONTEXT_RELEASE_POLICY.md",
+        "docs/CHAT_B_START_PROMPT.md",
+        "tools/verify_context_handoff_contract.py",
+        "tools/build_context_release.py",
+        ".github/workflows/context-handoff-release.yml",
+    }
+    optional = sorted(
+        p for p in tracked
+        if (p.startswith("docs/M7_") and p.endswith(".md"))
+        or (p.startswith("docs/M8_") and p.endswith(".md"))
+        or (p.startswith("tools/verify_m8_") and p.endswith(".py"))
+        or (p.startswith("tools/test_m8_s") and p.endswith(".c"))
+    )
+    missing = required - tracked
+    if missing:
+        raise SystemExit(f"Missing committed handoff inputs: {sorted(missing)}")
+    members = sorted(required | set(optional))
     with zipfile.ZipFile(zip_file, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         archive.writestr("RELEASE_STATUS.md", status)
-        for path in include:
-            if not path.is_file():
-                continue
-            rel = path.relative_to(root).as_posix()
-            if rel in seen:
-                continue
-            seen.add(rel)
-            archive.write(path, rel)
+        for rel in members:
+            blob = subprocess.check_output(["git", "show", f"{sha}:{rel}"])
+            archive.writestr(rel, blob)
+    seen = set(members)
     print(f"COMMIT={sha}")
     print(f"BRANCH={branch}")
     print(f"STATUS={status_file}")

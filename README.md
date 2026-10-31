@@ -1,34 +1,28 @@
 # Xe tăng cướp bóng — STM32F767ZI
 
-Firmware điều khiển 4 motor bánh + 2 motor đánh lái, PS2, VC-02, AS5600, NC/STOP.
+Firmware 4 motor bánh + 2 motor đánh lái, PS2, VC-02, encoder/AS5600, công tắc NC/STOP.
 
-## Dành cho người vận hành — mở hội thoại ChatGPT mới
+## Mở cuộc hội thoại ChatGPT mới
 
-**Bạn chỉ cần [mở lời nhắn bàn giao dành cho B](docs/CHAT_B_START_PROMPT.md), sao chép toàn bộ và dán làm tin nhắn đầu tiên trong hội thoại mới.**
+**[Sao chép lời nhắn khởi đầu tại đây](docs/CHAT_B_START_PROMPT.md)** vào hội thoại mới. Bạn không cần tải lại file nếu AI có quyền đọc repository.
 
-Không bắt buộc tải lại hay đính kèm `CONTEXT_HANDOFF.md` khi hội thoại B có công cụ và quyền truy cập GitHub. B sẽ tự thực hiện các bước tìm nguồn được mô tả trong lời nhắn; nếu không truy cập được, B phải nói rõ tài nguyên còn thiếu.
+Nguồn chính của dự án là **Git commit + tài liệu được cập nhật tại SHA của đúng nhánh**. GitHub Actions **kiểm tra** mỗi push. Context Release/ZIP **chỉ tạo theo yêu cầu hoặc milestone**, không còn được tạo sau mọi push. **Không có Release cho HEAD là bình thường**, không phải thiếu ngữ cảnh.
 
-Bạn có thể xem trước hồ sơ tại [GitHub Releases](https://github.com/Spring-Mustache/control_motor/releases). Mỗi lần push lên nhánh có workflow tạo một bản phát hành ngữ cảnh ứng với HEAD của lần push đó.
+## Hướng dẫn AI tiếp quản
 
-## Dành cho AI tiếp quản — hội thoại B, C, D...
+1. Xác minh HEAD SHA thực tế của `feature/m7-s15-ps2-controls-restoration-staged` (hoặc nhánh người dùng chỉ định mới); đừng lấy HEAD của `main`, SHA cũ hay Release mới nhất.
+2. Đọc `CONTEXT_HANDOFF.md` **mục 1 hiện hành**, rồi **toàn bộ 17 mục (0–16) và cập nhật lịch sử**, `docs/PROJECT_MILESTONES.md` ở đầu và cuối, chính sách, đặc tả gốc nguyên văn cùng các tài liệu M7/M8 có liên quan. Tất cả ở cùng SHA.
+3. Xem 20 commit gần đây, diff mới nhất và kết quả [GitHub Actions](https://github.com/Spring-Mustache/control_motor/actions/workflows/context-handoff-release.yml) trên đúng SHA. Phân biệt SOURCE-STAGED, HOST PASS, CubeIDE Build, Flash, giá treo và mặt đất có tải.
+4. Tìm [Release](https://github.com/Spring-Mustache/control_motor/releases) **chỉ nếu muốn gói ZIP/milestone**. Kiểm tra tag `context-<FULL_SHA>`; nếu vắng, tiếp tục trực tiếp từ repository. Không coi bản của commit/nhánh khác là hiện hành.
+5. Chốt việc còn dang dở, những gì đã kiểm chứng và bước tiếp tục; sau khi sửa code/ra quyết định mới, cập nhật đủ handoff/roadmap và kiểm tra CI. Không mặc nhiên có file/log riêng từ hội thoại khác.
 
-**Nếu đang đọc README theo yêu cầu của lời nhắn bàn giao, đây là bản đồ tài nguyên, KHÔNG phải yêu cầu người dùng mở thêm hội thoại.**
+## Tài liệu tham khảo
 
-1. Xác minh HEAD SHA thực tế của **nhánh phát triển được chỉ định** (hiện là `feature/m7-s15-ps2-controls-restoration-staged`); không nhầm với `main`.
-2. Tìm bản [Context Release](https://github.com/Spring-Mustache/control_motor/releases) có tag `context-<FULL_HEAD_SHA>`. Không lấy Release trên cùng nếu thuộc nhánh khác hoặc SHA cũ.
-3. Đọc `RELEASE_STATUS.md` để xác nhận SHA, thay đổi và lịch sử commit.
-4. Đọc toàn bộ [CONTEXT_HANDOFF.md](CONTEXT_HANDOFF.md) (mục 0–16), [roadmap](docs/PROJECT_MILESTONES.md), tài liệu M7/M8 liên quan và mã nguồn ở **cùng SHA**. Nếu không thể truy cập ZIP, đọc trực tiếp từ repository; báo rõ phạm vi truy cập.
-5. Xác định phần đã thực hiện, đã kiểm chứng, chưa kiểm chứng và đúng điểm dừng; tiếp tục việc đủ dữ liệu, công cụ và quyền. Sau thay đổi, cập nhật roadmap/tài liệu cùng commit và kiểm tra Release mới.
+- [Lời nhắn chuyển tiếp cho B/C/D](docs/CHAT_B_START_PROMPT.md)
+- [Đặc tả gốc của người vận hành — nguyên văn 386 dòng](docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md)
+- [Hồ sơ 17 mục: lịch sử bảo tồn + trạng thái cập nhật](CONTEXT_HANDOFF.md)
+- [Roadmap và mốc đã/chưa kiểm chứng](docs/PROJECT_MILESTONES.md)
+- [Chính sách và cách phát hành ZIP tùy chọn](docs/CONTEXT_RELEASE_POLICY.md)
+- [Workflow CI kiểm tra và nút tạo Release thủ công](https://github.com/Spring-Mustache/control_motor/actions/workflows/context-handoff-release.yml)
 
-## Tài liệu tham chiếu
-
-- [Lời nhắn đầu tiên để sao chép vào B](docs/CHAT_B_START_PROMPT.md)
-- [Yêu cầu gốc NGUYÊN VĂN để tạo hồ sơ bàn giao](docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md)
-- [Hồ sơ bàn giao lịch sử 17 mục](CONTEXT_HANDOFF.md)
-- [Roadmap và trạng thái dự án](docs/PROJECT_MILESTONES.md)
-- [Quy tắc phát hành và giới hạn](docs/CONTEXT_RELEASE_POLICY.md)
-- [Theo dõi GitHub Actions](https://github.com/Spring-Mustache/control_motor/actions/workflows/context-handoff-release.yml)
-
-**Giới hạn quan trọng:** GitHub Release `context-*` là **prerelease ngữ cảnh**, không phải bản firmware đã Clean Build, Flash hoặc nghiệm thu hardware. Hồ sơ A là snapshot lịch sử, không tự biết kết quả mới chỉ gửi trong chat. FIRST-STOP RIGHT cấp điện khi CCR=0 đã được người vận hành xác nhận fix; không coi là lỗi đang mở chỉ vì ghi chú lịch sử cũ.
-
-Workflow tự tạo **một bản trên mỗi lần push** ở SHA cuối cùng của lần push; nếu Actions hoặc quyền tạo Release gặp lỗi, kiểm tra log thay vì coi bản cũ là hiện hành.
+**Lưu ý:** Source trên GitHub, CI PASS, Release ZIP, CubeIDE Clean Build, Flash và nghiệm thu phần cứng là **những trạng thái khác nhau**. FIRST-STOP RIGHT cấp điện khi CCR=0 đã được người dùng xác nhận fix; không coi các cảnh báo lịch sử cũ là lỗi mới. Không xóa Release, tag hoặc dữ liệu lịch sử.

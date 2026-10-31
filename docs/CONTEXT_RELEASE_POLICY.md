@@ -1,56 +1,75 @@
-# Quy tắc hồ sơ ngữ cảnh và GitHub Releases
+# Chính sách ngữ cảnh và phát hành tùy chọn — Xe tăng cướp bóng STM32F767ZI
 
-## Mục tiêu
+## Mục tiêu bất biến
 
-Chuyển giao dự án `Spring-Mustache/control_motor` giữa nhiều hội thoại mà không lệ thuộc vào khả năng ChatGPT còn nhớ hội thoại trước. GitHub là bản gốc bền vững cho mã nguồn, lịch sử commit và các tài liệu **được commit**. Mỗi lần **push một commit mới lên nhánh có workflow**, GitHub Actions tạo một **prerelease bàn giao** tương ứng `context-<full SHA>`. Bản phát hành gồm `RELEASE_STATUS.md`, file ZIP `context-handoff-<short SHA>.zip`, và GitHub tự cung cấp archive mã nguồn tại tag đó.
+**Ưu tiên:** đúng và đầy đủ ngữ cảnh → tiếp quản được ở hội thoại mới → kiểm chứng tin cậy → tiết kiệm thao tác. Repository [Spring-Mustache/control_motor](https://github.com/Spring-Mustache/control_motor) là bản chính của **những gì đã commit**, KHÔNG tự đồng bộ nội dung chat riêng, thử nghiệm chỉ gửi qua chat, hoặc file Windows chưa commit.
 
-> Đây là bản phát hành **ngữ cảnh**, không phải phát hành firmware đã build hay chứng nhận an toàn. Workflow không Flash MCU, không kiểm tra cơ khí/điện và không tự truy cập dữ liệu ChatGPT.
+**Quy tắc hoạt động từ thay đổi chính sách 2026-10-31:** một lần push chạy CI kiểm tra hồ sơ và source regression, **không tạo Release**. Chỉ `workflow_dispatch` với `publish_release=true` mới đóng gói và xuất bản prerelease sau khi kiểm tra đạt. Các Release/tag cũ được giữ nguyên, không xóa lịch sử.
 
-## Nguồn và thứ tự ưu tiên
+## Ba lớp trách nhiệm
 
-1. **`RELEASE_STATUS.md` trong release mới**: xác nhận SHA, nhánh, danh sách file đổi tại commit và lịch sử 20 commit; tự tạo sau mỗi push.
-2. **`CONTEXT_HANDOFF.md`**: bản bàn giao hội thoại A tại thời điểm chốt 2026-10-31; giữ lịch sử 0–16 đầy đủ. **Không tự viết lại theo nội dung hội thoại mới**. Các SHA và trạng thái trong đó là snapshot, không thay thế trạng thái thực tế của commit mới.
-3. **`docs/PROJECT_MILESTONES.md` và `docs/M8_*.md`, `docs/M7_*.md`**: hồ sơ milestone và chi tiết kỹ thuật do người thực hiện cập nhật/commit. Các mục mới nhất phải ưu tiên hơn ghi chú lịch sử cũ.
-4. **Mã nguồn tại commit của release và các log thực tế đã được duyệt đăng**: quyết định cuối cùng cần đối chiếu trạng thái MCU/build với bằng chứng đó.
+| Lớp | Vai trò bắt buộc | Điều lớp này không thể chứng minh |
+|---|---|---|
+| 1. Git commits + source/docs tại đúng SHA | Lưu quyết định hiện hành, lịch sử, thay đổi source, milestone, bằng chứng đã ghi; có thể đọc trực tiếp và dùng `git log`/`git diff` | Không tự biết nội dung chat chưa được commit hay firmware nào đã Flash |
+| 2. GitHub Actions trên mỗi push | Kiểm tra nguyên văn 386 dòng, SHA-256, cấu trúc 0–16, cập nhật handoff/roadmap cùng code, các verifier/test C; xuất trạng thái CI tại SHA | Không thay việc đánh giá ngữ nghĩa, không tự Clean Build CubeIDE, Flash hoặc nghiệm thu phần cứng |
+| 3. GitHub Release (theo mốc/chủ động) | ZIP và `RELEASE_STATUS.md`, bản bàn giao ngoại tuyến, tag bất biến gắn đúng SHA; thích hợp milestone quan trọng hoặc không truy cập GitHub trực tiếp | Không phải nguồn cập nhật hơn HEAD, không phải điều kiện để chat mới tiếp tục |
 
-**Các thay đổi trong chat, kết quả thử nghiệm chỉ được người dùng gửi qua chat và chưa commit sẽ KHÔNG tự xuất hiện trong release.** Sau những thay đổi ấy cần cập nhật `.md` và commit. Không lầm `git push` với việc firmware đã được Flash; không suy từ unit test sang PASS cơ khí.
+### Vì sao Release không còn là phụ thuộc
 
-## Đặc tả bàn giao NGUYÊN VĂN của người vận hành — bắt buộc
+Git commit đã lưu chính xác từng file theo SHA, lịch sử và diff. Release hiện chỉ sao chép các tài liệu này vào ZIP và thêm trạng thái sinh tự động; không tự thu được các CSV/TXT riêng tư, trạng thái flashed hoặc quyết định chưa commit. Một Release cũ **không được** chọn làm HEAD chỉ vì đứng đầu danh sách.
 
-Đây là **hai tài liệu khác nhau**, không thay thế hoặc viết lại cho nhau:
-- `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md`: **toàn bộ văn bản gốc 386 dòng do người vận hành cung cấp**, giữ nguyên byte và ngữ nghĩa, SHA-256: `13d8976ec0d74057af94bf84c8445bddbb48715b308964e22eb6684711f708a4`. Đây là **yêu cầu bắt buộc áp dụng mỗi khi xuất hồ sơ bàn giao mới**, không phải bản tóm tắt và không phải lời nhắn cho B.
-- `docs/CHAT_B_START_PROMPT.md`: lời nhắn giúp AI B truy cập đúng nhánh, commit và Release. Có thể biên tập hướng dẫn này khi cách bàn giao thay đổi, **nhưng không được thay đổi yêu cầu gốc theo nó**.
+**Ưu điểm của Release cần giữ:** gói offline tại SHA, URL và assets tập trung, chốt milestone có ý nghĩa. Khi có yêu cầu, vẫn tạo đúng ZIP, `RELEASE_STATUS.md`, pre-release `context-<FULL_SHA>` với `--latest=false`. Việc tạo lại cùng tag không xóa hoặc ghi đè bản cũ.
 
-**Mỗi khi có phiên bản code mới:** phải áp dụng NGUYÊN VĂN đặc tả gốc để rà soát các nguồn còn truy cập được, tạo/cập nhật hồ sơ `CONTEXT_HANDOFF.md` **đủ 17 mục 0–16, không bỏ hoặc viết gọn thông tin có giá trị để tiếp tục**, cập nhật `docs/PROJECT_MILESTONES.md`, rồi mới commit/push cùng code. Phân biệt thông tin mới từ chat, nguồn thực sự đọc được và phần chưa kiểm chứng. Khi lịch sử chat bị rút gọn, ghi rõ thay vì tự dựng.
+## Đặc tả NGUYÊN VĂN và hai lớp nội dung của hồ sơ
 
-GitHub Actions thực thi `tools/verify_context_handoff_contract.py` trước khi tạo Release:
-- Kiểm tra văn bản gốc còn **đúng từng byte** và hồ sơ có các mục 0–16 cùng dòng kết thúc bắt buộc.
-- Nếu lần push có thay đổi mã firmware/source/scripts, **bắt buộc** có cả `CONTEXT_HANDOFF.md` và `docs/PROJECT_MILESTONES.md` thay đổi trong lần push; nếu thiếu thì job **FAIL, không phát hành Release**. Đây là kiểm soát tự động để tránh bàn giao file cũ như file mới.
-- Kiểm tra máy không thể tự chứng minh tất cả 17 mục đã đủ ý nghĩa/đúng sự thật. Người cập nhật/AI có quyền truy cập nguồn phải thực sự làm đủ theo văn bản nguyên gốc; GitHub Actions **không thể tự đọc hội thoại ChatGPT, hồi phục lịch sử đã mất hoặc tự viết trung thực nội dung chỉ có trong chat**.
-- Workflow có thể đánh dấu thất bại sau khi push; nó không tự chặn Git commit hay ghi lại hội thoại. Khi thất bại, sửa hồ sơ và push commit bổ sung có nội dung phù hợp, chạy lại workflow. Đối chiếu các commit đã thiếu tài liệu trong lịch sử, không xóa đi.
+**KHÔNG THAY ĐỔI** `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md`: đúng 386 dòng, byte và SHA-256 `13d8976ec0d74057af94bf84c8445bddbb48715b308964e22eb6684711f708a4`. Đây là yêu cầu người vận hành cho **mỗi lần bàn giao**. Không thay thế bằng README, prompt, workflow hay một bản tóm tắt.
 
-## Bước duy trì ngữ cảnh khi có thay đổi
+`CONTEXT_HANDOFF.md` có **hai mặt bổ sung nhau**, không phải hai tài liệu loại trừ nhau:
 
-- Trước khi commit tính năng: cập nhật phần trạng thái mới nhất và điều còn thiếu trong `docs/PROJECT_MILESTONES.md`; thêm/cập nhật tài liệu riêng cho milestone đang làm.
-- Sau khi có CSV/TXT mới: ghi tên log, điều kiện đo, kết quả và mức kiểm chứng; chỉ commit log gốc khi người dùng cho phép đăng công khai. Repo hiện là **public**.
-- Khi người dùng đổi yêu cầu (ví dụ FIRST-STOP được xác nhận đã fix): ghi quyết định thay thế và nguồn vào tài liệu; không tiếp tục sao chép cảnh báo cũ thành lỗi đang mở.
-- Commit và push code + docs cùng nhau, không đợi chat quá dài. Release tự động gắn SHA tương ứng; xác minh tại tab **Actions** và **Releases**.
-- Khi chuyển chat, B mở release `context-<sha>` mới nhất của **nhánh đang làm**, đọc `RELEASE_STATUS.md` trước, sau đó mở `CONTEXT_HANDOFF.md` trong ZIP và roadmap. Không chỉ chọn release dựa vào giờ tạo nếu các nhánh khác nhau.
+1. **Snapshot lịch sử A và toàn bộ sự kiện/giải pháp đã thử:** phải giữ nguyên sự thật ở thời điểm đó, kể cả lỗi cũ, giả thuyết đã loại, trạng thái source cũ và bằng chứng. Có thể đánh dấu `LỊCH SỬ`, `ĐÃ THAY THẾ`; không xóa để làm tài liệu có vẻ hiện đại.
+2. **Lớp hiện hành đang cập nhật:** mục 1 ở đầu phải định hướng đúng vấn đề và hành động đang chờ, các cập nhật liên quan trong mục 0–16 và phụ lục phải được rà soát sau code/decision/log mới. **Không** sửa snapshot cũ thành chứng cứ hiện tại; ghi cập nhật mới có nguồn và thời điểm. Nội dung phần 0–16 phải bảo toàn yêu cầu, lịch sử quyết định, các vấn đề đã giải quyết/chưa giải quyết và trạng thái kiểm chứng.
 
-## Phạm vi kích hoạt và giới hạn của GitHub Actions
+`docs/PROJECT_MILESTONES.md` cũng gồm snapshot lịch sử và cập nhật tích lũy. Bảng ở đầu vốn từ 2026-10-17, không phải bảng trạng thái hiện hành; phải đọc phần **định hướng hiện hành** và những mục cập nhật mới gần cuối. Dùng `git log`, `git diff` và các tài liệu milestone để đối chiếu tình trạng mới nhất. Không suy luận commit mới đã build/flash.
 
-Workflow `context-handoff-release.yml` theo dõi **push tới tất cả nhánh chứa workflow**, gồm `main` và nhánh `feature/m7-s15-ps2-controls-restoration-staged` tại thời điểm thiết lập. Một lần push nhiều commit chỉ phát hành cho **SHA đầu nhánh của lần push** (không tự phát hành từng commit trung gian). Nhánh mới không mang workflow sẽ không chạy workflow; hãy merge/copy workflow trước khi muốn nó tự phát hành.
+**Khi code, scripts hoặc workflow thay đổi:** phải thực sự rà soát các nguồn còn đọc được, cập nhật hồ sơ **đầy đủ 17 mục (0–16)** theo đặc tả gốc, giữ `END OF CONTEXT HANDOFF`, đồng thời cập nhật `docs/PROJECT_MILESTONES.md` trong **cùng push/commit**. Không chỉ chèn câu trống để qua kiểm tra. Khi chỉ có thay đổi yêu cầu, quyết định hay kết quả phần cứng, cũng phải cập nhật tài liệu tương ứng và commit sớm, dù không có thay đổi code. Chỉ công khai các dữ liệu/log được người dùng cho phép đăng (repository public). Không dựng lại phần chat đã mất.
 
-Release được đánh dấu `prerelease` với `--latest=false` để không giả làm phiên bản firmware chính thức. Tên tag `context-<full SHA>` tránh trùng giữa các nhánh, không có lệnh push commit từ workflow nên không tạo vòng lặp vô hạn. Re-run workflow cập nhật ZIP cùng tag. Repository cần cho phép GitHub Actions và `GITHUB_TOKEN` có quyền `contents: write`; nếu chính sách repository chặn, Action sẽ thất bại và **không có bản phát hành**: kiểm tra log, quyền ở Settings → Actions và chạy lại. Không ghi secret/token vào tài liệu.
+### Mức độ chứng cứ
 
-## Lời nhắn chuyển tiếp dùng trong mọi cuộc hội thoại mới
+Luôn tách `SOURCE-STAGED`, `HOST TEST PASS`, `CUBEIDE BUILD PASS`, `FLASHED`, `HARDWARE PASS trên giá treo`, `HARDWARE PASS có tải mặt đất`, cùng `USER-REPORTED`, `CHƯA KIỂM CHỨNG`. GitHub Actions PASS kiểm tra source/hồ sơ, **không** chứng minh firmware đã được Flash hay NC/STOP/cơ khí an toàn. FIRST-STOP RIGHT cấp điện khi CCR=0 **đã được người dùng xác nhận fix**; lịch sử cảnh báo cũ không phải lỗi hiện hành. R2 RIGHT code=9 là vấn đề khác.
 
-Dùng [`docs/CHAT_B_START_PROMPT.md`](CHAT_B_START_PROMPT.md) làm lời nhắn đầu tiên trong cuộc hội thoại B (có thể sao chép nguyên văn). Lời nhắn bắt đầu bằng việc xác minh HEAD của nhánh đang làm, tìm `context-<SHA>` đúng với nhánh và mở `RELEASE_STATUS.md`; sau đó đọc **`CONTEXT_HANDOFF.md` tại thư mục gốc** cùng roadmap. Không yêu cầu người dùng phải đính kèm lại file tĩnh khi có thể truy cập release. Workflow cũng đóng gói lời nhắn này vào ZIP để dùng ở các cuộc hội thoại C/D tiếp theo.
+## Workflow, quyền và kiểm tra
 
-## Checklist của hội thoại B
+Tệp `.github/workflows/context-handoff-release.yml` được giữ nguyên đường dẫn để không làm hỏng bookmark. Mỗi push tới nhánh mang workflow sẽ chạy **job `verify-handoff`** với quyền `contents: read`; mỗi `workflow_dispatch` cũng kiểm tra. Trình tự:
 
-1. Xác nhận SHA **đúng nhánh** từ `RELEASE_STATUS.md` và GitHub; xác nhận mã trên Windows trùng phiên bản dự kiến.
-2. Đọc milestone cuối và mã/diff thực tế; tách `SOURCE-STAGED`, `HOST TEST PASS`, `CUBEIDE BUILD PASS`, `FLASHED`, `HARDWARE PASS`.
-3. Không hỏi lại kết quả user đã chốt, đặc biệt FIRST-STOP; nếu muốn xác minh bằng hồ sơ firmware thì yêu cầu bằng chứng cụ thể, không coi lỗi đã tái diễn.
-4. Tiếp tục công việc M8-S14.2 nếu trạng thái chưa đổi: build/flash, kiểm tra an toàn thực tế, thử level 1 trước level 2 trên giá treo và phân tích log đồng bộ.
-5. Bất kỳ thay đổi mới nào ảnh hưởng mục tiêu hoặc milestone phải được commit vào GitHub để gói bàn giao tiếp theo không bị tụt hậu so với chat.
+1. Checkout đúng `github.sha`, đối chiếu `git rev-parse HEAD`, dùng `fetch-depth: 0`.
+2. `tools/verify_context_handoff_contract.py` bảo vệ nguyên văn SHA-256/386 dòng, đủ 0–16/footer, và kiểm tra file code/tools/workflow đổi thì cả handoff và roadmap đều đổi trong diff. Trên push dùng `github.event.before`, trên dispatch không có before dùng parent của SHA; không âm thầm bỏ bước update-gate.
+3. `tools/test_context_handoff_process.py` tự thử kịch bản commit chỉ đổi code bị chặn, commit code+docs được nhận, spec bị thay bị chặn, và khôi phục tài liệu chỉ từ commit không có Release.
+4. Chạy S14.3 và S14.2/S14.5 verifier + C/GCC unit tests, giữ cơ chế bảo vệ cũ. Bất kỳ bước FAIL nào là CI FAIL. Tài liệu không được nhận tự động là đúng về mặt ngữ nghĩa; người/assistant vẫn phải rà soát nội dung.
+
+Workflow không tự chặn `git push` nếu branch không bắt buộc status checks; CI FAIL là tín hiệu cần sửa. Chỉ yêu cầu branch protection có **quyết định và cấu hình GitHub riêng**, không mặc định đã bật. Manual Release phải chờ `verify-handoff` PASS rồi mới mở quyền `contents: write` ở job phát hành. Thiếu quyền chỉ làm job phát hành lỗi, không thay đổi kết quả kiểm tra code/hồ sơ.
+
+### Cách tạo gói ZIP theo yêu cầu
+
+Khi cần milestone, snapshot độc lập hoặc bàn giao offline: mở Actions → workflow **Verify context handoff; publish ZIP only on explicit request** → **Run workflow**, chọn **đúng nhánh** đã kiểm tra HEAD và đánh dấu `publish_release=true`. Hoặc (GitHub CLI, nếu đã xác thực):
+
+```powershell
+gh workflow run context-handoff-release.yml --ref "feature/m7-s15-ps2-controls-restoration-staged" -f publish_release=true
+```
+
+Workflow chỉ publish khi kiểm tra PASS. Package đọc dữ liệu từ Git tree **đúng SHA đã checkout**, không lấy file working copy có thể chưa commit. Output có `RELEASE_STATUS.md`, ZIP tài liệu, README, 386-line spec, handoff 0–16, roadmap, tài liệu M7/M8, các verifier/test được chọn; không mặc định đính kèm log riêng tư. Nếu Release/tag SHA đã tồn tại, giữ nguyên; không ghi đè assets. Nếu không có Release tương ứng HEAD, đó là bình thường, không phải lỗi đồng bộ.
+
+## Cách tiếp quản trực tiếp từ repository (không cần Release)
+
+1. Từ `README.md` và `docs/CHAT_B_START_PROMPT.md`, dùng nhánh được chỉ định trong lời nhắn và xác minh **HEAD SHA thật bằng API/Git**; **KHÔNG** lấy HEAD của `main` hoặc một SHA đã ghi trong snapshot.
+2. Mọi file đọc theo **cùng SHA cố định**, trước tiên mục 1 `CONTEXT_HANDOFF.md` để định hướng, rồi đọc **toàn bộ mục 0–16 và cập nhật/phụ lục**, `docs/PROJECT_MILESTONES.md` (đầu và cuối), `docs/CONTEXT_RELEASE_POLICY.md`, bản gốc 386 dòng, tài liệu M7/M8 và code liên quan. Xem `git log -n 20`, commit diff mới nhất; xác minh CI PASS trên SHA đó.
+3. Tổng hợp quyết định hiện hành, các phương án đã loại, sự kiện và nguồn; tách USER/REPO/LOG/HOST, hành động và tiêu chí hoàn tất, điểm thiếu và mức kiểm chứng. Nếu hồ sơ cũ mâu thuẫn với mã/log mới, đối chiếu thời điểm; không tùy tiện sửa sự thật cũ.
+4. **Release tùy chọn:** nếu có `context-<FULL_SHA>`, kiểm tra tag/target SHA và đọc `RELEASE_STATUS.md` hoặc ZIP để tiện; nếu không có, **tiếp tục bình thường bằng repository**. Không dùng Release của SHA cũ thay cho HEAD mới.
+5. Nếu không có GitHub connector, thử link GitHub trực tiếp; chỉ yêu cầu file tối thiểu khi không có cách đọc. Nếu phát hiện dữ liệu chỉ nằm trong hội thoại riêng, nói rõ thiếu gì thay vì tự tạo dữ kiện.
+
+## Kiểm chứng quy trình mới và giới hạn
+
+**Case push:** thay code mà không đổi cả `CONTEXT_HANDOFF.md` + roadmap phải làm CI FAIL; thay code và cập nhật hai tài liệu phải PASS, nhưng chất lượng nội dung phải rà soát thủ công. Workflow chạy source regression ở cùng SHA và **không xuất Release** khi push.
+
+**Case chat mới:** lấy HEAD của nhánh, đọc đúng tài liệu và commit/diff/CI trên cùng SHA, không tìm hoặc đòi Release. Nếu không có Release, vẫn xác định được mốc hiện hành, hành động tiếp theo và mức đã kiểm chứng. Bài test tự động mô phỏng clone/checkout không có Release; thao tác thật ở một hội thoại ChatGPT hoàn toàn mới không thể được giả lập/khẳng định chỉ bằng Python.
+
+**Rủi ro còn giữ:** tài liệu quên cập nhật dù code không đổi, prose đổi tượng trưng nhưng thiếu thông tin, GitHub mất truy cập, private log không trong repo, workflow không có trên nhánh/không được chạy. CI không chứng minh nội dung hội thoại đã được ghi đủ; người thực hiện phải kiểm tra và commit.

@@ -1,10 +1,23 @@
 # CONTEXT HANDOFF
 
-> **Định hướng nhanh cho hội thoại B.** Dự án **xe tăng cướp bóng**, firmware STM32F767ZI điều khiển **4 motor bánh + 2 motor đánh lái**. Nhánh làm việc hiện hành là `Spring-Mustache/control_motor`, `feature/m7-s15-ps2-controls-restoration-staged`, HEAD đã kiểm tra là **`605b937f8de5328d7b8c74c58accb9387392df90`**. Mục tiêu hiện hành: **đánh lái nhanh hơn khi xe vừa chạy vừa lái, đồng thời giữ hai motor lái bám góc**, không giải quyết đồng bộ bằng cách hãm LEFT liên tục. Firmware **M8-S14.2** mới nhất đã được **commit**, tích hợp **trần LEFT/RIGHT 375/150 hoặc 450/200 CCR và điều phối AS5600 góc–vận tốc: bù motor chậm trước, hãm motor nhanh chỉ khi bên chậm bão hòa**. Chế độ mới **mặc định OFF**, **CHƯA CÓ DỮ LIỆU CubeIDE Clean Build, Flash, hoặc thử thực tế của chính commit mới nhất**. Bước đầu của B: xác minh HEAD/workspace, chạy các verifier và Clean Build; chỉ lên phương án thử trên giá treo sau khi các điều kiện điện/cơ/NC/STOP đã đáp ứng. Người dùng đã **xác nhận lỗi FIRST-STOP kiểu RIGHT còn điện khi CCR=0 đã được fix**; **không coi đó là lỗi đang mở**, dù tài liệu cũ vẫn còn ghi cảnh báo. Lỗi R2 RIGHT `code=9` trước đây là **sự kiện khác**, đã có các lượt sau thành công nhưng chưa có kết luận nguyên nhân.
+> **HỒ SƠ SỐNG 17 MỤC:** Giữ nguyên dữ kiện và quyết định lịch sử A, đồng thời **cập nhật lớp hiện hành** sau thay đổi code/nhận định/lần đo. **Không lấy SHA hoặc trạng thái ở ảnh chụp gốc làm HEAD.** Người tiếp quản phải xác minh trước nhánh `feature/m7-s15-ps2-controls-restoration-staged` và SHA thực tế ở GitHub, rồi đọc mục 1 hiện hành, toàn bộ 0–16 và roadmap cùng SHA. Git commit là nguồn chính, Actions kiểm tra mỗi push; Release chỉ theo milestone/yêu cầu.
 
 ---
 
 ## 0. Thông tin hồ sơ và phạm vi bao phủ
+
+### Hai lớp nội dung — KHÔNG gộp lịch sử vào trạng thái hiện tại
+
+- **Lịch sử bất biến theo thời điểm:** bảng 2026-10-31 dưới đây, các SHA, log, giả thuyết và đánh giá khi lập hồ sơ A; không xóa hay viết lại để biến thành bằng chứng của commit mới.
+- **Cập nhật hiện hành:** xem mục 1 ở đầu (được cập nhật theo các thay đổi có nguồn), các phần bổ sung dưới những mục 0–16 và các mục mới ở cuối `docs/PROJECT_MILESTONES.md`. CI chỉ kiểm tra cấu trúc/update-gate, không tự đọc toàn bộ chat.
+- **SHA hiện tại:** không thể tự nhúng SHA của chính commit vào file cùng commit mà không tạo vòng lặp. Trước mỗi lần tiếp quản phải lấy `refs/heads/feature/m7-s15-ps2-controls-restoration-staged` từ GitHub, cố định SHA rồi đọc các file theo SHA đó. Nếu người dùng chỉ định nhánh khác, dùng nhánh mới.
+- **Release:** không còn cần trùng HEAD. Một `context-<SHA>` cũ là snapshot tùy chọn, không phải trạng thái hiện hành. `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md` giữ nguyên 386 dòng và SHA-256 gốc; mọi lần xuất hồ sơ vẫn phải áp dụng đủ 0–16.
+
+**Bản định hướng A lúc đầu, lưu NGUYÊN ý nghĩa lịch sử (SHA không còn là HEAD):**
+
+> **Định hướng nhanh cho hội thoại B.** Dự án **xe tăng cướp bóng**, firmware STM32F767ZI điều khiển **4 motor bánh + 2 motor đánh lái**. Nhánh làm việc hiện hành là `Spring-Mustache/control_motor`, `feature/m7-s15-ps2-controls-restoration-staged`, HEAD đã kiểm tra là **`605b937f8de5328d7b8c74c58accb9387392df90`**. Mục tiêu hiện hành: **đánh lái nhanh hơn khi xe vừa chạy vừa lái, đồng thời giữ hai motor lái bám góc**, không giải quyết đồng bộ bằng cách hãm LEFT liên tục. Firmware **M8-S14.2** mới nhất đã được **commit**, tích hợp **trần LEFT/RIGHT 375/150 hoặc 450/200 CCR và điều phối AS5600 góc–vận tốc: bù motor chậm trước, hãm motor nhanh chỉ khi bên chậm bão hòa**. Chế độ mới **mặc định OFF**, **CHƯA CÓ DỮ LIỆU CubeIDE Clean Build, Flash, hoặc thử thực tế của chính commit mới nhất**. Bước đầu của B: xác minh HEAD/workspace, chạy các verifier và Clean Build; chỉ lên phương án thử trên giá treo sau khi các điều kiện điện/cơ/NC/STOP đã đáp ứng. Người dùng đã **xác nhận lỗi FIRST-STOP kiểu RIGHT còn điện khi CCR=0 đã được fix**; **không coi đó là lỗi đang mở**, dù tài liệu cũ vẫn còn ghi cảnh báo. Lỗi R2 RIGHT `code=9` trước đây là **sự kiện khác**, đã có các lượt sau thành công nhưng chưa có kết luận nguyên nhân.
+
+### Bảng bằng chứng của bản lập hồ sơ A (lịch sử)
 
 | Thuộc tính | Nội dung |
 |---|---|
@@ -35,6 +48,20 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+### TRẠNG THÁI HIỆN HÀNH sau các lần bổ sung (cập nhật 2026-10-31)
+
+**Bắt buộc trước khi dùng:** GitHub ref đúng nhánh → HEAD SHA → đọc source/docs tại SHA đó. **Không** dùng SHA `605b937f` trong bản chụp A, Release mới nhất hay commit SHA viết ở phụ lục để suy ra HEAD.
+
+- **Mục tiêu vận hành [USER/LOG]:** xe sáu motor STM32F767ZI, M8 đang hoàn thiện đánh lái kết hợp chạy bánh. Level1 cùng Fast Start đã có dữ liệu trên giá treo; RIGHT về R_MIN chậm hơn LEFT khoảng 0,46–0,56 s trong các lượt log; quãng trôi gần SOFT và an toàn dưới tải chưa nghiệm thu.
+- **Mã gần nhất trước thay đổi quy trình [REPO]:** branch `feature/m7-s15-ps2-controls-restoration-staged` tại `eb5f006e7112e4b85d510467292a94b13098c393` đã bổ sung **M8-S14.5 ưu tiên RIGHT về R_MIN sớm**, biến `steer_s144_rmin_catchup_enable=0` khi boot (thử nghiệm OFF). Trước đó `steer_s142_trial_level=1`, `steer_s143_fast_start_enable=1` đã được chọn mặc định trong code; START arm và NC/STOP vẫn bắt buộc. M8-S14.5 **chưa có thử A/B trên xe hoặc bằng chứng build/flash đúng SHA**; không tự biến commit mới nhất thành hardware PASS.
+- **Mục tiêu đang xử lý tại commit chính sách này [USER]:** khôi phục ngữ cảnh từ GitHub không lệ thuộc Release, giữ nguyên byte đặc tả gốc 386 dòng, giữ 17 mục được cập nhật, giữ toàn bộ lịch sử, Actions source checks mỗi push, ZIP chỉ phát hành chủ động theo milestone; **không sửa firmware, PWM hoặc kết luận nghiệm thu**.
+- **Đã thực hiện trong source [REPO]:** tách job `verify-handoff` (push và manual, read-only) khỏi `publish-release` (chỉ manual `publish_release=true` sau verify PASS, quyền write riêng), thêm regression kịch bản thiếu docs / direct-repo resume, hướng dẫn người tiếp quản và trạng thái hiện hành rõ hơn, ZIP đọc đúng committed tree nếu yêu cầu. **Kết quả GitHub CI của chính commit này phải kiểm tra riêng sau push**; không tự tuyên bố PASS trước khi thấy Actions.
+- **Việc chưa hoàn tất:** Build/Flash STM32 cho firmware đang dùng, A/B S14.5 OFF/ON trên giá treo với dòng điện/quãng trôi/cắt nguồn, kiểm tra R1/R2/STOP/NC hồi quy và Gate B trên mặt đất có tải. Các log CSV riêng tư có thể chỉ nằm trong chat cũ, không mặc định có trong GitHub.
+- **Bước đầu của hội thoại tiếp theo:** xác minh HEAD GitHub, đọc mục này + toàn bộ 17 mục, roadmap đầu/cuối, commit diff + Actions đúng SHA, xác định mốc S14.5 chưa kiểm chứng phần cứng; khi có điều kiện an toàn và build đúng SHA mới tiến hành A/B. Không yêu cầu Release vì thiếu ở HEAD, không xóa các thay đổi cục bộ Windows.
+- **Tiêu chí kết thúc bước bàn giao:** xác định được SHA, source/host/target/flash/hardware từng mức, yêu cầu còn hiệu lực, lịch sử loại bỏ và đầu vào còn thiếu; không có tài nguyên bắt buộc nào được thay thế bằng giả định.
+
+### LỊCH SỬ: định hướng nguyên gốc khi chốt A (2026-10-31), không dùng làm HEAD hiện hành
 
 1. **Mục tiêu đã được người dùng chốt [USER]:** tăng trần PWM manual LEFT từ **300→450 CCR (+50%)**, RIGHT từ **100→200 CCR (+100%)**, giữ **đồng bộ góc và vận tốc góc**; khi lệch thì ưu tiên **tăng bên chậm trong phần dư trần**, chỉ **giảm bên nhanh nếu bên chậm đã hết headroom**. Không phải chỉ tăng PWM open-loop. Ưu tiên khả năng **vừa chạy bánh vừa đánh lái**, không làm quá chậm bằng giảm LEFT liên tục.
 2. **Công việc cuối đã thực hiện [REPO]:** commit **`605b937f`** cho M8-S14.2 cross-coupled high-ceiling, sau commit `9396e416` tốc độ cao nhưng bỏ đồng bộ. Sửa mã có: P+D AS5600, trần động theo khoảng cách SOFT, PWM nền có dự trữ, thống kê `M8S00_S142_SYNC`, unit test C, verifier tĩnh, tài liệu.
@@ -717,5 +744,19 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 [DESIGN/CODE staged] New Level1 D-pad LEFT/R_MIN *opt-in* `steer_s144_rmin_catchup_enable=0` boot. Helper adds 0–200 calibrated cdeg of desired early RIGHT lead to existing S14.2 P+D predictor only if RIGHT not >250 cdeg ahead and BOTH remaining >320 RAW; fades to zero 380→320 RAW. Original NC/EXTI/STOP, per-axis SOFT, 12CCR rise, Level1 caps375/150, R1/R2, RX, D-pad RIGHT and wheel PID unchanged. No effect on verified boot defaults S142 Level1/S143 FastStart ON, motor starts disarmed, UART stream boot OFF. Source tests pure GCC, CI and docs added.
 
 [NEXT] Preserve dirty Windows project; sync SHA, verify S142 and S143, CubeIDE Clean Build+Flash exact commit, bench only with independently verified motor isolation and mechanical clearance. Compare baseline S144=0 and trial=1 in matching LEFT toward R_MIN strokes (>=5 each) using CSV and M8S00_S144; monitor arrival lag and coast. No default ON of untested S144 or ground Level2 trial. If bias/priority counters rise but arrival still lags, examine mechanics and motor driver rather than increasing near SOFT blindly.
+
+### B update — quy trình GitHub không phụ thuộc Release (2026-10-31)
+
+[USER] Yêu cầu xem xét lợi ích của Release-per-push so với mô hình 3 lớp, ưu tiên: bảo toàn ngữ cảnh chính xác > hội thoại mới tự tiếp quản > tin cậy > bớt lặp. Yêu cầu kiểm tra 9 file cụ thể tại HEAD, không chỉnh đặc tả gốc 386 dòng hoặc kết luận hardware, không xóa release/tag cũ, không sửa firmware, mô phỏng push code/docs và tiếp quản khi không có Release. Không yêu cầu loại bỏ hoàn toàn ZIP/Release.
+
+[REPO BASE] HEAD được xác minh trước thay đổi tại `eb5f006e7112e4b85d510467292a94b13098c393` trên nhánh `feature/m7-s15-ps2-controls-restoration-staged`. Workflow cũ có một job `publish-handoff`, quyền write, mỗi push tạo ZIP/RELEASE_STATUS + prerelease. Verifier đã bảo vệ SHA256 nguyên văn 386 dòng và 17 section nhưng `workflow_dispatch` không có previous SHA nên bỏ qua update gate, checker của chính nó không được coi là code update. `build_context_release.py` đọc working tree, dễ lẫn file chưa commit trong gói manual. Prompt/policy/README còn ưu tiên release làm nguồn đọc và handoff đầu còn SHA `605b937f`, roadmap bảng 2026-10-17 dù có phụ lục mới. Các nguồn này đã đọc trực tiếp tại SHA nêu trên, không dựa vào mã nhớ.
+
+[DECISION/IMPLEMENTATION] Giữ nguyên đặc tả gốc 386 dòng và SHA256 `13d8976ec0d74057af94bf84c8445bddbb48715b308964e22eb6684711f708a4`. Tách Actions verify độc lập trên mỗi push và manual, Release job được cấp write chỉ khi `workflow_dispatch` `publish_release=true` sau verify PASS. Verifier bắt code cả tool và workflow thay đổi phải có handoff + roadmap cùng range, manual check parent. Test synthetic commit chỉ-code FAIL, code+docs PASS, gốc thay byte FAIL, resume đọc Git tree không có Release PASS; kiểm chứng CI thật sau push. ZIP vẫn tạo bằng `build_context_release.py` khi cần milestone, nhưng đọc từng blob từ đúng SHA (`git show`) không phụ thuộc working copy dirty. Các context Release/tag lịch sử nguyên vẹn, không tự tạo nữa; README, prompt và policy chỉ cần nguồn repository.
+
+[GIẢI QUYẾT MÂU THUẪN] `CONTEXT_HANDOFF.md` vừa là ảnh chụp A và 17 mục sống: dữ kiện lịch sử không bị viết đè; mục 1 và phần bổ sung được duy trì theo quyết định mới, người tiếp quản kiểm tra SHA thực từ GitHub. Roadmap cũng giữ bảng gốc ngày 17-10 nhưng có hướng dẫn trạng thái mới ở trên. Trạng thái lỗi FIRST-STOP [USER đã fix] giữ nguyên, S14.5 source-stage và user hardware A/B chưa PASS. Không biến CI/Python thành chứng minh CubeIDE/Flash/xe.
+
+[TRẠNG THÁI] Tool/policy/docs-only thay đổi, không có `Core/`, `Drivers/`, `.ioc`, `.ld` hay giới hạn motor thay đổi. Thất bại của release thủ công do quyền không ảnh hưởng CI verify. CI mới phải được xem ở SHA commit sau push; mô phỏng chat thật ở một phiên ChatGPT độc lập không thể chứng minh bằng test Python nên chỉ xác nhận thao tác đọc theo SHA ở repo và hướng dẫn cho phiên mới.
+
+[NEXT] Sau push xem Actions đúng SHA PASS và xác nhận không có release/tag `context-<SHA>`; truy xuất trực tiếp README/HANDOFF/roadmap/policy/commit-diff cùng SHA. Nếu cần ZIP, chọn workflow Run workflow và `publish_release=true` trên nhánh đã xác minh; chỉ khi verify PASS mới publish. Sau đó quay lại thử nghiệm firmware M8-S14.5 (A/B suspended bench, kiểm soát STOP/NC/current/coast) khi có bằng chứng an toàn cơ khí.
 
 END OF CONTEXT HANDOFF

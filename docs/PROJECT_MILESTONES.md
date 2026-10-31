@@ -1,5 +1,18 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
+## TRẠNG THÁI HIỆN HÀNH để tiếp quản (bổ sung 2026-10-31)
+
+**Nhánh làm việc:** `feature/m7-s15-ps2-controls-restoration-staged` trên `Spring-Mustache/control_motor`. **SHA hiện hành phải xác minh trên GitHub trước khi đọc**, không lưu tự tham chiếu tại HEAD trong tài liệu. Các mốc dưới đây là bằng chứng tại lúc cập nhật, không thay kết quả git ref/CI/hardware ở thời điểm tương lai.
+
+- **M8-S14.5:** thuật toán thử ưu tiên RIGHT sớm về R_MIN đã commit ở parent `eb5f006e7112e4b85d510467292a94b13098c393`; `steer_s144_rmin_catchup_enable=0` vẫn là mặc định thử nghiệm. `steer_s142_trial_level=1`, `steer_s143_fast_start_enable=1` là cấu hình boot nguồn. Dữ liệu Level1 Fast Start trên giá treo có, nhưng S14.5 **chưa có CubeIDE Build/Flash A/B/hardware PASS được chứng minh ở SHA hiện hành**; trễ RIGHT đến SOFT khoảng 0,5s và quãng trôi SOFT còn cần kiểm chứng.
+- **Công việc bàn giao ngữ cảnh:** chuyển sang Git commit/docs làm nguồn chính, GitHub Actions verify mỗi push; chỉ workflow_dispatch `publish_release=true` sau verify PASS mới tạo ZIP/Release. Đặc tả nguyên văn 386 dòng/17 mục phải giữ, không xóa release/tag lịch sử. Chính commit thay đổi chính sách **không chỉnh bất kỳ firmware hoặc thông số an toàn nào**.
+- **Nguồn lịch sử:** bảng cũ ngày 2026-10-17 bên dưới giữ nguyên ý nghĩa snapshot. Cập nhật M7/M8 theo các mục mới cuối tài liệu và `CONTEXT_HANDOFF.md` mục 1; không suy bảng cũ là trạng thái mới nhất. Sau push phải xem Actions **đúng HEAD**, không tự coi code CI mới PASS khi chưa kiểm tra.
+- **Bước tiếp theo:** CI verify không Release và phép đọc lại HEAD trực tiếp; sau đó quay về thử A/B S14.5 Level1 trên gá treo với bảo vệ độc lập, đánh giá RIGHT catch-up, current/coast/NC/STOP trước mọi thử dưới tải.
+
+---
+
+## LỊCH SỬ: snapshot roadmap ngày 2026-10-17 (giữ để đối chiếu, không phải trạng thái hiện hành)
+
 **Cập nhật:** 2026-10-17  
 **Firmware đang phát triển:** `feature/m7-s02-limit-run-10pct`; M7-S01 PASS theo xác nhận thực tế của người dùng; M7-S02 chờ nghiệm thu trên giá treo  
 **Quy tắc nghiệm thu:** Chỉ đánh dấu PASS trong điều kiện đã kiểm chứng. PASS trên giá treo **không** có nghĩa đã PASS trên mặt đất có tải.
@@ -806,3 +819,11 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 - [USER REQUEST] Improve RIGHT response and ability to catch up during D-pad LEFT -> R_MIN. User's 15:11 M8S11 1722 clean rows and M8S00 15:14 indicate Fast Start functioning (grants24 fastAxis46 fallback0) and four-wheel PID running. Five representative full strokes show RIGHT roughly 0.46–0.56s later than LEFT. RIGHT D-pad stays at ~125 CCR through much of early travel while baseline upper envelope allows 150; final 100 RAW slow taper is intentionally retained for coast safety.
 - [CODE] New Level1-only boot-OFF trial flag `steer_s144_rmin_catchup_enable=0` biases the existing calibrated angle+velocity P+D gap by up to +200 cdeg in favor of early RIGHT lead, only for D-pad LEFT toward R_MIN when both axes >320 RAW away and RIGHT not >2.5° ahead. Bias fades to zero over 380→320 RAW; within 320 RAW the old plan and final PWM taper are identical. Legacy S14.2 caps, rise, AS5600 freshness, per-axis SOFT, EXTI/NC STOP, START arm, R1/R2, 4-wheel controller remain authoritative. Actual S14.5 bonus PWM is not guaranteed; controller chooses correction within prior cap.
 - [HOST] Add pure C test against exact helper plus existing planner; route verifier and CI before Release. No MCU Build/Flash, current/clearance measurements or hardware PASS for this source commit. User must A/B on stand (>=5 comparable short then full safe strokes per condition), collect M8S11 and S00. If stop/coast worsens do not enable, return to old S14.2. No ground/Level2 enable based on this trial.
+
+## GitHub context handoff — 3 lớp, không Release-per-push (2026-10-31; chỉ hạ tầng/tài liệu)
+
+- [USER] Ưu tiên giữ đầy đủ mục tiêu/quyết định/thử nghiệm lỗi và trạng thái xác minh khi chuyển chat, không được xóa/tóm lược đặc tả 386 dòng và hồ sơ 0–16. Nghiên cứu commit+docs chính, Actions verify, Release theo milestone/chủ động.
+- [BEFORE] Ở parent `eb5f006e`, workflow cũ publish prerelease/ZIP sau mọi push; code/firmware và 17-section được kiểm tra nhưng job CI phụ thuộc quyền tạo Release; `RELEASE_STATUS.md` nói milestone S14.2 gốc; README/prompt ưu tiên release; handoff đầu SHA `605b937f` và bảng milestone 2026-10-17 còn gây nhầm nếu không đọc các mục mới.
+- [PATCH] Workflow giữ file path, trên push chỉ chạy verify với `contents:read`, trên manual dispatch có thể `publish_release=true` chạy riêng release job sau verify PASS và `contents:write`. Checker nâng phạm vi tools/checker/workflow, manual fallback kiểm tra HEAD^; giữ SHA256 và 386-line, 17 mục/footer. Tests tạo synthetic commit thiếu doc để FAIL, code+docs để PASS, phát hiện thay byte gốc và direct SHA resume không có Release. ZIP chỉ xuất thủ công và dựng từ blob commit exact SHA, không lấy working copy bẩn.
+- [DOCS] Chính sách, README, lời nhắn chuyển tiếp nhấn HEAD của đúng nhánh trước tiên, đọc đầy đủ 17 mục, roadmap hiện hành/lịch sử, diff và Actions cùng SHA; không bắt buộc Release. Handoff phần đầu thêm trạng thái hiện hành, giữ nguyên nội dung snapshot trước đó để truy vết. Không tự tải dữ liệu chat chưa commit; log riêng tư không đăng public khi chưa được chấp thuận.
+- [TEST STATUS] Đây là thay đổi **source/tool/docs**, không firmware. GitHub CI commit mới và thử resume thực tế không có Release còn phải đối chiếu sau push. CI không xác nhận CubeIDE Clean Build, Flash hoặc phần cứng, và không thay đổi milestone M8-S14.5. Những bản Release/tag cũ được giữ nguyên.
