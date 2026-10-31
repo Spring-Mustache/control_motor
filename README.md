@@ -10,11 +10,11 @@ Nguồn chính của dự án là **Git commit + tài liệu được cập nh�
 
 ## Hướng dẫn AI tiếp quản
 
-1. Xác minh HEAD SHA thực tế của `feature/m7-s15-ps2-controls-restoration-staged` (hoặc nhánh người dùng chỉ định mới); đừng lấy HEAD của `main`, SHA cũ hay Release mới nhất.
+1. Xác minh HEAD SHA thực tế của nhánh M8-S15 đang làm `feature/m8-s15-dual-target-common-time` (hoặc nhánh người dùng chỉ định mới); nhánh M7-S15 cũ là mốc trước PI. Đừng lấy HEAD của `main`, SHA cũ hay Release mới nhất.
 2. Đọc `CONTEXT_HANDOFF.md` **mục 1 hiện hành**, rồi **toàn bộ 17 mục (0–16) và cập nhật lịch sử**, `docs/PROJECT_MILESTONES.md` ở đầu và cuối, chính sách, đặc tả gốc nguyên văn cùng các tài liệu M7/M8 có liên quan. Tất cả ở cùng SHA.
 3. Xem 20 commit gần đây, diff mới nhất và kết quả [GitHub Actions](https://github.com/Spring-Mustache/control_motor/actions/workflows/context-handoff-release.yml) trên đúng SHA. Phân biệt SOURCE-STAGED, HOST PASS, CubeIDE Build, Flash, giá treo và mặt đất có tải.
 4. Tìm [Release](https://github.com/Spring-Mustache/control_motor/releases) **chỉ nếu muốn gói ZIP/milestone**. Kiểm tra tag `context-<FULL_SHA>`; nếu vắng, tiếp tục trực tiếp từ repository. Không coi bản của commit/nhánh khác là hiện hành.
-5. Chốt việc còn dang dở, những gì đã kiểm chứng và bước tiếp tục; sau khi sửa code/ra quyết định mới, cập nhật đủ handoff/roadmap và kiểm tra CI. Không mặc nhiên có file/log riêng từ hội thoại khác.
+5. Chốt việc còn dang dở, những gì đã kiểm chứng và bước tiếp tục; M8-S15 hiện chưa đạt hai đích SOFT cùng T theo log 19:34–19:35 và chưa có chứng cứ SHA flash/điện-cơ. Sau khi sửa code/ra quyết định mới, cập nhật đủ handoff/roadmap và kiểm tra CI. Không mặc nhiên có file/log riêng từ hội thoại khác.
 
 ## Tài liệu tham khảo
 

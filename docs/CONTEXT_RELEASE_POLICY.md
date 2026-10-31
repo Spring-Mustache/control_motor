@@ -53,14 +53,14 @@ Workflow không tự chặn `git push` nếu branch không bắt buộc status c
 Khi cần milestone, snapshot độc lập hoặc bàn giao offline: mở Actions → workflow **Verify context handoff; publish ZIP only on explicit request** → **Run workflow**, chọn **đúng nhánh** đã kiểm tra HEAD và đánh dấu `publish_release=true`. Hoặc (GitHub CLI, nếu đã xác thực):
 
 ```powershell
-gh workflow run context-handoff-release.yml --ref "feature/m7-s15-ps2-controls-restoration-staged" -f publish_release=true
+gh workflow run context-handoff-release.yml --ref "feature/m8-s15-dual-target-common-time" -f publish_release=true
 ```
 
 Workflow chỉ publish khi kiểm tra PASS. Package đọc dữ liệu từ Git tree **đúng SHA đã checkout**, không lấy file working copy có thể chưa commit. Output có `RELEASE_STATUS.md`, ZIP tài liệu, README, 386-line spec, handoff 0–16, roadmap, tài liệu M7/M8, các verifier/test được chọn; không mặc định đính kèm log riêng tư. Nếu Release/tag SHA đã tồn tại, giữ nguyên; không ghi đè assets. Nếu không có Release tương ứng HEAD, đó là bình thường, không phải lỗi đồng bộ.
 
 ## Cách tiếp quản trực tiếp từ repository (không cần Release)
 
-1. Từ `README.md` và `docs/CHAT_B_START_PROMPT.md`, dùng nhánh được chỉ định trong lời nhắn và xác minh **HEAD SHA thật bằng API/Git**; **KHÔNG** lấy HEAD của `main` hoặc một SHA đã ghi trong snapshot.
+1. Từ `README.md` và `docs/CHAT_B_START_PROMPT.md`, dùng nhánh M8-S15 đang làm hoặc nhánh người dùng chỉ định mới và xác minh **HEAD SHA thật bằng API/Git**; **KHÔNG** lấy HEAD của `main`, nhánh M7-S15 cũ hoặc một SHA đã ghi trong snapshot làm HEAD M8-S15.
 2. Mọi file đọc theo **cùng SHA cố định**, trước tiên mục 1 `CONTEXT_HANDOFF.md` để định hướng, rồi đọc **toàn bộ mục 0–16 và cập nhật/phụ lục**, `docs/PROJECT_MILESTONES.md` (đầu và cuối), `docs/CONTEXT_RELEASE_POLICY.md`, bản gốc 386 dòng, tài liệu M7/M8 và code liên quan. Xem `git log -n 20`, commit diff mới nhất; xác minh CI PASS trên SHA đó.
 3. Tổng hợp quyết định hiện hành, các phương án đã loại, sự kiện và nguồn; tách USER/REPO/LOG/HOST, hành động và tiêu chí hoàn tất, điểm thiếu và mức kiểm chứng. Nếu hồ sơ cũ mâu thuẫn với mã/log mới, đối chiếu thời điểm; không tùy tiện sửa sự thật cũ.
 4. **Release tùy chọn:** nếu có `context-<FULL_SHA>`, kiểm tra tag/target SHA và đọc `RELEASE_STATUS.md` hoặc ZIP để tiện; nếu không có, **tiếp tục bình thường bằng repository**. Không dùng Release của SHA cũ thay cho HEAD mới.

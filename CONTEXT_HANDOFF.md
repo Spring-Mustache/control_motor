@@ -1,6 +1,6 @@
 # CONTEXT HANDOFF
 
-> **HỒ SƠ SỐNG 17 MỤC:** Giữ nguyên dữ kiện và quyết định lịch sử A, đồng thời **cập nhật lớp hiện hành** sau thay đổi code/nhận định/lần đo. **Không lấy SHA hoặc trạng thái ở ảnh chụp gốc làm HEAD.** Người tiếp quản phải xác minh trước nhánh `feature/m7-s15-ps2-controls-restoration-staged` và SHA thực tế ở GitHub, rồi đọc mục 1 hiện hành, toàn bộ 0–16 và roadmap cùng SHA. Git commit là nguồn chính, Actions kiểm tra mỗi push; Release chỉ theo milestone/yêu cầu.
+> **HỒ SƠ SỐNG 17 MỤC:** Giữ nguyên dữ kiện và quyết định lịch sử A, đồng thời **cập nhật lớp hiện hành** sau thay đổi code/nhận định/lần đo. **Không lấy SHA hoặc trạng thái ở ảnh chụp gốc làm HEAD.** Người tiếp quản phải xác minh trước nhánh đang làm `feature/m8-s15-dual-target-common-time` và SHA thực tế ở GitHub, rồi đọc mục 1 hiện hành, toàn bộ 0–16 và roadmap cùng SHA. Nhánh M7-S15 cũ là mốc rollback trước PI, không phải nơi tiếp tục M8-S15. Git commit là nguồn chính, Actions kiểm tra mỗi push; Release chỉ theo milestone/yêu cầu.
 
 ---
 
@@ -10,7 +10,7 @@
 
 - **Lịch sử bất biến theo thời điểm:** bảng 2026-10-31 dưới đây, các SHA, log, giả thuyết và đánh giá khi lập hồ sơ A; không xóa hay viết lại để biến thành bằng chứng của commit mới.
 - **Cập nhật hiện hành:** xem mục 1 ở đầu (được cập nhật theo các thay đổi có nguồn), các phần bổ sung dưới những mục 0–16 và các mục mới ở cuối `docs/PROJECT_MILESTONES.md`. CI chỉ kiểm tra cấu trúc/update-gate, không tự đọc toàn bộ chat.
-- **SHA hiện tại:** không thể tự nhúng SHA của chính commit vào file cùng commit mà không tạo vòng lặp. Trước mỗi lần tiếp quản phải lấy `refs/heads/feature/m7-s15-ps2-controls-restoration-staged` từ GitHub, cố định SHA rồi đọc các file theo SHA đó. Nếu người dùng chỉ định nhánh khác, dùng nhánh mới.
+- **SHA hiện tại:** không thể tự nhúng SHA của chính commit vào file cùng commit mà không tạo vòng lặp. Trước mỗi lần tiếp quản M8-S15 phải lấy `refs/heads/feature/m8-s15-dual-target-common-time` từ GitHub, cố định SHA rồi đọc các file theo SHA đó. Nhánh M7-S15 cũ được giữ ở mốc trước PI; nếu người dùng chỉ định nhánh khác, dùng nhánh mới.
 - **Release:** không còn cần trùng HEAD. Một `context-<SHA>` cũ là snapshot tùy chọn, không phải trạng thái hiện hành. `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md` giữ nguyên 386 dòng và SHA-256 gốc; mọi lần xuất hồ sơ vẫn phải áp dụng đủ 0–16.
 
 **Bản định hướng A lúc đầu, lưu NGUYÊN ý nghĩa lịch sử (SHA không còn là HEAD):**
@@ -49,7 +49,15 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
-### CURRENT M8-S15 — một thời gian hoàn thành cho hai góc TARGET độc lập (2026-10-31)
+### HIỆN HÀNH — kết quả thử M8-S15 19:34–19:35 ngày 2026-10-31
+
+- **[GITHUB]** `feature/m8-s15-dual-target-common-time` HEAD `cee4d8bce562d6c77c36dbe0991caab28b4d8d2b` đã được xác minh, và Actions run `41200962485` PASS đúng SHA: contract 386 dòng/17 mục cùng các static/GCC host regression S14.2–S15 PASS; Release job SKIP theo chính sách. Nhánh M7-S15 cũ HEAD `bcf6c2a4e122de91ee8fdb864f5fe7cfd10cca5d` là mốc trước S14.7. Các SHA này là ảnh chụp lúc phân tích, phải kiểm lại refs khi tiếp quản.
+- **[USER FILE/LOG]** `M8S11_six_motor_20261031_193425.csv` có 1.071 dòng × 60 cột, board ms 192384–250923 (58,539 s); meta ghi `complete=True`, rows/captured_rows=1071, missed/busy/tx_errors/invalid_lines/sequence_missing đều 0. `M8_S00_20261031_193556.txt` ghi `M8S00_S15,enable=1,started=7,frames=844,skip=7,rejectedT=0,T=1200`; `last=0` do một lệnh khác sau pilot, không phủ nhận các frame S15 trước đó. Đây là bằng chứng **firmware có S15 đã chạy trên MCU**, không truy được ELF hoặc SHA đã Flash chính xác.
+- **[PHÂN TÍCH CSV]** Có 7 đoạn D-pad LEFT, 6 đoạn đến SOFT ở cả hai trục (`manual_result_l/r=11`), 1 đoạn nhả sớm. Hai đoạn MAX→MIN liên tục hoàn tất từ RAW khoảng L2232–2237/R1006–1007: thời gian từ mẫu đầu lệnh tới kết quả SOFT theo CSV lần lượt LEFT/RIGHT **1995/2443 ms** (skew **448 ms**) và **1938/2607 ms** (skew **669 ms**). M8-S06 riêng ghi một lượt cùng hướng `id=11` LEFT **1960 ms**, RIGHT **2588 ms**, skew **628 ms**; chênh vài chục ms với CSV do lấy mẫu khoảng 50–57 ms. Lượt CENTER→MIN `id=15` ghi LEFT **1117 ms**, RIGHT **1766 ms**, skew **649 ms**. Không gộp các hành trình khác chiều/điểm đầu thành A/B có kiểm soát.
+- **[KẾT LUẬN]** Bộ lập kế hoạch chung đã chạy, nhưng **hai trục chưa hoàn thành đồng thời** trong những lượt trên. Ở hai lượt MAX→MIN, RIGHT chỉ sau LEFT **114/57 ms** tại mốc còn 180 RAW, rồi **448/669 ms** tại SOFT; đoạn 180→SOFT của LEFT **570/513 ms**, RIGHT **904/1125 ms** theo mẫu CSV. 100–180 RAW, RIGHT CCR đúng 100; 0–40 RAW, trung bình khoảng 58/56,6 CCR. S15 cố ý không boost trong 180 RAW cuối, nên đây là điểm tập trung chẩn đoán, **không phải quyền tăng PWM gần NC**. `T=1200` là bản ghi session S15 cuối, không phải T riêng của mọi lượt; CSV không có `phase/ref/error` S15 từng hàng. Không chứng minh hai góc target bất kỳ (ví dụ 35°/30°) đã được route tới actuator; phần đó mới có HOST test. NC=4/6 chỉ xuất hiện trong R2, không có `trip` hay `stop` trong CSV; M8-S00 `FAULT` rỗng. Không có đo dòng, quãng trôi tới NC, khoảng hở cơ khí, nguồn ngắt độc lập, CubeIDE Clean Build hoặc SHA flash cho bản này. Bốn bánh không chạy đồng thời trong 7 đoạn D-pad LEFT, Gate A/B vẫn mở.
+- **[ĐIỂM DỪNG]** Giữ firmware và các giới hạn hiện tại; phân tích nguyên nhân chênh thời điểm bằng `M8S00_S15` thiếu lịch sử T/ref theo từng stroke và tốc độ/CCR/RAW đã có, chỉ xem xét hiệu chỉnh sau bằng chứng dừng/coast/current và build/flash. Chỉ cần hỏi đúng bằng chứng Build/Flash hoặc an toàn vật lý khi bước kế tiếp thật sự phụ thuộc; không yêu cầu lặp PI OFF. Cập nhật `docs/M8_S15_DUAL_TARGET_COMMON_TIME.md` và roadmap, không đăng log thô.
+
+### M8-S15 — một thời gian hoàn thành cho hai góc TARGET độc lập (source pilot 2026-10-31)
 
 [USER — thiết kế cốt lõi milestone] Dù LEFT/RIGHT đánh lái hai góc KHÁC NHAU, chúng phải dùng **cùng một thời gian hoàn thành T chung**, làm nền cho động học Ackermann. Không đồng nhất góc hay tốc độ giữa hai bên. Thay tầng điều khiển đồng bộ S14 PI/P+D/S149 bằng một bộ bám quỹ đạo có hai đầu ra độc lập; không bỏ nền tảng AS5600->±45°, NC/STOP, calibration, vị trí R1/R2, wheel PI/FF và log.
 
@@ -1010,5 +1018,25 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 ### M8-S15 CI gate maintenance (2026-10-31)
 
 M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14.7 and S14.8 historical static verifiers originally required PI latch start with an exact pre-S15 substring and were misleadingly FAIL after adding the deliberate `steer_s15_latched==0U` guard. Update both verifiers to require this mutual exclusion plus original Level1/2 and other safety checks. **No motor-code change in this gate-maintenance commit**. CI exact SHA must be rechecked. Branch S15 separate from legacy pre-PI rollback.
+
+### M8-S15 — rà soát 17 mục sau log 19:34–19:35 (2026-10-31)
+
+0. **Phạm vi/nguồn:** GitHub API hai branch refs, commit/20 commit gần nhất/diff/Actions ở `cee4d8b`, GitHub source/docs S15, ba file riêng do người dùng chỉ định trong `D:\STM32 task\control_motor\logs`. Không có ảnh thao tác, build log, ELF/flash hash, dòng điện hoặc đo cơ khí độc lập. Chỉ kiểm tra file có sẵn; không truy cập toàn bộ chat trước.
+1. **Tiếp tục ngay:** source S15 và HOST/Actions PASS, S15 có frame trên MCU, nhưng kết quả D-pad LEFT chưa tới SOFT cùng lúc. Giữ thuật toán/giới hạn, đối chiếu dữ liệu per-stroke và chứng cứ build/flash trước mọi kết luận hoặc thử powered tiếp.
+2. **Mục tiêu:** hai góc LEFT/RIGHT độc lập dùng một T hoàn thành chung để phục vụ Ackermann; không ép góc, vận tốc hay PWM bằng nhau. Pilot vật lý hiện vẫn chỉ dùng hai SOFT target D-pad LEFT.
+3. **Yêu cầu/quyền:** người dùng cho phân tích log và cập nhật hồ sơ GitHub sau kết quả quan trọng; giữ nguyên đặc tả 386 dòng, không tự đổi firmware, giới hạn an toàn hay công bố CSV/TXT thô. Chỉ thử controller ON, không bắt lặp PI OFF.
+4. **Milestone:** M8-S15 là nhánh hiện hành; sáu lượt manual đạt SOFT riêng từng trục nhưng chưa đạt **cùng T**. Gate A tích hợp và Gate B mặt đất có tải vẫn chưa đóng. M7-S15 cũ là rollback trước S14.7.
+5. **Đã làm/kiểm:** HEAD S15 `cee4d8b` và Actions `41200962485` PASS; meta CSV 1071/1071 sạch; so CSV với M8-S00 counters và M8-S06 timing. PASS CI chỉ là contract/static/GCC, không phải CubeIDE hoặc nghiệm thu phần cứng.
+6. **Điểm dừng:** sau phân tích test và cập nhật tài liệu, trước bất cứ thay đổi firmware/điều khiển PWM. `M8S00_S15` chỉ giữ session cuối, CSV không có S15 ref/T per-row; cần chứng cứ mục tiêu và điều kiện dừng nếu hiệu chỉnh controller.
+7. **Tài nguyên:** `M8S11_six_motor_20261031_193425.csv`, `.meta.txt`, `M8_S00_20261031_193556.txt` ở Windows, không commit vì log riêng tư; `docs/M8_S15_DUAL_TARGET_COMMON_TIME.md`, `Core/Inc/steer_s15_common_time.h`, `Core/Src/main.c`, verifier/test và roadmap ở đúng GitHub SHA.
+8. **Quyết định:** giữ controller S15 độc quyền cho pilot D-pad LEFT Level2, không chồng S147/S148/S149; chưa quyết định tăng cap, PWM terminal hoặc đổi T. Không xem `last=0` cuối snapshot là thất bại kích hoạt, vì started/frames khác 0.
+9. **Lỗi/kết quả:** không có FAULT trong snapshot; một D-pad LEFT bị nhả sớm, sáu lượt tới SOFT nhưng lệch thời điểm. Hai lượt MAX→MIN theo CSV skew 448/669ms tại SOFT, chỉ 114/57ms tại 180 RAW; M8-S06 `id=11` ghi skew628ms. Không gán một nguyên nhân firmware/cơ khí khi chưa có số liệu phân biệt.
+10. **Rủi ro/phụ thuộc:** T mô hình có thể ngắn hơn khả năng RIGHT ở vùng terminal; thiếu dòng, coast, NC clearance, ngắt nguồn độc lập và flash SHA. NC=4/6 trong CSV thuộc R2, không phải fault của các lượt S15 manual.
+11. **Bước tiếp:** bảo toàn local CubeIDE/log changes; kiểm tra source-to-build/flash nếu có bằng chứng; dùng log hiện có để đối chiếu RAW, CCR và điểm bắt đầu từng stroke; chỉ thiết kế thử/hiệu chỉnh tiếp sau gate điện/cơ. Khi có sửa source, cập nhật đủ hồ sơ/roadmap và xem CI đúng SHA.
+12. **Thiếu:** Clean Build log, ELF/Flash SHA chính xác, dòng/độ nóng, quãng trôi sau CCR0 và khoảng hở tới NC, khả năng cắt nguồn độc lập, T/ref/err theo từng stroke, thử góc đích bất kỳ. Không coi im lặng là các điều kiện đã đạt.
+13. **Thời gian:** commit S15 `2c5c6e7` rồi CI maintenance `310fbc1`/`cee4d8b`; capture CSV 19:34:25–19:35:31 và M8-S00 19:35:56 theo tên file máy người dùng. Board ms độc lập với giờ PC.
+14. **Thông số/kết quả:** `enable=1,started=7,frames=844,skip=7,rejectedT=0,T=1200` ở S00; CSV board 192384–250923, sáu lượt SOFT hai bên, 1 nhả sớm; M8-S06 `id=15` CENTER→MIN LEFT1117/RIGHT1766/skew649ms. T=1200 là giá trị session cuối, không áp vào mọi stroke.
+15. **Bàn giao:** luôn đọc HEAD của `feature/m8-s15-dual-target-common-time` trước, dùng prompt/roadmap hiện hành và CI cùng SHA; giữ lịch sử nhánh M7-S15 cũ, không yêu cầu Release. Trình bày SOURCE, HOST, CUBEIDE, FLASH, HARDWARE riêng.
+16. **Kiểm tra chất lượng:** không suy SHA flashed từ UART; không gọi sáu lần chạm SOFT là hoàn thành đồng thời; không gọi STOP/NC/current PASS khi không đo. Đặc tả gốc trong Git tree vẫn 386 dòng và SHA-256 `13d8976ec0d74057af94bf84c8445bddbb48715b308964e22eb6684711f708a4`; các khoảng trống nêu trên còn mở.
 
 END OF CONTEXT HANDOFF
