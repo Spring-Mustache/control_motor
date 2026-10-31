@@ -58,3 +58,13 @@ Script kiểm tra `complete=True`, `captured_rows`, `invalid_lines=0`, `sequence
 4. Khi có căn cứ bảo đảm dừng an toàn, thử phiên bản **opt-in mặc định OFF** của profile RIGHT được xây từ dữ liệu và so A/B cùng điều kiện; không tự kích hoạt ở đất hoặc Level2.
 
 **Đang chờ:** kết quả đo quãng trôi thực, cắt nguồn và dòng điện. Không sửa `STEER_MANUAL_APPROACH_WINDOW_RAW`, sàn/trần PWM hay SOFT cho tới khi cổng này có bằng chứng.
+
+## Bổ sung M8-S00 16:09 và CSV 16:07 — sự kiện R1 độc lập (2026-10-31)
+
+M8-S00 ghi một **FAULT LEFT R1 code8** tick67140, trước CSV start board_ms78246, nên CSV này không thể tái dựng chính xác diễn biến ngay trước lỗi. Snapshot manual STOP tick66899: L1740/R510 CCR342/125; snapshot R1 FAULT tick67140 L1652/R471; LEFT cần tăng từ1740 về center1873 nhưng hai snapshot giảm88RAW. Lỗi8 trong code là nhóm wrong-way/no-progress/stall; không suy kết luận nguyên nhân duy nhất, không đánh dấu fixed.
+
+CSV 1031 row complete, 60.567s, không mất mẫu. R1 từ MAX trên CSV bị **hủy do RX non-neutral** (128→82→0 ở board ms114460), M8-S00 history run12 `stop9`/LEFT reason9, RIGHT reason2; đây không phải FAULT8. R1 từ MIN tiếp theo run18 BOTH success, LEFT1758ms RIGHT2149ms skew391ms.
+
+Ba D-pad LEFT full-travel RIGHT late 547/548/607ms (mean567.3), S14.5 OFF theo M8-S00; Lmin1430, Rmin209, Rmax1019 so soft1454/216/999; không có NC/trip/stop được log trong CSV, nhưng chưa có đo clearance/cutoff thực. Chỉ47 row trong CSV có bánh commanded nonzero. **Không sửa gần-SOFT PWM** hay tự diễn giải nghiệm thu chỉ từ UART.
+
+Bước kiểm tra R1 cần thực hiện trước khi thiết kế patch: giữ RX trung tính, chờ cơ cấu hoàn toàn ngừng trôi sau manual, kiểm tra nguồn ngắt độc lập/STOP/NC và bật capture trước R1 (event8 đã xảy ra trước CSV lần này). Không cần phát hành firmware/build/flash mới chỉ để đọc bổ sung tài liệu này.

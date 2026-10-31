@@ -49,6 +49,16 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### LOG M8 16:07–16:09: LEFT R1 FAULT 8 trước CSV; R1 code 9 do RX không trung tính (2026-10-31)
+
+[USER FILES/VERIFIED ANALYSIS] `M8S11_six_motor_20261031_160757.csv` 1031x60, board ms **78246–138813**, 60.567s, metadata complete, rows1031/missed0/invalid0/sequence_missing0/tx_errors0. `M8_S00_20261031_160926.txt` có snapshot lỗi trước CSV: manual STOP event=3 tick66899, rawL1740/rawR510, CCR342/125; FAULT event=5 axis LEFT code8 tick67140, rawL1652/rawR471, R1 active, position PWM300/100, `fault_L=1,fault_R=0`. Code 8 trong `Steering_PositionAxisUpdate()` thuộc hướng sai hoặc sai số không tiến triển/stall; hai snapshot cách241ms và LEFT đã giảm88RAW dù từ 1740 về CENTER1873 cần tăng RAW. **Lỗi đã xảy ra trước lúc bật CSV khoảng11.1s**, không thể xác định riêng nhánh trigger/code8 hoặc dòng điện/driver từ CSV; giả thuyết inertia khi đổi manual→R1 hợp lý nhưng chưa chứng minh.
+
+[CSV R1 DIFFERENT EVENT] R1 MAX→CENTER ở board ms 112083: RIGHT hoàn tất về667; LEFT đang fine ~1864–1868. Board ms114460 `rx=82` (trước đó128), rồi `rx=0`; cùng lúc `position_active` chuyển1→0. M8-S00 history run12 `stop=9`, left reason9, right reason2 phù hợp firmware hủy R1 nếu RX lệch neutral; **đây là hủy do lệnh joystick mới, không phải LEFT code8 tái diễn**. R1 MIN→CENTER lúc 133485 tiếp theo hoàn thành run18: LEFT 1758ms, RIGHT2149ms, skew391ms, reached3/faults0. CSV đầu chứa pos_state_l=4/result8 từ sự kiện FAULT trước khi capture, không phải 39 fault mới trong CSV. No raw NC/trip/stop flags trong 1031 rows.
+
+[STEERING] Ba D-pad LEFT toàn hành trình từ L~2237–2238 / R~1007–1008 tới SOFT L1454/R216: RIGHT chậm LEFT lần lượt **547,548,607 ms**, mean567.3ms. 100RAW cuối LEFT ~305/305/244ms, RIGHT ~547/548/607ms. S14.5 OFF `enable0,biasFrames0,rightPriority0`; S142 level1 S143 enable1 grants14 fastAxis28 fallback0. RAW extrema Lmin1430/Rmin209/Rmax1019, soft 1454/216/999; NC không đồng nghĩa có khoảng hở cơ khí. Bánh mục tiêu khác0 chỉ47/1031 mẫu, không dùng phiên này để nghiệm thu lại +/-100RPM sáu motor.
+
+[DECISION/PENDING] Không tăng PWM near SOFT, không đánh dấu R1 lỗi8 đã sửa. Tách 2 giả thuyết: (a) R1 LEFT code8 trước capture cần xác minh điều kiện động học trước khi đổi hướng; (b) RX manual thay R1 tạo code9 được quan sát, phù hợp guard có chủ ý. Trước phép thử R1 kế tiếp: đảm bảo STOP/NC/ngắt nguồn độc lập, để cơ cấu hết trôi, đưa RX về128/trung tính; bắt đầu CSV **trước** nhấn R1 để giữ những frame gây lỗi và lấy M8-S00 sau dừng. Không tự thử sát NC, giữ S14.5 OFF. Cân nhắc bổ sung gate R1 chống khởi động trên chuyển động còn trôi, **chưa sửa firmware vì cần kiểm chứng nguyên nhân**.
+
 ### Phát hiện mới sau A/B S14.5 và hướng hành động (2026-10-31)
 
 [USER LOG — đo định lượng, không phải hardware PASS] OFF `M8S11_six_motor_20261031_153229.csv` 1.356 mẫu, ON `M8S11_six_motor_20261031_154708.csv` 1.596 mẫu; cả hai meta complete/missed0. Hai lượt D-pad LEFT toàn hành trình hoàn tất mỗi phiên: RIGHT chậm LEFT trung bình **511,5ms OFF / 546,5ms ON**; 100 RAW cuối của RIGHT **542ms OFF / 546,5ms ON**. ON M8-S00 15:48:58 có `S144 enable1,biasFrames350,rightPriority80,peakBias200`, tức thuật toán có chạy nhưng **chưa cải thiện** trên tập dữ liệu này. Cỡ mẫu nhỏ, chưa kết luận nguyên nhân toàn diện.
@@ -779,5 +789,15 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 
 [OPERATION] Dùng `python tools/analyze_m8_right_low_pwm.py --off .\\logs\\M8S11_six_motor_20261031_153229.csv --on .\\logs\\M8S11_six_motor_20261031_154708.csv`; meta được đọc tự động nếu có. GitHub Actions PASS cần kiểm tra thực tế sau push. Chờ dữ liệu cắt nguồn/clearance/current rồi mới cho phép profile hãm thay thế và nghiệm thu; nếu chưa có, chỉ phân tích với log đã thu.
 
+
+### B update — R1 LEFT code8 thực sự trong M8-S00 16:09, trước CSV 16:07 (2026-10-31)
+
+[USER LOG] 1031 mẫu/60.567s CSV complete, M8-S00 FAULT LEFT code8 tick67140 trước sample CSV đầu tick78246. Manual STOP tick66899 tại L1740/R510 (CCR342/125); snapshot R1 FAULT L1652/R471 sau241ms dù LEFT cần tăng RAW về CENTER1873. Source code8 gồm wrong-direction/stall/abs-error progression (không phân biệt được nhánh từ snapshot). R1 chuyển khi còn coast là giả thuyết cần bảo đảm không tái diễn, không phải kết luận đã xác nhận.
+
+[OTHER R1] R1 từ MAX tại112083 bị kết thúc result9 sau RX từ128→82→0 lúc114460; M8S00 history run12 left reason9/right reason2 xác nhận hủy theo guard input không trung tính, không phải lỗi code8. R1 từ MIN sau đó run18 PASS LEFT1758ms RIGHT2149ms skew391ms. CSV đầu pos result LEFT8 là trạng thái còn lưu của fault xảy ra trước capture.
+
+[MANUAL] 3 D-pad LEFT toàn hành trình full range RIGHT lag547/548/607ms (mean567.3ms), S144 OFF, S143 grants14/fastAxis28/fallback0. 1031 CSV row no NC/STOP/trip, RAW Lmin1430 Rmin209 Rmax1019 vượt SOFT vẫn đòi clearance. Wheels chỉ47/1031 row có target khác0: không đủ nghiệm thu tốc độ cao.
+
+[STATUS] Chỉ ghi lại phân tích trong docs/roadmap/handoff; không thay firmware/PWM/safety, không có biến mới, không cần CubeIDE/Flash. R1 LEFT code8 là unresolved. Lần kiểm tra tiếp theo nếu có điều kiện an toàn: ghi CSV trước R1, RX=128, không chồng lệnh manual và chờ thực tế hết trôi. Điều tra gate anti-coast trước khi đề xuất firmware behavior; không suy diễn sự cố đã được fix.
 
 END OF CONTEXT HANDOFF
