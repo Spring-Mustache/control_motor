@@ -61,6 +61,9 @@ jobs:
             python3 tools/verify_m8_s142_speed.py
           fi
 
+      - name: Validate passive RIGHT low-PWM A/B analyzer
+        run: python3 tools/analyze_m8_right_low_pwm.py --self-test
+
   publish-release:
     name: Optional milestone / offline context package
     # A push NEVER publishes. A manual run with the boolean checked does,

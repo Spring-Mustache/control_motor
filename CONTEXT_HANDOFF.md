@@ -49,6 +49,16 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### Phát hiện mới sau A/B S14.5 và hướng hành động (2026-10-31)
+
+[USER LOG — đo định lượng, không phải hardware PASS] OFF `M8S11_six_motor_20261031_153229.csv` 1.356 mẫu, ON `M8S11_six_motor_20261031_154708.csv` 1.596 mẫu; cả hai meta complete/missed0. Hai lượt D-pad LEFT toàn hành trình hoàn tất mỗi phiên: RIGHT chậm LEFT trung bình **511,5ms OFF / 546,5ms ON**; 100 RAW cuối của RIGHT **542ms OFF / 546,5ms ON**. ON M8-S00 15:48:58 có `S144 enable1,biasFrames350,rightPriority80,peakBias200`, tức thuật toán có chạy nhưng **chưa cải thiện** trên tập dữ liệu này. Cỡ mẫu nhỏ, chưa kết luận nguyên nhân toàn diện.
+
+[SOURCE/CSV] Bộ điều khiển manual tự hạ PWM trong 100 RAW cuối và giữ 50 CCR làm sàn RIGHT: khoảng 100 CCR -> 330 RAW/s ở 100–180 RAW, 65 CCR -> ~180–190 RAW/s ở 20–40 RAW, 52–53 CCR -> ~115 RAW/s ở 0–10 RAW. Đây là vận tốc AS5600 suy từ mẫu UART, không phải đo độc lập dòng/lực. LEFT MIN có mẫu thấp tới 1429–1430 so với SOFT1454, RIGHT MIN tới211 so với SOFT216, RIGHT MAX tới1022/1023 so với SOFT999; chưa đủ điều kiện tăng PWM near SOFT.
+
+[CURRENT ACTION] Thêm `tools/analyze_m8_right_low_pwm.py` (tiêu chuẩn thư viện Python, không chạm motor) để lặp lại đối chứng OFF/ON, nhận diện lượt D-pad LEFT đủ điều kiện/nhả sớm, ghi lag và thời gian 100 RAW cuối, bảng tốc độ AS5600 theo PWM và khoảng cách; kiểm tra `.meta.txt` để loại CSV lỗi; self-test trong GitHub Actions. Tài liệu `docs/M8_S14_6_RIGHT_MIN_LOW_PWM_CHARACTERIZATION.md` ghi công thức, số liệu, giới hạn và cổng an toàn. **Không thay đổi `Core/`, S14.5 vẫn boot-OFF**. Bài test script PASS không chứng minh có cách nào làm RIGHT nhanh hơn.
+
+[NEXT HARDWARE GATE] Kiểm tra dừng nguồn độc lập, thực tế còn bao nhiêu khoảng hở khi PWM off ở R_MIN/R_MAX, dòng driver 50–100 CCR cùng nhiệt độ và các lượt lặp an toàn ở giá treo. Nếu không có chứng cứ đó không sửa tầng giảm tốc 100 RAW hoặc nới SOFT. Sau khi có, thiết kế profile tùy trục theo dữ liệu với thử nghiệm boot-OFF, A/B cùng điều kiện và xác minh coast; không ép tăng PWM gần NC.
+
 ### TRẠNG THÁI HIỆN HÀNH sau các lần bổ sung (cập nhật 2026-10-31)
 
 **Bắt buộc trước khi dùng:** GitHub ref đúng nhánh → HEAD SHA → đọc source/docs tại SHA đó. **Không** dùng SHA `605b937f` trong bản chụp A, Release mới nhất hay commit SHA viết ở phụ lục để suy ra HEAD.
@@ -758,5 +768,16 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 [TRẠNG THÁI] Tool/policy/docs-only thay đổi, không có `Core/`, `Drivers/`, `.ioc`, `.ld` hay giới hạn motor thay đổi. Thất bại của release thủ công do quyền không ảnh hưởng CI verify. CI mới phải được xem ở SHA commit sau push; mô phỏng chat thật ở một phiên ChatGPT độc lập không thể chứng minh bằng test Python nên chỉ xác nhận thao tác đọc theo SHA ở repo và hướng dẫn cho phiên mới.
 
 [NEXT] Sau push xem Actions đúng SHA PASS và xác nhận không có release/tag `context-<SHA>`; truy xuất trực tiếp README/HANDOFF/roadmap/policy/commit-diff cùng SHA. Nếu cần ZIP, chọn workflow Run workflow và `publish_release=true` trên nhánh đã xác minh; chỉ khi verify PASS mới publish. Sau đó quay lại thử nghiệm firmware M8-S14.5 (A/B suspended bench, kiểm soát STOP/NC/current/coast) khi có bằng chứng an toàn cơ khí.
+
+### B update — M8-S14.6 đo đặc tính RIGHT ở PWM thấp (2026-10-31)
+
+[REQUEST] Người dùng yêu cầu thực hiện bước tiếp theo sau S14.5 ON không giúp RIGHT bắt kịp. Đã sử dụng log riêng tư OFF 15:32 và ON 15:47 từ chat, không công khai CSV/TXT thô. Kết quả đo như phần mục 1 và `docs/M8_S14_6_RIGHT_MIN_LOW_PWM_CHARACTERIZATION.md`.
+
+[WHY NO POWER CHANGE] Cả hai log hiện hữu cho biết tốc độ AS5600 thực ở 50–100 CCR; riêng 0–10 RAW còn ~115 RAW/s. S14.5 hiệu lực phần mềm nhưng arrival gap không cải thiện. Tự tăng gần SOFT khi chưa đo current/physical stop và NC clearance có nguy cơ va chạm. Code firmware nguồn ở commit trước vẫn giữ Level1/FastStart boot-ON, S14.5 opt-in boot-OFF, SOFT/NC/STOP nguyên vẹn. Đây là quyết định thiết kế có giới hạn dữ liệu, không phải từ bỏ mục tiêu tăng tốc.
+
+[IMPLEMENTED] Thêm script `tools/analyze_m8_right_low_pwm.py` đọc 60-col CSV và meta COM4, thống kê mỗi D-pad LEFT khởi phát từ MAX: số lượt hoàn tất, lag L/R và 100 RAW cuối, báo chưa hoàn tất riêng, zone PWM/RAW/s, mức vượt SOFT quan sát; tùy chọn JSON. GitHub Actions tự kiểm tra synthetic test. Đổi ở `tools/`, `.github/workflows/`, `docs/`, `CONTEXT_HANDOFF.md`, không có firmware hoặc tệp an toàn motor. Script test không thay CubeIDE/Flash/hardware PASS.
+
+[OPERATION] Dùng `python tools/analyze_m8_right_low_pwm.py --off .\\logs\\M8S11_six_motor_20261031_153229.csv --on .\\logs\\M8S11_six_motor_20261031_154708.csv`; meta được đọc tự động nếu có. GitHub Actions PASS cần kiểm tra thực tế sau push. Chờ dữ liệu cắt nguồn/clearance/current rồi mới cho phép profile hãm thay thế và nghiệm thu; nếu chưa có, chỉ phân tích với log đã thu.
+
 
 END OF CONTEXT HANDOFF
