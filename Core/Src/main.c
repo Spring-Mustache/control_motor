@@ -5193,6 +5193,12 @@ volatile uint32_t steer_s143_fast_grants = 0U;
 volatile uint32_t steer_s143_fast_starts = 0U;
 volatile uint32_t steer_s143_fallback_starts = 0U;
 volatile uint32_t steer_s143_quiet_frames = 0U;
+/* Bounded read-only gate diagnostics: bit0=level,1=enable,
+ * 2=LEFT state,3=RIGHT state,4=NC raw,5=NC active,
+ * 6=LEFT neutral cache,7=RIGHT neutral cache.
+ * Zero means all grant prerequisites passed.
+ */
+volatile uint16_t steer_s143_last_gate_missing_mask = 0U;
 static M8S143_Quiet steer_s143_quiet_l = {0};
 static M8S143_Quiet steer_s143_quiet_r = {0};
 
@@ -5835,6 +5841,10 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned long)steer_s143_fast_starts,
       (unsigned long)steer_s143_fallback_starts,
       (unsigned long)steer_s143_quiet_frames);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
+  n=snprintf(line,sizeof(line),
+      "M8S00_S143_GATE,missing=0x%04x\\r\\n",
+      (unsigned)steer_s143_last_gate_missing_mask);
   if(M8S00_UartLine(line,n)==0U)return 0U;
 
   /* Separate encoder RPM from normalized AS5600 travel speed.
@@ -6651,8 +6661,14 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
       uint32_t sample_ms = left ? steer_pos_left_last_sample_ms :
                                   steer_pos_right_last_sample_ms;
       uint32_t dt = (uint32_t)(sample_ms-axis->fast_reference_sample_ms);
+      /* AS5600 read above may finish 1-2ms AFTER 'now', captured at
+       * function entry. A stale pre-read clock would wrap unsigned age
+       * and reject every fast transition. Re-sample time AFTER I2C.
+       */
+      uint32_t sample_check_now = HAL_GetTick();
       fast_now = (uint8_t)((dt >= 10U) && (dt <= M8S143_MAX_GAP_MS) &&
-                           ((uint32_t)(now-sample_ms) <= M8S143_MAX_AGE_MS));
+                           ((uint32_t)(sample_check_now-sample_ms) <=
+                            M8S143_MAX_AGE_MS));
     }
     if (fast_now ||
         ((settle_ms >= min_ms) &&
@@ -7344,33 +7360,45 @@ static void Steering_ManualUpdate(void)
         steer_manual_right_settle_max_raw = raw;
       }
     }
-    /* Both sensors and both neutral observers must qualify; never bypass
-     * NC arrival/escape, AS5600, SOFT, STOP, ISR or owner checks.
+    /* Check grant AFTER the two blocking I2C reads, never with the
+     * loop-entry timestamp 'now': sample_ms can be 1-2ms IN THE FUTURE
+     * of that timestamp and unsigned age would underflow to ~2^32.
+     * Fail-closed per-axis guards remain. Missing bits are diagnostic.
      */
-    if (steer_s142_latched != 0U &&
-        steer_s143_fast_start_enable == 1U &&
-        steer_manual_left_state == STEER_MANUAL_SETTLING &&
-        steer_manual_right_state == STEER_MANUAL_SETTLING &&
-        Steering_TestRawLimitMask() == 0U &&
-        debug_limit_active_mask == 0U &&
-        M8S143_Ready(&steer_s143_quiet_l,now,
-           steer_pos_left_last_sample_ms,debug_as5600_left_raw) &&
-        M8S143_Ready(&steer_s143_quiet_r,now,
-           steer_pos_right_last_sample_ms,debug_as5600_right_raw))
+    if ((steer_s142_latched != 0U) &&
+        (steer_s143_fast_start_enable == 1U))
     {
-      steer_manual_left_axis.fast_ready = 1U;
-      steer_manual_right_axis.fast_ready = 1U;
-      steer_manual_left_axis.fast_reference_sample_ms =
-          steer_pos_left_last_sample_ms;
-      steer_manual_right_axis.fast_reference_sample_ms =
-          steer_pos_right_last_sample_ms;
-      if (steer_s143_fast_grants != 0xffffffffUL)
-        steer_s143_fast_grants++;
+      uint32_t grant_now_ms = HAL_GetTick();
+      uint16_t missing = 0U;
+      if (steer_manual_left_state != STEER_MANUAL_SETTLING)
+        missing |= 0x04U;
+      if (steer_manual_right_state != STEER_MANUAL_SETTLING)
+        missing |= 0x08U;
+      if (Steering_TestRawLimitMask() != 0U)
+        missing |= 0x10U;
+      if (debug_limit_active_mask != 0U)
+        missing |= 0x20U;
+      if (M8S143_Ready(&steer_s143_quiet_l,grant_now_ms,
+            steer_pos_left_last_sample_ms,debug_as5600_left_raw) == 0U)
+        missing |= 0x40U;
+      if (M8S143_Ready(&steer_s143_quiet_r,grant_now_ms,
+            steer_pos_right_last_sample_ms,debug_as5600_right_raw) == 0U)
+        missing |= 0x80U;
+      steer_s143_last_gate_missing_mask = missing;
+      if (missing == 0U)
+      {
+        steer_manual_left_axis.fast_ready = 1U;
+        steer_manual_right_axis.fast_ready = 1U;
+        steer_manual_left_axis.fast_reference_sample_ms =
+            steer_pos_left_last_sample_ms;
+        steer_manual_right_axis.fast_reference_sample_ms =
+            steer_pos_right_last_sample_ms;
+        if (steer_s143_fast_grants != 0xffffffffUL)
+          steer_s143_fast_grants++;
+      }
+      else if (steer_s143_fallback_starts != 0xffffffffUL)
+        steer_s143_fallback_starts++;
     }
-    else if (steer_s142_latched != 0U &&
-             steer_s143_fast_start_enable == 1U &&
-             steer_s143_fallback_starts != 0xffffffffUL)
-      steer_s143_fallback_starts++;
   }
 
   /* Consume rising limit EXTI and preserve own-side isolation. */

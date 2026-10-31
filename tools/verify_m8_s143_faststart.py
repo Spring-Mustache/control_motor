@@ -15,6 +15,16 @@ checks={
      '#define M8S143_MAX_AGE_MS 140U' in h,
  'both idle observers':'M8S143_Ready(&steer_s143_quiet_l,now,' in s and 'M8S143_Ready(&steer_s143_quiet_r,now,' in s,
  'new post-command sample':'dt >= 10U' in s and 'axis->fast_reference_sample_ms' in s,
+ 'newer clock after blocking grant read':(
+   'uint32_t grant_now_ms = HAL_GetTick();' in s and
+   'M8S143_Ready(&steer_s143_quiet_l,grant_now_ms,' in s and
+   'M8S143_Ready(&steer_s143_quiet_r,grant_now_ms,' in s
+ ),
+ 'newer clock after axis read':(
+   'uint32_t sample_check_now = HAL_GetTick();' in s and
+   '((uint32_t)(sample_check_now-sample_ms) <=' in s
+ ),
+ 'diagnostic gate reasons':'M8S00_S143_GATE,missing=0x%04x' in s,
   'legacy fallback':(
     bool(re.search(r'^#define[ \t]+STEER_MANUAL_START_LEFT_MIN_MS[ \t]+100U[ \t]*$',s,re.M)) and
     bool(re.search(r'^#define[ \t]+STEER_MANUAL_START_RIGHT_MIN_MS[ \t]+160U[ \t]*$',s,re.M)) and

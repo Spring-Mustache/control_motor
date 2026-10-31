@@ -682,4 +682,14 @@ Người vận hành chạy `python tools/verify_m8_s143_faststart.py` trên Win
 
 [NEXT] Sau GitHub sync/verify và Clean Build/Flash: thử lại trên giá treo với Level1, Fast OFF/ON, đo `grants`, `fast_starts`, `fallback_starts`, M8S11 50ms và M8S00; >=5 lần/chiều, đo trôi gần SOFT và STOP/cutoff. Chỉ cân nhắc Level2 dưới tải khi có chứng cứ dừng an toàn.
 
+### Hội thoại B 2026-10-31 — lỗi thứ hai S14.3: dấu thời gian trước I2C
+
+[USER] Ảnh Live Expressions vẫn `fast_grants=0`, `fast_starts=0`, lần này `fallback=3`. M8_S00_20261031_142133.txt có `enable=1`, `grants=0`, `fastAxis=0`, `fallback=10`, `quietFrames=4877`, cho thấy observer neutral tích lũy thành công nhưng khởi động nhanh vẫn không được cấp.
+
+[SOURCE] `Steering_ManualUpdate` ghi `uint32_t now=HAL_GetTick()` trước đọc hai AS5600 blocking, trong khi `Steering_PositionReadOne()` ghi `steer_pos_*_last_sample_ms=HAL_GetTick()` mới; `M8S143_Ready` tính `uint32_t(now-sample_ms)` và bị wrap khi now cũ hơn sample. Tương tự khi `Steering_ManualAxisUpdate` tính tuổi mẫu sau một đọc I2C mới, làm fast_starts luôn dễ fail. Đây là lỗi firmware đã xác định từ source, nhưng log trước không chứa mask từ chối từng lượt nên không thể khẳng định mọi lượt đều chỉ do nguyên nhân này.
+
+[PATCH STAGED] Dùng HAL tick sau I2C tại cả grant và axis fast_now, thêm read-only `steer_s143_last_gate_missing_mask` và `M8S00_S143_GATE` để biết chính xác điểm fail tiếp theo. Mask bits 2 LEFT state,3 RIGHT state,4 raw NC,5 active NC,6 LEFT observer,7 RIGHT observer. Giữ boot-OFF, mức Level2 là opt-in, NC/STOP/soft, drift guard, old settling fallback, 850ms fail closed. Host regression kiểm tra pre-I2C timestamp inversion. Chưa chứng minh target Build/Flash/actual latency.
+
+[NEXT] Sau cập nhật SHA mới Windows, chạy verifier và CubeIDE Clean Build/Flash; treo xe, ở Level1, Fast=1, neutral >=300ms, vài xung ngắn; nếu `grants` vẫn 0, gửi missing mask + S00. Không thử Level2 dưới đất trước khi STOP/coast/current đạt.
+
 END OF CONTEXT HANDOFF

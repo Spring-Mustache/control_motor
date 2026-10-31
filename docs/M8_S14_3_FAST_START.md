@@ -20,3 +20,15 @@ Commissioning: preserve dirty Windows CubeIDE and logs; `git fetch origin`, `git
 [TEST] Pure C regression simulates two AS5600s polled alternately each 50ms (each axis sampled each 100ms), stale-data refusal and coast cancellation. Static verifier additionally checks polling order and timing constants. Target STM32 Clean Build, Flash and any real latency reduction are still PENDING.
 
 [SAFETY] Suspend robot and verify independent power cutoff and stop/NC before powered trials; Level 1 A/B with Fast Start OFF then ON first, >=5 repetitions each side, capture M8-S11 50ms and disarmed M8-S00; check grants/starts and coast/current. Do not resume ground-level Level2 trials based on this source patch alone.
+
+## S14.3 timestamp-order fix and gate diagnosis (2026-10-31)
+
+[USER M8-S00] `M8_S00_20261031_142133.txt` after the first cadence fix reports S143 `enable=1,grants=0,fastAxis=0,fallback=10,quietFrames=4877`. These counters are from this boot/session, distinct from prior image showing fallback=3. Quiet proof succeeds during neutral, but grant is never earned at fresh manual stroke; the exact condition of each previous attempt is not recorded.
+
+[SOURCE] `Steering_ManualUpdate()` took `now=HAL_GetTick()` BEFORE new blocking `Steering_PositionReadOne()` calls. Each AS5600 read updates `steer_pos_*_last_sample_ms` with its own later timestamp. Passing the pre-read `now` to `M8S143_Ready()` caused unsigned `(now-sample_ms)` underflow if I2C crossed a millisecond, invalidating otherwise-fresh cache. The same pre-I2C clock was used when an axis tried to activate `fast_now` after a further sensor read in `Steering_ManualAxisUpdate()`.
+
+[PATCH] Obtain a fresh HAL tick AFTER both baseline sensor reads for the grant validity check and a fresh tick AFTER the axis sensor read for `fast_now` age. Preserve existing sensor freshness, >10ms post-command new sample, <=2RAW drift, STOP/NC/EXTI/SOFT, fallback settling and 850ms abort. Add read-only `steer_s143_last_gate_missing_mask`: 0 means all prerequisites passed; bit2=LEFT not SETTLING; bit3=RIGHT not SETTLING; bit4=raw NC; bit5=active NC; bit6=LEFT neutral cache unavailable; bit7=RIGHT neutral cache unavailable. `M8S00_S143_GATE` exports mask. Masks are from the LAST fresh S14.2 Level1/2 command while fast enabled; they are not direct safety-trip indicators.
+
+[TEST] Add pure C regression demonstrating a cached sample timestamp 2ms newer than pre-I2C clock fails and the corrected check at the new tick succeeds. Extend verifier to require both fresh ticks and diagnostics. Source staged only. The previous log's cause is a strongly supported clock bug, but hardware validation of faster response and missing-mask values is still needed.
+
+[NEXT] Windows sync (preserve dirty local files) / verify / CubeIDE Clean Build+Flash, on suspended stand Level1 fast=1 after >=300ms neutral and no coasting, monitor `steer_s143_quiet_frames`, `grants`, `fast_starts`, `fallback`, `steer_s143_last_gate_missing_mask`. Capture M8S11 50ms and disarmed M8S00. Only after actual physical STOP/coast/current clearance evaluate Level2 or ground operation.

@@ -23,6 +23,15 @@ int main(void){
  take(&b,100,4095);take(&b,150,0);take(&b,210,1);
  assert(M8S143_Ready(&b,210,210,1));
  take(&b,230,3);assert(!M8S143_Ready(&b,230,230,3));
+ /* Regression: command loop took 'now' BEFORE blocking I2C and the
+  * sensor timestamp was set AFTER I2C. Underflow must fail closed,
+  * but the firmware now uses a re-read HAL tick AFTER the I2C.
+  */
+ M8S143_Quiet pre={0};
+ take(&pre,100U,1873U);take(&pre,200U,1873U);take(&pre,300U,1873U);
+ assert(M8S143_Ready(&pre,300U,300U,1873U));
+ assert(!M8S143_Ready(&pre,300U,302U,1873U)); /* buggy old clock */
+ assert(M8S143_Ready(&pre,303U,302U,1873U));  /* corrected clock */
  /* Two AS5600s read in alternating >=50ms slots: each axis ~100ms. */
  M8S143_Quiet left={0},right={0};
  uint32_t last_l=0U,last_r=0U;
