@@ -891,3 +891,5 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 - **[NEXT]** GitHub Actions exact SHA PASS → xác minh CubeIDE Clean Build/Flash → khi đủ gate an toàn mới test ON-only; ưu tiên absolute RIGHT arrival, Left, last 180/100, actual CCR, NC/stop/trip, current/coast. Không đẩy CSV/TXT riêng tư lên public repo.
 
 [HOST DIAGNOSTIC] First CI of SHA 0b355fc failed only the static string-match 'new fresh stroke latch': source has no spaces around ==/!=, but verifier demanded spaces. Fix the verifier literal without changing firmware; strict C host test still needs to run in next CI. This is not a hardware failure.
+
+[HOST TEST FIX] CI SHA bc633d33: tất cả 17 source/static checks PASS; GCC production helper chạy nhưng test sai kỳ vọng RIGHT=200 khi request theo công thức thực chỉ là 23 CCR trên owner175 -> kết quả 198 CCR. Sửa EXPECTED trong host test, firmware/giới hạn motor không đổi; cần CI SHA mới.

@@ -908,4 +908,7 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 
 [HOST DIAGNOSTIC] First CI of SHA 0b355fc failed only the static string-match 'new fresh stroke latch': source has no spaces around ==/!=, but verifier demanded spaces. Fix the verifier literal without changing firmware; strict C host test still needs to run in next CI. This is not a hardware failure.
 
+
+[HOST TEST FIX] CI SHA bc633d33: tất cả 17 source/static checks PASS; GCC production helper chạy nhưng test sai kỳ vọng RIGHT=200 khi request theo công thức thực chỉ là 23 CCR trên owner175 -> kết quả 198 CCR. Sửa EXPECTED trong host test, firmware/giới hạn motor không đổi; cần CI SHA mới.
+
 END OF CONTEXT HANDOFF
