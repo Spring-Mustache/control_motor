@@ -9,7 +9,7 @@ checks={
  'Level2 default unchanged':'steer_s142_trial_level = 2U;' in s,
  'PI opt-in still OFF at boot':'steer_s147_velocity_pi_enable = 0U;' in s,
  'terminal pilot opt-in OFF at boot':'steer_s149_early_lead_enable = 0U;' in s,
- 'new fresh stroke latch':'steer_s149_latched = ((steer_s147_latched != 0U) &&' in s,
+ 'new fresh stroke latch':'steer_s149_latched=((steer_s147_latched!=0U) &&' in s,
  'Dpad LEFT+RMIN only inherited': '(PS2_Pad.Left != 0U) && (PS2_Pad.Right == 0U)' in s and
      '(right_direction < 0)' in s,
  'no coordinator within either 180 RAW':'if(dist_l<=180U||dist_r<=180U)return;' in s,

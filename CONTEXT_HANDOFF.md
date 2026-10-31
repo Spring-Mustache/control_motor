@@ -905,4 +905,7 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 15. **Bàn giao:** kiểm HEAD và doc S149 trước khi trả lời; không dùng snapshot SHA cũ làm HEAD, không ép GitHub Release.
 16. **Hạn chế:** CI static/GCC không bằng CubeIDE/Flash/Stand/Ground PASS; dữ liệu log tư nhân không commit; đặc tả nguyên văn 386 dòng giữ nguyên.
 
+
+[HOST DIAGNOSTIC] First CI of SHA 0b355fc failed only the static string-match 'new fresh stroke latch': source has no spaces around ==/!=, but verifier demanded spaces. Fix the verifier literal without changing firmware; strict C host test still needs to run in next CI. This is not a hardware failure.
+
 END OF CONTEXT HANDOFF
