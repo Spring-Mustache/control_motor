@@ -89,3 +89,7 @@ service tick using the most recent *fresh, bounded* AS5600 rate
 estimate. This avoids returning to the unsynchronized owner PWM
 between distinct I2C samples. The 12 CCR per-pass upward slew
 still applies to final commanded PWM; a drop in SOFT cap is immediate.
+
+## S14.3 fast-start follow-up
+
+Related boot-OFF prequalified-neutral AS5600 fast-start trial is in [M8-S14.3](M8_S14_3_FAST_START.md). Level2 is operator-liked but not independently safe-approved or boot default. No high-speed physical acceptance claimed.

@@ -30,6 +30,10 @@
 
 **Cảnh báo về tài liệu lịch sử:** `docs/PROJECT_MILESTONES.md` có bảng trạng thái **viết ngày 2026-10-17** ở đầu và rất nhiều phụ lục cập nhật tới 2026-10-31. Bảng đầu **không phải bảng trạng thái hiện hành tuyệt đối**; phải đọc các mục mới hơn theo thứ tự thời gian. Tài liệu FIRST-STOP/concurrent cũng còn cảnh báo trạng thái cũ, đã bị cập nhật bằng xác nhận mới nhất của người dùng.
 
+### B update S14.3, 2026-10-31
+
+B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
+
 ## 1. Đọc mục này để tiếp tục ngay
 
 1. **Mục tiêu đã được người dùng chốt [USER]:** tăng trần PWM manual LEFT từ **300→450 CCR (+50%)**, RIGHT từ **100→200 CCR (+100%)**, giữ **đồng bộ góc và vận tốc góc**; khi lệch thì ưu tiên **tăng bên chậm trong phần dư trần**, chỉ **giảm bên nhanh nếu bên chậm đã hết headroom**. Không phải chỉ tăng PWM open-loop. Ưu tiên khả năng **vừa chạy bánh vừa đánh lái**, không làm quá chậm bằng giảm LEFT liên tục.
@@ -40,6 +44,10 @@
 6. **Hành động đầu tiên của B:** lấy nhánh/commit thực tế từ GitHub và workspace Windows, kiểm tra `git status`, **không ghi đè sửa đổi cục bộ**, chạy `python tools/verify_m8_s142_speed.py` cùng verifier S14, tiến hành **CubeIDE Clean Build**. Ghi SHA+build log và chỉ sang bước nghiệm thu motor khi build pass và điều kiện phần cứng được đáp ứng.
 7. **Tiêu chí xong bước đầu:** SHA trong workspace đúng, verifier thực thi có đầu ra PASS (không coi SKIP là PASS), CubeIDE Debug Clean Build không lỗi, đúng `steer_s142_trial_level=0` lúc boot và tệp ELF đã được xác định. Nếu chưa có build log thì trạng thái vẫn **đã commit/chờ cross-build**.
 8. **Dữ liệu B cần:** file này trước tiên; truy cập repo qua GitHub hoặc bản clone; log CSV/TXT cũ nếu so A/B; tài liệu pin nếu kiểm tra nguồn/timer. **Không bắt người dùng gửi lại file có thể lấy bằng GitHub**.
+
+### B update S14.3, 2026-10-31
+
+Current goal: user requests near-immediate steering response; Level2 turning speed pleased operator. New M8-S14.3 boot-OFF neutral fast start source-staged. Next Windows sync/build/flash and Level1 flag0/1 A/B with 50ms CSV; no Level2 hardware PASS.
 
 ## 2. Bối cảnh, mục tiêu và phạm vi
 
@@ -82,6 +90,10 @@
 **Lỗi assistant từng bị người dùng sửa:** (a) coi việc bỏ đồng bộ để tăng tốc là hợp lý cho chế độ xe chính thức — **đã bị bác**, vì sẽ không còn căn cứ để mong hai motor bám nhau; (b) tiếp tục nhắc FIRST-STOP chưa fix dù người dùng đã xác nhận sửa; **không lặp lại**. Tránh ngôn ngữ ngụ ý “RIGHT còn chạy khi CCR=0” là lỗi đang hiện hữu. Có thể nói điều kiện đánh giá dừng ở PWM mới mà không hồi sinh cảnh báo đã được sửa.
 
 **Việc được phép trong A:** đọc repo, phân tích tệp, chỉnh và commit mã trên nhánh đã nêu; assistant đã thực hiện và người dùng tiếp tục yêu cầu sửa. Điều này **không phải** bằng chứng người dùng cho phép thao tác phát điện/Flash trực tiếp hay thay đổi hardware. Việc tải tệp/log không cấp quyền mới cho hành động khác.
+
+### B update S14.3, 2026-10-31
+
+USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjectively preferred, reduce startup lag. ASSISTANT design keeps Level2 opt-in and safe old coasting wait; FIRST-STOP remains user-confirmed FIX, R2 code9 separate.
 
 ## 4. Roadmap và milestone
 
@@ -126,6 +138,10 @@
 **M7-S07 submilestones lưu riêng để không bỏ mất lịch sử:** S07 SELECT auto-cal; S07B independent NC và status retention; S07C motion result 7; S07D RIGHT wrong-way gần R_MAX; S07E chẩn đoán LEFT limit; S07F CENTER overshoot/R_MAX AS5600 spike; S07G RIGHT MAX noise-hold deadlock; S07H CENTER capture/R1 deadband. Các mục trong repo dùng nhãn khác nhau `CODED`, `SOURCE REVIEWED`, `NOT HARDWARE PASS`. Không nâng chúng thành PASS chỉ từ HEAD còn chứa code.
 
 **M8 công việc ngoài phạm vi bảng:** SELECT được người vận hành **tạm hoãn** từ 2026-10-28; L1/L2 spin được user báo PASS trên giá treo thời điểm đó; các snapshot M8-S02/S04/S06/S11 đóng vai trò dữ liệu đo, không đủ dữ kiện để tự tạo milestone nghiệm thu độc lập cho tất cả mã.
+
+### B update S14.3, 2026-10-31
+
+New milestone S14.3: use prior neutral sensor stillness to shorten only safe starts, no stop/NC/SOFT override; SOURCE-STAGED, target acceptance pending.
 
 ## 5. Công việc đã thực hiện và kết quả hiện tại
 
@@ -205,6 +221,10 @@
 - Assistant trước từng nói các kết quả A/B chứng minh cải thiện ~20–45%. Chỉ xác nhận **sai lệch đo trong mẫu đã ghi**, không chứng minh thay đổi do riêng controller khi đầu vào RX, vị trí bắt đầu và hành trình khác nhau.
 - Assistant trước từng nói lỗi FIRST-STOP còn tồn tại. **ĐÃ BỊ USER ĐÍNH CHÍNH**, không giữ thông tin này ở trạng thái hiện hành.
 
+### B update S14.3, 2026-10-31
+
+B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1461, 0 UART errors. Combined test four wheels user reports good, steering lag ~0.5s. GCC helper neutral/stale/coast/wrap checks succeeded, target code unbuilt.
+
 ## 6. Công việc đang dang dở và điểm dừng chính xác
 
 **Ưu tiên P0 — chốt M8-S14.2 nguồn và build.**
@@ -229,6 +249,10 @@
 - S14.2 level 0 có thể giữ S14 hoặc S14.1 nếu bật flags tương ứng; level 1/2 là controller mới. So thời gian đi cùng khoảng góc, mean/peak gap chuẩn hoá, đổi chiều, response lúc đang chạy bánh, lặp lại với cùng RX start/raw nếu khả thi. Không coi một hiệu suất tốt trong CSV cũ là mục tiêu đạt tốc độ cao.
 
 **Ưu tiên P3 — M8-S15 R1 RIGHT và Gate B**, theo sau P0–P2 trừ khi phát hiện lỗi an toàn cần ưu tiên.
+
+### B update S14.3, 2026-10-31
+
+Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE project settings/startup/logs, sync, run verifier, Clean Build/Flash, test Level1 A/B response and coast before considering Level2.
 
 ## 7. Tệp, tài nguyên và phiên bản cần chuyển sang B
 
@@ -278,6 +302,10 @@
 | SELECT | **Tạm hoãn** | Không phải điều kiện kết thúc M8-S00 trong báo cáo 2026-10-28 | Chưa nghiệm thu SELECT | Không ép vào S14.2 | Khi user ưu tiên lại | Docs concurrent |
 | S15 R1 RIGHT mượt | **Hướng tiếp theo, chưa chốt thực hiện ngay** | Skew R1 còn 403ms | Phụ thuộc đồng bộ cao & safety | Không sửa cùng lúc S14.2 | Sau M8-S14.2 hoặc lỗi R1 đòi ưu tiên | Hội thoại A |
 
+### B update S14.3, 2026-10-31
+
+Rejected blindly deleting 100/160ms +100ms quiet or increasing PWM: prior tests show coast near SOFT. Chose boot-OFF fast path requiring BOTH AS5600 neutral quiet observed previously and fresh check after command; old gate on doubt.
+
 ## 9. Vấn đề, lỗi và bài học từ những lần thử trước
 
 ### 9.1 RIGHT FIRST-STOP / CCR0 (lịch sử, **user báo đã fix**)
@@ -310,6 +338,10 @@
 - CSV 60 cột không có cờ S14.1/S14.2 theo từng row. Không tự kết luận các lượt A/B trong một file nếu thay level midcapture.
 - PowerShell COM4 dùng cho các file cũ; COM có thể đổi khi cắm lại thiết bị. Hai script cùng port không chạy đồng thời.
 
+### B update S14.3, 2026-10-31
+
+Software before-CCR wait vs motor after-CCR lag distinguished; latter may persist after fast change. R2 RIGHT code9 not conflated with user-confirmed FIRST-STOP FIX.
+
 ## 10. Rủi ro, giả định và phụ thuộc
 
 > Nhãn **định tính** dưới đây là đánh giá mới khi bàn giao, không phải tần suất xác suất đã đo. Rủi ro phát sinh theo bối cảnh PWM cao hơn; không hàm ý lỗi FIRST-STOP cũ chưa fix.
@@ -330,6 +362,10 @@
 **Giả định chưa xác nhận:** người dùng đã flash S14.1 khi cung cấp CSV 20:45/20:52 (M8S00 field chứng minh tính năng S14.1 có chạy); nhưng **không chứng minh đã flash S14.2 mới**. Không có dữ kiện đáp ứng thời gian đồng thời LY và lái với cap cao. Không có ngưỡng sai lệch góc/tốc độ thời gian được **user chốt** để PASS; đề xuất tiêu chí khi thiết kế test nhưng không đặt thay user.
 
 **Phụ thuộc:** máy Windows có STM32CubeIDE, ST-Link/COM, branch GitHub, phương tiện dừng/cấp nguồn phù hợp, giá treo an toàn, AS5600 và NC đấu đúng, log phải xuất khi an toàn. Trong B có thể không còn quyền GitHub connector hoặc file attachments của A; nên bắt đầu bằng xác minh sẵn có.
+
+### B update S14.3, 2026-10-31
+
+Safety: no fast start while moving/coasting, NC active, disarmed, sensors stale, input not neutral, escape/R1/R2/Select. Physical independent cutoff still needed; no automatic Level2 selection.
 
 ## 11. Kế hoạch tiếp tục có thể thực hiện
 
@@ -382,6 +418,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\capture_m8_s00.ps1 -
 
 Đợi toàn bộ motor dừng và PS2 neutral, **DISARM bằng START**, nhấn–nhả USER **ngắn dưới 3 giây**, đợi `#M8S00_END` và kiểm tra có đủ dòng mới `M8S00_S142`/`M8S00_S142_SYNC`. Không reset trước khi xuất. `COM4` dựa trên log cũ; xác minh nếu cổng đã đổi.
 
+### B update S14.3, 2026-10-31
+
+Windows: git status, git fetch, merge --ff-only on same branch, python tools/verify_m8_s143_faststart.py (no compiler = SKIP), CubeIDE Clean Build/flash; Level1 A/B five+ trials every direction and measure request->CCR/AS5600, current/coast; Level2 only after physical gate.
+
 ## 12. Câu hỏi còn mở và thông tin cần bổ sung
 
 | Câu hỏi/dữ liệu thiếu | Vì sao cần | Nếu thiếu | Có thể tiếp tục gì? | Nguồn | Ưu tiên |
@@ -399,6 +439,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\capture_m8_s00.ps1 -
 | Có deadline/chi phí chốt cho M8-S14.2/M8-S15 không? | Lập kế hoạch thời gian | Không được bịa thời hạn | Làm kỹ thuật theo ưu tiên | User nếu phát sinh ràng buộc | Thấp |
 
 **Đã biết, không hỏi lại:** repo/nhánh/HEAD cuối, mục tiêu boost-first, trần 450/200, FIRST-STOP user đã báo fix, COM4 trong các log cũ, tên file CSV/TXT, các giá trị hiệu chuẩn hiện hành, kỹ thuật R1 ±5 RAW.
+
+### B update S14.3, 2026-10-31
+
+Missing: new STM32 build log/flashed ELF, actual current and measured coast at Level2, new A/B latency CSV, scope signal-to-power evidence. Not required to implement guarded source patch.
 
 ## 13. Dòng thời gian và diễn biến quan trọng
 
@@ -426,6 +470,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\capture_m8_s00.ps1 -
 | Hiện tại | USER yêu cầu xuất một hồ sơ bàn giao đầy đủ cho B | [USER] |
 
 Các mốc phút của file (`yyyyMMdd_HHmmss`) là **tên file capture**, không nhất thiết là thời điểm bắt đầu/sự kiện bên trong MCU; thời gian trong CSV là `ms` theo board và không cộng/đối chiếu tuyệt đối giữa các lần khởi động.
+
+### B update S14.3, 2026-10-31
+
+13:21 2026-10-31 combined M8S11 1461 rows, user sees wheel response good but steering 0.5s lag. ~13:37 user requests fix and reports Level2 speed satisfactory. New S14.3 source follows.
 
 ## 14. Phụ lục nội dung cần giữ chính xác
 
@@ -559,6 +607,10 @@ PASS 17823078 input tuples for PWM caps, zero preservation, boost-first, taper-o
 - [ ] Thử LY cùng lái trên giá treo sau khi steering-alone đạt; R1/R2 và L1/L2/STOP không bị regress.
 - [ ] Gate A đã đạt mới xét mặt đất có tải; không gộp hai gate.
 
+### B update S14.3, 2026-10-31
+
+S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <=1 RAW per step, age65ms, gap80ms; next command fresh >=10ms sample to enter MOVING with first cycle PWM0; retains 850ms fail-closed old settle.
+
 ## 15. Chỉ dẫn để hội thoại B tiếp quản
 
 **Gửi trực tiếp cho trợ lý B:**
@@ -566,6 +618,10 @@ PASS 17823078 input tuples for PWM caps, zero preservation, boost-first, taper-o
 > Đây là hồ sơ từ hội thoại A. Đọc **mục 1 và 6 trước**, sau đó dùng mục 7 để kiểm tra tài nguyên, mục 14 để giữ thông số và công thức chính xác. Mục tiêu hoạt động là **M8-S14.2 tăng trần đánh lái 450/200 nhưng vẫn đồng bộ angle/velocity**, không phải speed-only. HEAD GitHub đã kiểm tra `605b937f8de5328d7b8c74c58accb9387392df90`, code và helper C đã commit/host-tested; **chưa có CubeIDE Clean Build/Flash hoặc log hardware của bản mới**. Hành động đầu tiên là xác minh HEAD/working tree và build, không tự kết luận firmware đã nạp. Giữ nguyên NC/STOP/SOFT/R1/R2 và dữ liệu người dùng. Người dùng **đã báo FIX lỗi FIRST-STOP RIGHT CCR0**; đừng nhắc nó là lỗi hiện hữu. RIGHT R2 `code=9` là sự kiện riêng chưa có root cause. Chỉ hỏi dữ kiện thiếu khi thật sự làm thay đổi bước tiếp theo; làm phần đã đủ nguồn trước. Không tự sửa những subsystem đã tạm đạt và không gọi bản source-staged là hardware PASS. Khi nhận log/đề bài mới, cập nhật trạng thái theo bằng chứng, không chỉ đọc câu assistant cũ.
 
 **Cách phối hợp:** dùng tiếng Việt; thẳng và chính xác; không ép người dùng điền checklist dài trước khi được hỗ trợ; nếu cần log thì đưa **một lệnh chạy được và rõ thời điểm thao tác**. Không hỏi lại mục tiêu 450/200, thứ tự boost-first, hoặc FIRST-STOP đã fix. Sau mỗi commit báo link/SHA và trạng thái kiểm chứng thực. Không tự phát động công việc chưa được đề nghị ngoài chuỗi S14.2, trừ khi phát hiện vấn đề an toàn cụ thể cần bảo vệ.
+
+### B update S14.3, 2026-10-31
+
+Next assistant must inspect new HEAD/Release; require evidence clean build and Flash; collect M8S00_S143 plus CSV, diagnose actual CCR and AS5600 lag. Do not ask repeated COM4 or D:\STM32 task\control_motor unless changed.
 
 ## 16. Kiểm tra chất lượng và khoảng trống bàn giao
 
@@ -603,5 +659,9 @@ PASS 17823078 input tuples for PWM caps, zero preservation, boost-first, taper-o
 - Chưa đưa nội dung các PDF/CAD vào báo cáo điều khiển vì chưa đủ cơ sở đo điện/cơ khí; đây là giới hạn được công khai, không phải kết luận tài liệu vô dụng.
 
 **Trạng thái hồ sơ:** **HOÀN CHỈNH TRONG PHẠM VI NGUỒN HIỆN CÓ**; các phần chưa thể kiểm chứng đã được đánh dấu, nhất là firmware STM32/hardware S14.2, provenance FIRST-STOP fix, lịch sử cũ rút gọn và ngưỡng PASS định lượng.
+
+### B S14.3 completeness check
+
+17 section headings retained. New source is staged only, user logs private, no MCU build or hardware PASS. Prior A snapshot retained, not silently rewritten.
 
 END OF CONTEXT HANDOFF

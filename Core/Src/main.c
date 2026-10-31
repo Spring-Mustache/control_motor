@@ -31,6 +31,7 @@
 #include "steer_s14_math.h"
 #include "steer_s142_speed.h"
 #include "steer_s142_sync.h"
+#include "steer_s143_faststart.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -5175,6 +5176,8 @@ typedef struct
   uint32_t speed_sample_ms;
   uint16_t speed_filtered_raw_s;
   uint8_t speed_valid;
+  uint8_t fast_ready;
+  uint32_t fast_reference_sample_ms;
   uint16_t phase_start_raw; /* sampled AFTER independent quiet gate */
   uint8_t phase_start_valid;
 } SteeringManualAxis_t;
@@ -5182,6 +5185,16 @@ typedef struct
 static SteeringManualAxis_t steer_manual_left_axis = {0};
 static SteeringManualAxis_t steer_manual_right_axis = {0};
 static uint32_t steer_manual_begin_ms = 0U;
+/* Opt-in S14.3 fast start: benefit from prior verified stationary neutral.
+ * Default OFF; legacy manual settling remains fail-closed.
+ */
+volatile uint8_t steer_s143_fast_start_enable = 0U;
+volatile uint32_t steer_s143_fast_grants = 0U;
+volatile uint32_t steer_s143_fast_starts = 0U;
+volatile uint32_t steer_s143_fallback_starts = 0U;
+volatile uint32_t steer_s143_quiet_frames = 0U;
+static M8S143_Quiet steer_s143_quiet_l = {0};
+static M8S143_Quiet steer_s143_quiet_r = {0};
 
 /* M7-S16: RIGHT is master speed (unchanged commanded PWM).
  * A bounded PI adjusts LEFT only, while BOTH sides are in ordinary
@@ -5813,6 +5826,15 @@ static uint8_t M8S05_DumpTiming(void)
       (int)steer_s142_sync_gap_cdeg,(int)steer_s142_sync_predict_cdeg,
       (unsigned)steer_s142_sync_boost_l,(unsigned)steer_s142_sync_boost_r,
       (unsigned)steer_s142_sync_taper_l,(unsigned)steer_s142_sync_taper_r);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
+  n=snprintf(line,sizeof(line),
+      "M8S00_S143,enable=%u,grants=%lu,fastAxis=%lu,"
+      "fallback=%lu,quietFrames=%lu\r\n",
+      (unsigned)steer_s143_fast_start_enable,
+      (unsigned long)steer_s143_fast_grants,
+      (unsigned long)steer_s143_fast_starts,
+      (unsigned long)steer_s143_fallback_starts,
+      (unsigned long)steer_s143_quiet_frames);
   if(M8S00_UartLine(line,n)==0U)return 0U;
 
   /* Separate encoder RPM from normalized AS5600 travel speed.
@@ -6506,7 +6528,7 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
   SteeringManualAxis_t *axis = left ? &steer_manual_left_axis : &steer_manual_right_axis;
   uint16_t raw = 0U, goal, distance;
   int16_t delta, error;
-  uint8_t correct_sign;
+  uint8_t correct_sign, fast_now = 0U;
 
   *apply = 0U;
   if ((state != STEER_MANUAL_MOVING) &&
@@ -6619,9 +6641,23 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
       Steering_ManualAxisFault(left, STEER_MANUAL_RESULT_UNSETTLED);
       return;
     }
-    if ((settle_ms >= min_ms) &&
-        ((uint32_t)(now - axis->settle_quiet_since_ms) >=
-         STEER_MANUAL_START_QUIET_MS))
+    /* Prevalidated stillness must survive a NEW post-command sample.
+     * Any observed drift cancels fast start; full old quiet gate follows.
+     */
+    if ((delta > 1) || (delta < -1) || (drift > 2) || (drift < -2))
+      axis->fast_ready = 0U;
+    if (axis->fast_ready != 0U)
+    {
+      uint32_t sample_ms = left ? steer_pos_left_last_sample_ms :
+                                  steer_pos_right_last_sample_ms;
+      uint32_t dt = (uint32_t)(sample_ms-axis->fast_reference_sample_ms);
+      fast_now = (uint8_t)((dt >= 10U) && (dt <= M8S143_MAX_GAP_MS) &&
+                           ((uint32_t)(now-sample_ms) <= M8S143_MAX_AGE_MS));
+    }
+    if (fast_now ||
+        ((settle_ms >= min_ms) &&
+         ((uint32_t)(now-axis->settle_quiet_since_ms) >=
+          STEER_MANUAL_START_QUIET_MS)))
     {
       /* Never start by driving further into a calibrated SOFT stop,
        * even if a motor coasted across it while PWM=0.
@@ -6650,6 +6686,9 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
       axis->phase_start_valid = 1U;
       if (left != 0U) steer_manual_left_state = STEER_MANUAL_MOVING;
       else steer_manual_right_state = STEER_MANUAL_MOVING;
+      if (fast_now && steer_s143_fast_starts != 0xffffffffUL)
+        steer_s143_fast_starts++;
+      axis->fast_ready = 0U;
       /* Zero CCR for this cycle, first powered action NEXT cycle
        * after the normal independent limit/IRQ rechecks.
        */
@@ -7211,6 +7250,10 @@ static void Steering_ManualUpdate(void)
     steer_manual_right_state = STEER_MANUAL_SETTLING;
     steer_manual_left_axis.settle_begin_ms = now;
     steer_manual_right_axis.settle_begin_ms = now;
+    steer_manual_left_axis.fast_ready = 0U;
+    steer_manual_right_axis.fast_ready = 0U;
+    steer_manual_left_axis.fast_reference_sample_ms = 0U;
+    steer_manual_right_axis.fast_reference_sample_ms = 0U;
     steer_manual_left_axis.settle_quiet_since_ms = now;
     steer_manual_right_axis.settle_quiet_since_ms = now;
     steer_manual_left_settle_elapsed_ms = 0U;
@@ -7301,6 +7344,33 @@ static void Steering_ManualUpdate(void)
         steer_manual_right_settle_max_raw = raw;
       }
     }
+    /* Both sensors and both neutral observers must qualify; never bypass
+     * NC arrival/escape, AS5600, SOFT, STOP, ISR or owner checks.
+     */
+    if (steer_s142_latched != 0U &&
+        steer_s143_fast_start_enable == 1U &&
+        steer_manual_left_state == STEER_MANUAL_SETTLING &&
+        steer_manual_right_state == STEER_MANUAL_SETTLING &&
+        Steering_TestRawLimitMask() == 0U &&
+        debug_limit_active_mask == 0U &&
+        M8S143_Ready(&steer_s143_quiet_l,now,
+           steer_pos_left_last_sample_ms,debug_as5600_left_raw) &&
+        M8S143_Ready(&steer_s143_quiet_r,now,
+           steer_pos_right_last_sample_ms,debug_as5600_right_raw))
+    {
+      steer_manual_left_axis.fast_ready = 1U;
+      steer_manual_right_axis.fast_ready = 1U;
+      steer_manual_left_axis.fast_reference_sample_ms =
+          steer_pos_left_last_sample_ms;
+      steer_manual_right_axis.fast_reference_sample_ms =
+          steer_pos_right_last_sample_ms;
+      if (steer_s143_fast_grants != 0xffffffffUL)
+        steer_s143_fast_grants++;
+    }
+    else if (steer_s142_latched != 0U &&
+             steer_s143_fast_start_enable == 1U &&
+             steer_s143_fallback_starts != 0xffffffffUL)
+      steer_s143_fallback_starts++;
   }
 
   /* Consume rising limit EXTI and preserve own-side isolation. */
@@ -10813,6 +10883,50 @@ static void Steering_PS2ManualArmUpdate(void)
   }
 }
 
+
+/* No new I2C: use cache refreshed by armed safety reads earlier this loop.
+ * A steering-neutral interval can coexist with normal LY wheel motion.
+ */
+static void Steering_S143NeutralObserve(void)
+{
+  uint32_t now=HAL_GetTick();
+  uint8_t allowed=(uint8_t)(
+    (steer_s143_fast_start_enable==1U) &&
+    ((steer_s142_trial_level==1U)||(steer_s142_trial_level==2U)) &&
+    (steer_ps2_manual_armed==1U) &&
+    (steer_safety_motion_permit==1U) &&
+    (steer_safety_trip_latched==0U) &&
+    (steer_safety_neutral_required==0U) &&
+    (steer_manual_neutral_required==0U) &&
+    (steer_manual_active==0U) && (steer_pos_active==0U) &&
+    (steer_cal_active==0U) && (steer_test_running==0U) &&
+    (steer_test_arm==0U) && (steer_test_request==0U) &&
+    (control_stop_latched==0U) && (ps2_cancel_hold==0U) &&
+    (ps2_spin_rf_latched==0U) &&
+    (voice_execution_active==0U) && (voice_command_ready==0U) &&
+    (PS2_Pad.Start==0U) && (PS2_Pad.Select==0U) &&
+    (PS2_Pad.R1==0U) && (PS2_Pad.R2==0U) &&
+    (PS2_Pad.L1==0U) && (PS2_Pad.L2==0U) &&
+    (debug_as5600_poll_enable==0U) &&
+    (debug_limit_raw_mask==0U) && (debug_limit_active_mask==0U) &&
+    (Steering_ManualDirectionNeutral()!=0U) &&
+    (debug_as5600_left_comm_ok==1U) &&
+    (debug_as5600_right_comm_ok==1U) &&
+    (AS5600_DebugReadingValid(1U,debug_as5600_left_status)!=0U) &&
+    (AS5600_DebugReadingValid(1U,debug_as5600_right_status)!=0U));
+  M8S143_Observe(&steer_s143_quiet_l,now,
+      steer_pos_left_last_sample_ms,debug_as5600_left_raw,allowed);
+  M8S143_Observe(&steer_s143_quiet_r,now,
+      steer_pos_right_last_sample_ms,debug_as5600_right_raw,allowed);
+  if (allowed &&
+      M8S143_Ready(&steer_s143_quiet_l,now,
+        steer_pos_left_last_sample_ms,debug_as5600_left_raw) &&
+      M8S143_Ready(&steer_s143_quiet_r,now,
+        steer_pos_right_last_sample_ms,debug_as5600_right_raw) &&
+      steer_s143_quiet_frames!=0xffffffffUL)
+    steer_s143_quiet_frames++;
+}
+
 static uint8_t PS2_IsManualControlActive(void)
 {
   if ((PS2_Pad.Connected != 1U) ||
@@ -12130,6 +12244,7 @@ int main(void)
         Steering_CalUpdate();      /* SELECT - any NC trip latches */
       }
     }
+    Steering_S143NeutralObserve(); /* cached AS5600 only */
     /* Existing bounded idle telemetry already refreshes LEFT/RIGHT
      * AS5600 alternately; do NOT enable heavyweight per-loop I2C probe
      * while investigating timing of LY wheel control.

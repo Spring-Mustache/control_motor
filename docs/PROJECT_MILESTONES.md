@@ -754,3 +754,11 @@ Boot-OFF trial levels 0=300/100, 1=375/150, 2=450/200 CCR. Only D-pad/RX MOVING 
 - `python tools/verify_m8_s142_speed.py`: toàn bộ các điều kiện **kiểm tra tĩnh PASS**, không còn lỗi đọc CP1252/UTF-8; xuất `SKIP C host tests: no compiler`. Các bài thử C thuần **CHƯA CHẠY** trên máy người vận hành.
 - `python tools/verify_m8_s14_sync.py`: toàn bộ các điều kiện **kiểm tra tĩnh PASS** (bao gồm ba điều kiện đã sửa theo cơ chế loại trừ S14/S14.2); xuất `SKIP: host C planner execution (no C compiler)`. Các bài thử C thuần **CHƯA CHẠY** trên máy người vận hành.
 - Kết quả này chỉ xác nhận script Python/static guards chạy thành công trên bản local sau merge. **Chưa có bằng chứng CubeIDE Clean Build, Flash, đánh lái motor ở trần cao hoặc nghiệm thu phần cứng**. Bước tiếp theo: Clean Build target, kiểm tra bản được flash và nghiệm thu M8-S14.2 có kiểm soát; không biến `SKIP` thành `PASS`.
+
+## M8-S14.3 — Neutral fast-start opt-in (2026-10-31, SOURCE-STAGED)
+
+[USER] Subjective S14.2 Level2 speed liked; still ~0.5s manual steering response in combined bench test. Four wheels seemed responsive. User CSV 13:21 private: 1461 good samples, zero serial loss/errors. Earlier assistant-derived input->CCR ~122ms LEFT,183ms RIGHT and input->AS5600 >=8 RAW ~366ms; no independent electrical scope/cutoff/clearance test. Avoid uploading raw user log to public repo.
+
+[REPO] Legacy SETTLING min 100/160ms +100ms quiet, fallback max850ms; vehicle has coasting near SOFT. [CODE] New M8-S14.3 opt-in boot flag=0, neutral prequalification cached AS5600 both sides (100ms/3 samples/<=2RAW), new fresh sample after command, default fallback for drift/reverse, NC/STOP/soft/R1/R2/wheels and S14.2 boost-first caps unchanged. Host GCC helper tests; static verifier; M8S00_S143. Design docs/M8_S14_3_FAST_START.md.
+
+[PENDING] Windows Clean Build/Flash on exact SHA, compare Level1 flag0/1 time request->CCR/AS5600+8RAW, >=5 reps per direction and verify coast/current/cutoff. Level2 speed preference NOT hardware acceptance; no auto Level2 or ground test.

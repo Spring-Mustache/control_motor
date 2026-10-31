@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""S14.3 fast-start source guards and optional C host test."""
+from pathlib import Path
+import shutil,subprocess,tempfile,os
+root=Path(__file__).resolve().parents[1]
+s=(root/'Core/Src/main.c').read_text(encoding='utf-8')
+h=(root/'Core/Inc/steer_s143_faststart.h').read_text(encoding='utf-8')
+checks={
+ 'opt-in boot OFF':'steer_s143_fast_start_enable = 0U;' in s,
+ 'both idle observers':'M8S143_Ready(&steer_s143_quiet_l,now,' in s and 'M8S143_Ready(&steer_s143_quiet_r,now,' in s,
+ 'new post-command sample':'dt >= 10U' in s and 'axis->fast_reference_sample_ms' in s,
+ 'legacy fallback':'STEER_MANUAL_START_RIGHT_MIN_MS   160U' in s and 'STEER_MANUAL_START_QUIET_MS' in s,
+ 'NC/soft checks retained':'Steering_TestRawLimitMask() == 0U' in s and 'STEER_MANUAL_RESULT_SOFT' in s,
+ 'no I2C or motor IO in helper':'HAL_' not in h and 'Steering_PositionReadOne' not in h,
+ 'diagnostic':'M8S00_S143,enable=%u,grants=%lu' in s,
+ 'caps unchanged':'375U:150U' in (root/'Core/Inc/steer_s142_speed.h').read_text(encoding='utf-8')
+}
+for name,ok in checks.items():print(('PASS' if ok else 'FAIL')+': '+name)
+if not all(checks.values()):raise SystemExit(1)
+cc=next((p for n in ('gcc','clang','cc') if (p:=shutil.which(n))),None)
+if cc is None:print('SKIP native C tests: no compiler')
+else:
+ with tempfile.TemporaryDirectory() as tmp:
+  exe=Path(tmp)/('test_s143.exe' if os.name=='nt' else 'test_s143')
+  p=subprocess.run([cc,'-std=c11','-Wall','-Wextra','-Werror','-I',str(root/'Core/Inc'),str(root/'tools/test_m8_s143_faststart.c'),'-o',str(exe)],capture_output=True,text=True)
+  if p.returncode:raise SystemExit(p.stderr)
+  q=subprocess.run([str(exe)],capture_output=True,text=True)
+  if q.returncode:raise SystemExit(q.stdout+'\n'+q.stderr)
+  print(q.stdout)
+print('STM32 target build/Flash/hardware NOT tested.')
