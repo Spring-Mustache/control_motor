@@ -7,7 +7,10 @@ s=(root/'Core/Src/main.c').read_text(encoding='utf-8')
 h=(root/'Core/Inc/steer_s142_speed.h').read_text(encoding='utf-8')
 sh=(root/'Core/Inc/steer_s142_sync.h').read_text(encoding='utf-8')
 checks={
-  'OFF by default':'steer_s142_trial_level = 0U;' in s,
+  'Level1 boot selection; Level2 not automatic':'steer_s142_trial_level = 1U;' in s and
+      'steer_s142_trial_level = 2U;' not in s,
+  'disarmed at reset':'volatile uint8_t steer_manual_enable = 0U;' in s and
+      'volatile uint8_t steer_ps2_manual_armed = 0U;' in s,
   'latched on new command':'steer_s142_latched = Steering_S142Level(steer_s142_trial_level);' in s,
   'speed-only manual cap':'M8S142_Envelope(left,steer_s142_latched,distance)' in s,
   'staged caps':'375U:150U' in h and '450U:200U' in h,

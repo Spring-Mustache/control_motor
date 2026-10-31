@@ -2926,8 +2926,12 @@ volatile uint8_t steer_s14_manual_latched = 0U;
  */
 #define STEER_S141_RIGHT_NEAR_CAP_PWM 98U
 volatile uint8_t steer_s141_left_enable = 0U;
-/* 0=OFF, 1=375/150, 2=450/200; frozen at next manual command. */
-volatile uint8_t steer_s142_trial_level = 0U;
+/* M8-S14.4: validated Level-1 bench functional default (375/150 CCR).
+ * Level2 (450/200) is still a deliberate Live Expressions selection:
+ * stopping clearance/current have NOT been validated for boot Level2.
+ * Level freezes only on NEW manual command after START arming.
+ */
+volatile uint8_t steer_s142_trial_level = 1U;
 volatile uint8_t steer_s142_latched = 0U;
 volatile uint8_t steer_s142_last = 0U;
 volatile uint16_t steer_s142_prev_l = 300U;
@@ -5185,10 +5189,12 @@ typedef struct
 static SteeringManualAxis_t steer_manual_left_axis = {0};
 static SteeringManualAxis_t steer_manual_right_axis = {0};
 static uint32_t steer_manual_begin_ms = 0U;
-/* Opt-in S14.3 fast start: benefit from prior verified stationary neutral.
- * Default OFF; legacy manual settling remains fail-closed.
+/* M8-S14.4: default fast-neutral start ON after 11/11 grants and
+ * 22 per-axis fast starts logged at Level1. This is NOT an arm/permit:
+ * boot leaves steering disarmed; START and all safety + neutral/coast
+ * gates remain mandatory, with legacy settling on failed quiet proof.
  */
-volatile uint8_t steer_s143_fast_start_enable = 0U;
+volatile uint8_t steer_s143_fast_start_enable = 1U;
 volatile uint32_t steer_s143_fast_grants = 0U;
 volatile uint32_t steer_s143_fast_starts = 0U;
 volatile uint32_t steer_s143_fallback_starts = 0U;

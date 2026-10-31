@@ -6,7 +6,15 @@ root=Path(__file__).resolve().parents[1]
 s=(root/'Core/Src/main.c').read_text(encoding='utf-8')
 h=(root/'Core/Inc/steer_s143_faststart.h').read_text(encoding='utf-8')
 checks={
- 'opt-in boot OFF':'steer_s143_fast_start_enable = 0U;' in s,
+ 'fast-neutral boot ON; no power authorization':'steer_s143_fast_start_enable = 1U;' in s and
+     'volatile uint8_t steer_manual_enable = 0U;' in s and
+     'volatile uint8_t steer_ps2_manual_armed = 0U;' in s and
+     'steer_safety_motion_permit = 0U;' in s,
+ 'manual start still requires arm and permit':'(steer_manual_enable != 1U)' in s and
+     '(steer_safety_motion_permit != 1U)' in s and
+     '(steer_safety_trip_latched != 0U)' in s,
+ 'stream opt-in and 50ms default':'m8_s11_stream_enable = 0U;' in s and
+     'm8_s11_stream_period_ms = 50U;' in s,
  'alternate idle poll before quiet observe':
      s.index('Steering_PositionTelemetryIdleUpdate();') < s.index('Steering_S143NeutralObserve();'),
  'idle cadence matches cache windows':

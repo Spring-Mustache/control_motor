@@ -700,4 +700,14 @@ Changes in this follow-up: update only tools/verify_m8_s143_faststart.py, plus G
 
 Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE files; verify new HEAD; rerun Python verifier; CubeIDE Clean Build/Flash. First physical test remains Level1 on suspended stand, no ground/Level2 until current, coast and independent STOP validation. Monitor fast_grants, fast_starts and steer_s143_last_gate_missing_mask from fresh firmware, without guessing safety from counter values.
 
+### B 2026-10-31 — M8-S14.4 defaults and RIGHT soft creep
+
+[USER] After Level1 Fast Start M8S11 14:57:37 and S00 14:59:03, requests successful settings be persisted ON; reports RIGHT slows markedly as it reaches R_MIN while LEFT reaches earlier. Logs evidence: 950 valid CSV rows/zero lost UART; S143 enable1 grants11 fastAxis22 fallback0 quietFrames3657; Level1 375/150 caps selected. This is functional evidence, not proven physical cutoff or Level2 under-load acceptance.
+
+[DECISION AND PATCH] Boot defaults only: `steer_s142_trial_level=1` and `steer_s143_fast_start_enable=1`; wheel_pid_enable already1 and UART stream period already50, stream enable stays0. Manual steering enable, PS2 armed and safety motion permit remain0 at powerup; START+neutral required before actuation. Level2 remains deliberate user selection; do not assume subjective Level2 speed means safety PASS. Update both S14.2/S14.3 verifiers so they don't falsely require old OFF defaults; run in GitHub CI and maintain context release.
+
+[CAUSE FROM CSV AND CODE] D-pad toward R_MIN, RIGHT PWM decreases from ~100 at 180 RAW remaining to ~90/67/58 near 80/40/17 RAW. Code S14.2 high cap fades fully back to original <=100 at <=180 RAW, manual final approach additionally tapers toward RIGHT min50 within100 RAW. LEFT at CCR0 while RIGHT still moves at 50–60. Right raw min211 vs SOFT216 and left min1432 vs SOFT1454 observed; actual coast/current/physical clearance not measured. This commit DOES NOT raise PWM, shift soft threshold, remove taper or alter rate loop. Separate engineer/bench gate needed before faster final approach.
+
+[NEXT] Synchronize Windows while protecting dirty project settings, run S14.2+S14.3 verifiers, CubeIDE Clean Build+Flash exact HEAD. Suspended bench with independent motor supply cutoff and checked NC/STOP: inspect boot defaults, confirm disarmed until START, short pulse & stop/coast checks Level1, no automatic UART. R_MIN tuning only after evidence of physical clearance. Level2 boot or ground test not authorized by current data.
+
 END OF CONTEXT HANDOFF

@@ -93,3 +93,9 @@ still applies to final commanded PWM; a drop in SOFT cap is immediate.
 ## S14.3 fast-start follow-up
 
 Related boot-OFF prequalified-neutral AS5600 fast-start trial is in [M8-S14.3](M8_S14_3_FAST_START.md). Level2 is operator-liked but not independently safe-approved or boot default. No high-speed physical acceptance claimed.
+
+## M8-S14.4 boot defaults after Level-1 bench feedback — 2026-10-31
+
+CURRENT (supersedes earlier lines in this historical experiment document): `steer_s142_trial_level` now initializes to **1** (375/150 maximum) because Level-1 steering and four-wheel concurrent control were logged in the user's M8S11 14:57:37 run. `steer_s143_fast_start_enable` now initializes to **1** but never arms motors on its own. `steer_manual_enable=0` and motion permit=0 at reset, START arming/neutral checks and STOP/NC/SOFT remain. `wheel_pid_enable=1` and `m8_s11_stream_period_ms=50` were already defaults; `m8_s11_stream_enable=0` remains operator-controlled. Level2 (450/200) is NOT the boot default despite operator preference for its speed, because level2 physical stopping clearance/current remains unverified.
+
+The 14:57:37 M8S11 logged RIGHT taking longer near R_MIN than LEFT: near RIGHT distance 180/80/40/17 RAW, commanded right PWM approximately 100/90/67/58 CCR. The existing S14.2 envelope decays to legacy right 100 within 180 RAW, and the independent last-100-RAW taper reduces toward right RX floor 50 CCR; LEFT can finish before RIGHT. Raw RIGHT MIN ~211 vs SOFT 216, and LEFT MIN ~1432 vs SOFT 1454 were also seen, so don't raise near-SOFT duty or remove taper without independently measuring stop/coast/clearance and physical power cutoff. High-speed acceptance under load is NOT implied by enabling Level1 as a software default.
