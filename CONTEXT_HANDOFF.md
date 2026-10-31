@@ -668,4 +668,8 @@ Next assistant must inspect new HEAD/Release; require evidence clean build and F
 
 First S14.3 push `81800747` failed context-release due to verifier regex `.*` with DOTALL incorrectly consuming subsequent sections, reporting all 17 nonempty sections empty. A new source/documentation commit corrects heading matching to `[^\\n]`-style exclusion of line feeds (`[^\\n]*`) and preserves all original 0–16 content. This is CI-only, not new firmware revision or MCU/hardware PASS.
 
+### B — cập nhật 2026-10-31: sửa false-negative verifier S14.3
+
+Người vận hành chạy `python tools/verify_m8_s143_faststart.py` trên Windows với phiên bản `4c461753`, bảy kiểm tra khác PASS, duy nhất `legacy fallback` FAIL. Đã so `Core/Src/main.c`: macro RIGHT min=160U, LEFT min=100U, quiet=100U, timeout=850U và nhánh `fast_now || (settle_ms >= min_ms && quiet_ms >= 100)` còn nguyên. Nguyên nhân là verifier tìm chuỗi đúng 3 khoảng trắng trong khi source dùng 2. Sửa verifier kiểm tra macro bằng regex linh hoạt khoảng trắng và kiểm tra các dấu hiệu logic fallback; **không đổi firmware**. Chưa có bằng chứng Clean Build, Flash hay kiểm thử fast start trên MCU của bản mới. Hành động tiếp theo: đồng bộ commit, chạy verifier rồi Clean Build/Flash và ghi CSV A/B mức 1.
+
 END OF CONTEXT HANDOFF

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """S14.3 fast-start source guards and optional C host test."""
 from pathlib import Path
-import shutil,subprocess,tempfile,os
+import shutil,subprocess,tempfile,os,re
 root=Path(__file__).resolve().parents[1]
 s=(root/'Core/Src/main.c').read_text(encoding='utf-8')
 h=(root/'Core/Inc/steer_s143_faststart.h').read_text(encoding='utf-8')
@@ -9,7 +9,15 @@ checks={
  'opt-in boot OFF':'steer_s143_fast_start_enable = 0U;' in s,
  'both idle observers':'M8S143_Ready(&steer_s143_quiet_l,now,' in s and 'M8S143_Ready(&steer_s143_quiet_r,now,' in s,
  'new post-command sample':'dt >= 10U' in s and 'axis->fast_reference_sample_ms' in s,
- 'legacy fallback':'STEER_MANUAL_START_RIGHT_MIN_MS   160U' in s and 'STEER_MANUAL_START_QUIET_MS' in s,
+  'legacy fallback':(
+    bool(re.search(r'^#define[ \t]+STEER_MANUAL_START_LEFT_MIN_MS[ \t]+100U[ \t]*$',s,re.M)) and
+    bool(re.search(r'^#define[ \t]+STEER_MANUAL_START_RIGHT_MIN_MS[ \t]+160U[ \t]*$',s,re.M)) and
+    bool(re.search(r'^#define[ \t]+STEER_MANUAL_START_QUIET_MS[ \t]+100U[ \t]*$',s,re.M)) and
+    'STEER_MANUAL_START_SETTLE_MAX_MS' in s and
+    'if (fast_now ||' in s and
+    '((settle_ms >= min_ms) &&' in s and
+    '((uint32_t)(now-axis->settle_quiet_since_ms) >=' in s
+ ),
  'NC/soft checks retained':'Steering_TestRawLimitMask() == 0U' in s and 'STEER_MANUAL_RESULT_SOFT' in s,
  'no I2C or motor IO in helper':'HAL_' not in h and 'Steering_PositionReadOne' not in h,
  'diagnostic':'M8S00_S143,enable=%u,grants=%lu' in s,

@@ -766,3 +766,9 @@ Boot-OFF trial levels 0=300/100, 1=375/150, 2=450/200 CCR. Only D-pad/RX MOVING 
 ## M8-S14.3 context-release verifier fix (2026-10-31)
 
 The first S14.3 code push `81800747` was accepted on GitHub but context release CI failed its *documentation section parser*: regex `.*` with DOTALL greedily consumed every section and falsely marked all 17 empty. Follow-up changes only the checker's header regex to `[^\n]*`, updates handoff/milestones as required, and must be checked for a successful new SHA-matched context release. No firmware source or motor behavior change, and no CubeIDE/Flash/HARDWARE PASS for S14.3 is implied.
+
+## M8-S14.3 — Fix false-negative legacy fallback source verifier (2026-10-31)
+
+- [USER] Windows `python tools/verify_m8_s143_faststart.py`: PASS checks except `legacy fallback` FAIL.
+- [SOURCE] `main.c` declares `STEER_MANUAL_START_RIGHT_MIN_MS  160U` (two spaces), but the verifier's literal expected 3 spaces. Other macros 100ms LEFT, 100ms quiet, 850ms abort and the fallback `fast_now || (settle>=min && quiet>=100)` remain intact. **The failure is a script false-negative, not an observed controller safety failure.**
+- [SCRIPT CHANGE ONLY] Verify macro values with whitespace-tolerant regex and retain structural guard for actual fallback path. No firmware, PWM, controller, hardware behavior or boot default change. Full MCU build, flashing, Level1 A/B latency/coast measurements still pending. New GitHub release must match new HEAD.
