@@ -61,6 +61,9 @@ jobs:
             python3 tools/verify_m8_s142_speed.py
           fi
 
+      - name: Test opt-in S14.7 two-axis AS5600 velocity PI
+        run: python3 tools/verify_m8_s147_velocity_pi.py
+
       - name: Validate passive RIGHT low-PWM A/B analyzer
         run: python3 tools/analyze_m8_right_low_pwm.py --self-test
 

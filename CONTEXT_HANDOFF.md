@@ -49,6 +49,17 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### M8-S14.7 — thử nghiệm hai PI tốc độ đánh lái độc lập, mặc định OFF (2026-10-31)
+
+[USER] Yêu cầu thực hiện bộ điều khiển PID đã từng đề xuất cho động cơ đánh lái nhằm giúp RIGHT bắt kịp. Kiểm tra source tại HEAD `bcf6c2a4e122de91ee8fdb864f5fe7cfd10cca5d` cho thấy PI `Steering_SyncApply` cũ là LEFT follower / RIGHT master và bị bypass trong S14.2 Level1; S14.2 chính dùng cross-coupled P+D, R1 dùng PWM theo lỗi vị trí/fine pulses. **Chưa có PI tốc độ độc lập cho mỗi trục trong chế độ đang chạy**.
+
+[IMPLEMENTED SOURCE] Thêm `Core/Inc/steer_s147_velocity_pi.h` hai PI riêng + outer normalized shared progress, pilot RIGHT về R_MIN với targetL560/targetR680 permille/s, phase correction dương lên bên chậm (max120), PI boost max40CCR và rise max12. Lệnh mới được latch chỉ khi `steer_s142_trial_level=1`, `steer_s147_velocity_pi_enable=1`, D-pad LEFT, `steer_s144_rmin_catchup_enable=0`, RIGHT hướng R_MIN; boot `steer_s147_velocity_pi_enable=0`. Không ảnh hưởng D-pad RIGHT/RX/R1/R2/SELECT/Level2. Cho owner và SOFT độc lập quyền quyết định, không boost <=180 RAW một trong hai, không đổi trần375/150 hoặc taper100RAW, không bỏ stop/NC/sensor/late IRQ. Khi S14.7 ON, bỏ qua S14.2 planner chứ không cộng chồng. 2 dòng `M8S00_S147` và `M8S00_S147_PI` ghi tần suất và vòng PI; không nói chỉ số chứng minh arrival.
+
+[TEST] Added exact production C host tests/guard `tools/test_m8_s147_velocity_pi.c`, `tools/verify_m8_s147_velocity_pi.py` and Actions job; `docs/M8_S14_7_DUAL_STEERING_VELOCITY_PI.md` hướng dẫn đầy đủ Clone/Build/Flash/Live Expressions trong cùng lượt. **Đây là firmware source mới**, phải Clean Build+Flash đúng SHA rồi mới đo. GitHub host PASS và STM32 CubeIDE/Flash/Bench A/B được ghi tách biệt và cập nhật khi có kết quả.
+
+[OPEN] S14.5 ON 15:47 không giảm lag so OFF; D-pad LEFT 16:07 S14.5 OFF 3 stroke RIGHT đến sau 547/548/607 ms. S14.7 chưa đo hardware. R1 LEFT code8 của 16:09 được USER xác nhận do vật cản, không phải defect firmware; R1 code9 do RX non-neutral, là event riêng. Cần xác minh khả năng ngắt nguồn, khoảng hở coast và current trước khi thử hết hành trình. Không làm thay đổi verdict M8 GateA/B.
+
+
 ### KẾT LUẬN HIỆN HÀNH — R1 LEFT `code=8` do vật cản, KHÔNG phải lỗi firmware (USER xác nhận 2026-10-31)
 
 - **[USER — quan sát trực tiếp]** Người vận hành xác nhận lượt R1 LEFT không về CENTER được **do cơ cấu bị vướng vật cản**, không phải lỗi hệ thống. Thông tin này giải thích sự kiện `M8_S00_20261031_160926.txt` `FAULT event=5,axis=1,code=8,tick=67140`. Đây là bằng chứng về tác nhân bên ngoài do người vận hành cung cấp, không phải kết luận được suy ra từ UART.
@@ -813,5 +824,14 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 [USER] Người vận hành nói rõ: "bị lỗi không về được do bị dính vật cản là nha, cái này không tính là lỗi của hệ thống". Áp dụng cho sự kiện LEFT R1 `code=8` trong M8-S00 16:09 đã thảo luận ngay trước đó. Xếp là **cản trở cơ khí ngoài ý muốn**, không phải lỗi thuật toán/firmware; không cần dựng patch R1 chống trôi hay điều tra nguyên nhân chuyển hướng của sự kiện đã được giải thích. Mã FAULT=8 là dữ liệu chẩn đoán thật, không được xóa; việc firmware phát hiện sai lệch và ngắt PWM là đường phản ứng bảo vệ theo source. Mức test chức năng toàn bộ R1 vẫn dựa trên những lượt kiểm chứng độc lập, không được tự tuyên bố HARDWARE PASS chỉ vì sự kiện này đã có nguyên nhân.
 
 [CORRECTION TO HISTORY] Những bản ghi phía trên gọi code8 unresolved/inertia suspect phản ánh thời điểm chưa biết có vật cản; **đã được thông tin USER mới thay thế về nguyên nhân sự kiện**. Không biến hiện tượng vật cản thành "đã sửa lỗi firmware". R1 code9 do RX nonneutral là sự kiện riêng; RIGHT R_MIN ~0.5–0.6s lag, quãng vượt SOFT, test loaded Gate B vẫn chờ. Không thay `Core/`, NC/STOP, PWM, limits hoặc boot flags; cập nhật chỉ docs, không cần Build/Flash hoặc Live Expressions mới.
+
+### B update — M8-S14.7 dual AS5600 velocity PI code staging (2026-10-31)
+
+[USER REQUEST] Firmware PI per motor: thay hoạt động đồng bộ S14.2 P+D bằng một bộ điều khiển tốc độ riêng cho LEFT và RIGHT trong pilot D-pad LEFT→R_MIN, outer speed reference dùng normalized progress. Mục tiêu RIGHT bám tốt hơn ~567ms lag mà không tăng PWM gần SOFT, không đổi bảo vệ.
+
+[REPO DECISION] Code mới thêm `steer_s147_velocity_pi_enable=0` boot, `steer_s147_latched` latch một lần khi manual new stroke Level1 D-pad LEFT và S14.5 OFF. Dual PI samples AS5600 per-axis actual timestamps, mục tiêu riêng cùng quỹ đạo, boost-only <=40CCR và chỉ ngoài 180 RAW cả hai trục. Giữ baseline owner level1 RIGHT125 cap150 LEFT330 cap375, ramp12, terminal 100RAW taper không đổi, NC/STOP/late EXTI. S14.2 or S14.7, không chạy cả hai; R1/R2/SELECT/RX/Dpad RIGHT giữ cũ. Host test, docs, Actions cập nhật; git diff phải xác minh không thay bất kỳ hệ thống bảo vệ cơ bản nào.
+
+[VALIDATION LIMIT] Host/static verify có thể kiểm tra đường code/guard và helper, không có CubeIDE target build, flashed MCU hoặc đo phần cứng. Chưa có dữ liệu S14.7 ON. Không tuyên bố PI giải quyết delay, không đổi đánh giá R1 LEFT obstruction do USER xác nhận. Tài liệu hướng dẫn đầy đủ `docs/M8_S14_7_DUAL_STEERING_VELOCITY_PI.md` ghi bảng Live Expressions phải ON và cách capture.
+
 
 END OF CONTEXT HANDOFF
