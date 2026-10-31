@@ -8,7 +8,8 @@ h=(root/'Core/Inc/steer_s147_velocity_pi.h').read_text(encoding='utf-8')
 checks={
  'PI boot OFF':'volatile uint8_t steer_s147_velocity_pi_enable = 0U;' in s,
  'PI latched only on new manual stroke':
-     'steer_s147_latched = (((steer_s142_latched == 1U) ||' in s and
+     'steer_s147_latched = ((steer_s15_latched==0U) &&' in s and
+     '((steer_s142_latched == 1U) ||' in s and
      '(steer_s142_latched == 2U)) &&' in s and
      'steer_s147_last = steer_s147_latched;' in s,
  'Dpad LEFT only and S144 exclusive':'(PS2_Pad.Left != 0U)' in s and
