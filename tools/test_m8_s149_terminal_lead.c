@@ -15,7 +15,7 @@ int main(void)
   final=M8S149_ChooseRight(175,197,200,195,p.request_ccr);
   assert(final==198U);           /* chosen 175+23, within Level2 cap200 */
   final=M8S149_ChooseRight(125,145,150,145,p.request_ccr);
-  assert(final==150U);           /* never >150 Level1 */
+  assert(final==148U);           /* owner125 + request23, <=150 Level1 */
   /* If R already predicts a large early lead, no extra request. */
   p=M8S149_Predict(700,185,790,790,640,640,440,440);
   assert(p.predicted_skew_ms<50&&p.request_ccr==0U);

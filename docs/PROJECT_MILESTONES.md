@@ -893,3 +893,5 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 [HOST DIAGNOSTIC] First CI of SHA 0b355fc failed only the static string-match 'new fresh stroke latch': source has no spaces around ==/!=, but verifier demanded spaces. Fix the verifier literal without changing firmware; strict C host test still needs to run in next CI. This is not a hardware failure.
 
 [HOST TEST FIX] CI SHA bc633d33: tất cả 17 source/static checks PASS; GCC production helper chạy nhưng test sai kỳ vọng RIGHT=200 khi request theo công thức thực chỉ là 23 CCR trên owner175 -> kết quả 198 CCR. Sửa EXPECTED trong host test, firmware/giới hạn motor không đổi; cần CI SHA mới.
+
+[HOST TEST FIX2] SHA 1def13e: M8S149 pure GCC C host expectation for Level1 used cap150 instead of calculated 125+23=148; adjust test to expect 148 (cap still150), no firmware/limits modification. Need rerun exact-SHA CI.

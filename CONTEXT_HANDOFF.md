@@ -911,4 +911,7 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 
 [HOST TEST FIX] CI SHA bc633d33: tất cả 17 source/static checks PASS; GCC production helper chạy nhưng test sai kỳ vọng RIGHT=200 khi request theo công thức thực chỉ là 23 CCR trên owner175 -> kết quả 198 CCR. Sửa EXPECTED trong host test, firmware/giới hạn motor không đổi; cần CI SHA mới.
 
+
+[HOST TEST FIX2] SHA 1def13e: M8S149 pure GCC C host expectation for Level1 used cap150 instead of calculated 125+23=148; adjust test to expect 148 (cap still150), no firmware/limits modification. Need rerun exact-SHA CI.
+
 END OF CONTEXT HANDOFF
