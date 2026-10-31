@@ -762,3 +762,7 @@ Boot-OFF trial levels 0=300/100, 1=375/150, 2=450/200 CCR. Only D-pad/RX MOVING 
 [REPO] Legacy SETTLING min 100/160ms +100ms quiet, fallback max850ms; vehicle has coasting near SOFT. [CODE] New M8-S14.3 opt-in boot flag=0, neutral prequalification cached AS5600 both sides (100ms/3 samples/<=2RAW), new fresh sample after command, default fallback for drift/reverse, NC/STOP/soft/R1/R2/wheels and S14.2 boost-first caps unchanged. Host GCC helper tests; static verifier; M8S00_S143. Design docs/M8_S14_3_FAST_START.md.
 
 [PENDING] Windows Clean Build/Flash on exact SHA, compare Level1 flag0/1 time request->CCR/AS5600+8RAW, >=5 reps per direction and verify coast/current/cutoff. Level2 speed preference NOT hardware acceptance; no auto Level2 or ground test.
+
+## M8-S14.3 context-release verifier fix (2026-10-31)
+
+The first S14.3 code push `81800747` was accepted on GitHub but context release CI failed its *documentation section parser*: regex `.*` with DOTALL greedily consumed every section and falsely marked all 17 empty. Follow-up changes only the checker's header regex to `[^\n]*`, updates handoff/milestones as required, and must be checked for a successful new SHA-matched context release. No firmware source or motor behavior change, and no CubeIDE/Flash/HARDWARE PASS for S14.3 is implied.

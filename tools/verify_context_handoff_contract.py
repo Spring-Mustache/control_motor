@@ -63,7 +63,7 @@ def check_structure() -> list[str]:
             errors.append("missing required END OF CONTEXT HANDOFF footer")
         for i in range(17):
             m = re.search(
-                r"^##\s+" + str(i) + r"\.\s+.*$\n(.*?)(?=^##\s+\d+\.|\Z)",
+                r"^##[ \t]+" + str(i) + r"\.[ \t]+[^\n]*\n(.*?)(?=^##[ \t]+\d+\.|\Z)",
                 content, re.MULTILINE | re.DOTALL,
             )
             if m is None or not m.group(1).strip():

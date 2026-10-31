@@ -664,4 +664,8 @@ Next assistant must inspect new HEAD/Release; require evidence clean build and F
 
 17 section headings retained. New source is staged only, user logs private, no MCU build or hardware PASS. Prior A snapshot retained, not silently rewritten.
 
+### B CI regression fix (2026-10-31)
+
+First S14.3 push `81800747` failed context-release due to verifier regex `.*` with DOTALL incorrectly consuming subsequent sections, reporting all 17 nonempty sections empty. A new source/documentation commit corrects heading matching to `[^\\n]`-style exclusion of line feeds (`[^\\n]*`) and preserves all original 0–16 content. This is CI-only, not new firmware revision or MCU/hardware PASS.
+
 END OF CONTEXT HANDOFF
