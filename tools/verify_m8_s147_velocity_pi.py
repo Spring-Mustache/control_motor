@@ -16,9 +16,9 @@ checks={
      'Steering_S147PIApply(' in s,
  'owner checks precede PI':
      s.index('Steering_ManualAxisUpdate(1U, left_direction, mask, now, lpwm, &la);') <
-     s.index('Steering_S142SyncApply(\n           steer_manual_left_axis.phase_start_raw,'),
+     s.index('Steering_S142SyncApply(\n          steer_manual_left_axis.phase_start_raw,'),
  'atomic late NC guard follows PI':
-     s.index('Steering_S142SyncApply(\n           steer_manual_left_axis.phase_start_raw,') <
+     s.index('Steering_S142SyncApply(\n          steer_manual_left_axis.phase_start_raw,') <
      s.index('primask = __get_PRIMASK();\n  __disable_irq();\n  mask = Steering_TestRawLimitMask();'),
  'PI swaps rather than stacks S14.2 planner':
      'if(steer_s147_latched!=0U)' in s and

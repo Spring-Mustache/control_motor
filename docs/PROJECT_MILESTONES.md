@@ -860,3 +860,7 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 - [EVIDENCE] `M8S00_S147` và `M8S00_S147_PI` cộng lifetime counters và tốc độ P/I; `tools/verify_m8_s147_velocity_pi.py` + `tools/test_m8_s147_velocity_pi.c` host source C checks CI, docs hướng dẫn A/B tại `docs/M8_S14_7_DUAL_STEERING_VELOCITY_PI.md`. GitHub Actions PASS cần xem ở commit mới; source code không chứng minh CubeIDE target Build/Flash/bench. Không thêm Release per push.
 - [USER OBSTRUCTION] LEFT R1 code8 trong log 16:09 do **vướng vật cản** được người vận hành xác nhận, không phải defect firmware và không thuộc S14.7.
 - [PENDING] Gating cắt nguồn độc lập/clearance/current cơ khí trước thử hành trình mới; sau Clean Build+Flash xác minh S147 latch/frames/boostR, A/B 5 stroke có meta và M8-S00, so lag/coast/NC/STOP cùng các hồi quy motor bánh. Không bật mặc định nếu chỉ có host test PASS hoặc chưa có chứng cứ an toàn.
+
+## M8-S14.7 — CI follow-up (2026-10-31)
+
+- Commit `21e3f353` CI đầu FAIL tại static verifier `verify_m8_s147_velocity_pi.py` vì so chuỗi sai thụt lề `Steering_S142SyncApply\n`, trước khi host C test được chạy. Gate bản gốc 386/17 mục, S14.2/S14.3/S14.5 PASS. Sửa chỉ đúng hai chỗ anchor trong verifier; không thay firmware và chưa có cross-build/Flash. Chờ CI của commit mới PASS để hoàn thành host verification.

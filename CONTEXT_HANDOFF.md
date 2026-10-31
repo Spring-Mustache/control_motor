@@ -834,4 +834,11 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 [VALIDATION LIMIT] Host/static verify có thể kiểm tra đường code/guard và helper, không có CubeIDE target build, flashed MCU hoặc đo phần cứng. Chưa có dữ liệu S14.7 ON. Không tuyên bố PI giải quyết delay, không đổi đánh giá R1 LEFT obstruction do USER xác nhận. Tài liệu hướng dẫn đầy đủ `docs/M8_S14_7_DUAL_STEERING_VELOCITY_PI.md` ghi bảng Live Expressions phải ON và cách capture.
 
 
+### M8-S14.7 — kiểm tra CI lần 1 và chỉnh script kiểm tra (2026-10-31)
+
+[CI FIRST RUN] Commit `21e3f353d724a5d3f8544a942a8789c0c6775b09`: handoff nguyên văn/17 mục, S14.2/S14.3/S14.5 test đều PASS; S14.7 verifier FAIL trước khi chạy host C do `ValueError: substring not found` — script đòi 11 dấu cách, C source thực có 10. Đây là lỗi anchor của static verifier, không phải chứng cứ firmware PID C lỗi hoặc đúng.
+
+[FIX] Chỉnh `tools/verify_m8_s147_velocity_pi.py` so với đúng lời gọi trong main.c, không sửa firmware, gains, mức PWM, NC/SOFT. CI cần chạy lại toàn bộ và có bằng chứng PASS mới bàn giao để CubeIDE Clean Build/Flash.
+
+
 END OF CONTEXT HANDOFF
