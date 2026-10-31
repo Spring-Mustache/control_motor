@@ -49,6 +49,15 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### M8-S14.8 — cập nhật hiện hành Level2 boot và PI/P+D hybrid (2026-10-31)
+
+[USER] Chọn `steer_s142_trial_level=2` mặc định ngay khi boot cho phiên bản mới; yêu cầu LEFT không bị làm chậm chỉ để RIGHT có skew nhỏ. **Không có phê duyệt nghiệm thu Level2 dưới tải**.
+
+[REPO CODE] S14.8 giữ baseline LEFT405 RIGHT175, cap LEFT450 RIGHT200. PI S14.7 vẫn boot-OFF opt-in, latch ở cả Level1 hoặc Level2 chỉ D-pad LEFT→RIGHT R_MIN nếu S14.5 OFF. Trên cùng owner PWM, S14.2 P+D và S14.7 PI tính hai positive boost candidates; chọn MAX từng trục, không cộng chồng, không dùng P+D trim giảm LEFT. Còn nguyên cutoff 180 RAW, owner taper100 RAW, rise +12CCR, NC/STOP, late EXTI, manual disarmed boot. M8S00_S148 ghi nhánh candidate.
+
+[STATUS] SOURCE-STAGED, CI cần xem theo SHA commit mới; CubeIDE Clean Build, flash chính SHA, nguồn ngắt độc lập, clearances, current/coast, A/B Level2 và GateB mặt đất **CHƯA KIỂM CHỨNG**. Không đưa log CSV riêng tư lên repo public. Tài liệu `docs/M8_S14_8_LEVEL2_PI_PD_HYBRID.md`.
+
+
 ### M8-S14.7 — thử nghiệm hai PI tốc độ đánh lái độc lập, mặc định OFF (2026-10-31)
 
 [USER] Yêu cầu thực hiện bộ điều khiển PID đã từng đề xuất cho động cơ đánh lái nhằm giúp RIGHT bắt kịp. Kiểm tra source tại HEAD `bcf6c2a4e122de91ee8fdb864f5fe7cfd10cca5d` cho thấy PI `Steering_SyncApply` cũ là LEFT follower / RIGHT master và bị bypass trong S14.2 Level1; S14.2 chính dùng cross-coupled P+D, R1 dùng PWM theo lỗi vị trí/fine pulses. **Chưa có PI tốc độ độc lập cho mỗi trục trong chế độ đang chạy**.
@@ -846,5 +855,25 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 [HOST RUN2] SHA `0d8f35037dce78cd140cae57504bea6eb235fce4`: sau khi sửa anchor, 14 static route/safety checks PASS, nhưng GCC `-Wall -Wextra -Werror` dừng với 2 cảnh báo ở helper PI `request < MAX_EXTRA_CCR` và `request > MAX_EXTRA_CCR` (int32_t so unsigned macro). Đây là lỗi kiểu C, **không** phải phép thử vật lý hay CubeIDE target build.
 
 [FIX] Ép `(int32_t)M8S147_MAX_EXTRA_CCR` trong hai phép so; giữ nguyên giá trị MAX40 và logic, không đổi limit, duty hay bảo vệ. Cần xác minh CI tiếp theo có biên dịch và chạy toàn bộ C tests thành công.
+
+### M8-S14.8 — cập nhật 17 mục theo đặc tả 386 dòng (2026-10-31)
+
+0. **Nguồn/phạm vi:** source/docs đúng nhánh/SHA; log A/B từ chat là riêng tư, không tự công khai.
+1. **Tình trạng:** M8-S14.8 source-staged Level2 default, PI/P+D hybrid opt-in; xem mục 1 cập nhật.
+2. **Mục tiêu:** làm RIGHT đến đích nhanh hơn và duy trì tốc độ LEFT, không chỉ giảm skew bằng cách hãm.
+3. **Yêu cầu:** USER chủ động chọn Level2 boot; không tự cho phép Flash/cấp động lực; NC/STOP/arming bắt buộc.
+4. **Milestones:** M8-S14.8 sau S14.7; GateA/ground loaded GateB chưa đóng.
+5. **Đã làm:** main route/default, hybrid pure C helper, tests/verifier, CI workflow, M8S00_S148 và docs.
+6. **Dở dang:** Clean Build, kiểm hash ELF/Flash, dòng điện, clearance, coast, ngắt nguồn độc lập, A/B.
+7. **Tệp:** `Core/Src/main.c`, `Core/Inc/steer_s148_level2_hybrid.h`, test/verify S148, doc S148, roadmap/workflow.
+8. **Chọn/loại:** chọn MAX(PI,P+D boost) không cộng, bỏ P+D trim trong nhánh hybrid; không tăng caps 450/200.
+9. **Lỗi:** S14.7 ON chưa chứng minh RIGHT arrival nhanh; R1 LEFT code8 do vật cản USER xác nhận, không phải firmware defect.
+10. **Rủi ro:** Level2 boot giúp có thể gọi 450/200 sau START; chưa có chứng cứ nguồn/current/STOP clearance ở Level2.
+11. **Kế hoạch:** xem Actions chính SHA; đồng bộ Windows không ghi đè dirty; Clean Build/Flash; gate cắt nguồn; xung ngắn vùng giữa; A/B giá treo.
+12. **Thiếu:** flashed ELF, Level2 coast/clearance/current, RIGHT absolute arrival improvement, khả năng ngắt nguồn động lực.
+13. **Thời gian:** A/B S14.7 Level1 ON 16:36, OFF 16:48; user yêu cầu phiên bản mới Level2 default 2026-10-31.
+14. **Thông số:** Level1 330/125 baseline 375/150 cap; Level2 405/175 baseline 450/200 cap; near SOFT 180/100 RAW, rise12 CCR.
+15. **Tiếp quản:** kiểm HEAD mới, CI/commit diff; tài liệu S148 supersedes S147 route; Release không bắt buộc.
+16. **Giới hạn:** CI chỉ source/host, chưa target Build/Flash/hardware/loaded; raw logs riêng tư; bảo tồn lịch sử/386-line spec.
 
 END OF CONTEXT HANDOFF

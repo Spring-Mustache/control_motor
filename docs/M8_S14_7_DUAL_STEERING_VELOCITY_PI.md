@@ -62,3 +62,7 @@ Lệnh bật **chỉ có hiệu lực với một D-pad LEFT mới sau trung tí
 `tools/test_m8_s147_velocity_pi.c` dùng đúng production helper kiểm tra target, 2 PI, I chỉ cập nhật trên AS5600 fresh, antiwindup, +12/owner cap, không tăng ở <=180RAW, PWM0 không bật lại, invalid dt. `tools/verify_m8_s147_velocity_pi.py` kiểm tra kết nối vào owner, chế độ latch, các rào an toàn và chạy GCC/clang/cc host; Actions CI chạy cùng S14.2/S14.3 và handoff 17 mục. Chỉ ghi **HOST PASS** khi thấy kết quả CI thật; **không được đánh dấu CubeIDE PASS/Flash PASS/Hardware PASS cho tới khi có bằng chứng tương ứng**.
 
 **Điều kiện nghiệm thu:** RIGHT nhanh hơn baseline có ý nghĩa và ổn định ở n lượt, quãng vượt SOFT không xấu đi, NC/STOP, nhiệt/dòng và motor wheels đồng thời đều ổn. Nếu không có khoảng hở cơ khí và current, không tự bật profile có thể gây tăng tốc toàn hành trình. Kết quả firmware đã commit = thử nghiệm chờ nghiệm thu, không phải hoàn tất M8.
+
+## Bản thay thế route M8-S14.8 (2026-10-31)
+
+Tất cả mô tả S14.7 Level1-only và PI thay thế P+D ở trên là **lịch sử**. SOURCE M8-S14.8 đã chuyển Level2 mặc định và nhánh PI opt-in Level1/Level2 lấy MAX positive boost giữa PI/P+D, không cộng boost hay trim làm chậm LEFT. Dừng/NC và bằng chứng hardware vẫn chưa nghiệm thu. Xem `docs/M8_S14_8_LEVEL2_PI_PD_HYBRID.md`.

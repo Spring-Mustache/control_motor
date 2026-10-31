@@ -8,7 +8,8 @@ h=(root/'Core/Inc/steer_s147_velocity_pi.h').read_text(encoding='utf-8')
 checks={
  'PI boot OFF':'volatile uint8_t steer_s147_velocity_pi_enable = 0U;' in s,
  'PI latched only on new manual stroke':
-     'steer_s147_latched = ((steer_s142_latched == 1U)' in s and
+     'steer_s147_latched = (((steer_s142_latched == 1U) ||' in s and
+     '(steer_s142_latched == 2U)) &&' in s and
      'steer_s147_last = steer_s147_latched;' in s,
  'Dpad LEFT only and S144 exclusive':'(PS2_Pad.Left != 0U)' in s and
      '(steer_s144_rmin_catchup_enable == 0U)' in s,
@@ -20,9 +21,9 @@ checks={
  'atomic late NC guard follows PI':
      s.index('Steering_S142SyncApply(\n          steer_manual_left_axis.phase_start_raw,') <
      s.index('primask = __get_PRIMASK();\n  __disable_irq();\n  mask = Steering_TestRawLimitMask();'),
- 'PI swaps rather than stacks S14.2 planner':
+ 'PI/P+D merged by stronger boost, never additive':
      'if(steer_s147_latched!=0U)' in s and
-     'Steering_S147PIApply(' in s,
+     'Steering_S147PIApply(' in s and 'M8S148_Merge(' in s,
  'same AS5600 timestamps':'steer_s14_obs_l.sample_ms' in s and
      'steer_s14_obs_r.sample_ms' in s,
  'legacy owner taper unchanged':'STEER_MANUAL_APPROACH_WINDOW_RAW 100U' in s and

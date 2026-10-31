@@ -6,7 +6,7 @@
  * Unit: permille of current calibrated steering stroke per second.
  * Caller must validate both AS5600 samples and independently enforce
  * NC/STOP/SOFT/state/direction before AND after this helper.
- * Level1 D-pad LEFT -> R_MIN only for first gated trial.
+ * Level1/Level2 D-pad LEFT -> R_MIN opt-in trial.
  */
 #define M8S147_MIN_DIST_RAW 180U
 #define M8S147_MAX_EXTRA_CCR 40U

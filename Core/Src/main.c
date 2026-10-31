@@ -34,6 +34,7 @@
 #include "steer_s144_rmin_catchup.h"
 #include "steer_s143_faststart.h"
 #include "steer_s147_velocity_pi.h"
+#include "steer_s148_level2_hybrid.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -2928,12 +2929,11 @@ volatile uint8_t steer_s14_manual_latched = 0U;
  */
 #define STEER_S141_RIGHT_NEAR_CAP_PWM 98U
 volatile uint8_t steer_s141_left_enable = 0U;
-/* M8-S14.4: validated Level-1 bench functional default (375/150 CCR).
- * Level2 (450/200) is still a deliberate Live Expressions selection:
- * stopping clearance/current have NOT been validated for boot Level2.
- * Level freezes only on NEW manual command after START arming.
+/* M8-S14.8: operator-requested Level2 default 450/200 CCR.
+ * SOURCE-STAGED, not hardware-validated at Level2. No auto motor arm:
+ * PS2 START+neutral, NC, STOP, SOFT owners remain authoritative.
  */
-volatile uint8_t steer_s142_trial_level = 1U;
+volatile uint8_t steer_s142_trial_level = 2U;
 volatile uint8_t steer_s142_latched = 0U;
 volatile uint8_t steer_s142_last = 0U;
 volatile uint16_t steer_s142_prev_l = 300U;
@@ -2959,10 +2959,10 @@ volatile uint32_t steer_s144_rmin_bias_frames = 0U;
 volatile uint32_t steer_s144_rmin_right_priority_frames = 0U;
 volatile uint16_t steer_s144_rmin_last_bias_cdeg = 0U;
 volatile uint16_t steer_s144_rmin_peak_bias_cdeg = 0U;
-/* M8-S14.7: gated Level-1 D-pad LEFT dual-AS5600 velocity PI.
- * Source staged only. Latched on fresh neutral->manual command; boot OFF.
- * Both independent owners still choose direction, NC, SOFT, STOP and CCR.
- * A/B vs S14.2: NEVER stack S14.7 atop the S14.2 P+D controller.
+/* M8-S14.8: Level1/Level2 D-pad LEFT dual-AS5600 velocity PI.
+ * PI remains boot-OFF opt-in. On enable, choose MAX of PI and S14.2
+ * P+D boost candidates, never sum and never use P+D trim to slow LEFT.
+ * Independent owner/NC/STOP/SOFT/atomic CCR checks retain authority.
  */
 volatile uint8_t steer_s147_velocity_pi_enable = 0U;
 volatile uint8_t steer_s147_latched = 0U;
@@ -2983,6 +2983,11 @@ volatile int16_t steer_s147_error_l_pms = 0;
 volatile int16_t steer_s147_error_r_pms = 0;
 volatile uint16_t steer_s147_boost_l_ccr = 0U;
 volatile uint16_t steer_s147_boost_r_ccr = 0U;
+volatile uint32_t steer_s148_hybrid_frames = 0U;
+volatile uint32_t steer_s148_pd_win_l_frames = 0U;
+volatile uint32_t steer_s148_pd_win_r_frames = 0U;
+volatile uint32_t steer_s148_pi_win_l_frames = 0U;
+volatile uint32_t steer_s148_pi_win_r_frames = 0U;
 volatile uint32_t steer_s142_sync_sat_l_frames = 0U;
 volatile uint32_t steer_s142_sync_sat_r_frames = 0U;
 volatile int16_t steer_s142_sync_gap_cdeg = 0;
@@ -3210,7 +3215,7 @@ static void Steering_S14ManualApply(uint16_t start_l, uint16_t goal_l,
 }
 
 
-/* M8-S14.7: two independent velocity PI loops on a COMMON
+/* M8-S14.8: two independent velocity PI loops on a COMMON
  * calibrated-progress trajectory. Only the D-pad LEFT/Level1 trial may
  * call this function, after S14.2's geometry/sensor/NC owner checks.
  * No I2C and no GPIO. Never applies extra power inside 180 RAW of
@@ -3356,9 +3361,36 @@ static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
   cap_r=M8S142_Envelope(0U,steer_s142_latched,dist_r);
   if(steer_s147_latched!=0U)
   {
-    /* Swap the active coordinator, do NOT stack S14.2 P+D on PI. */
+    uint16_t owner_l=*pwm_l,owner_r=*pwm_r;
+    uint16_t pi_l=owner_l,pi_r=owner_r;
+    uint16_t previous_l=steer_s142_prev_final_l;
+    uint16_t previous_r=steer_s142_prev_final_r;
+    M8S142SyncPlan_t pd_plan=M8S142_SyncPlan(owner_l,owner_r,cap_l,cap_r,
+        floor_l,floor_r,(int16_t)gap,
+        steer_s14_obs_l.speed_cdeg_s,steer_s14_obs_r.speed_cdeg_s,
+        (dist_l<dist_r)?dist_l:dist_r);
+    M8S148Plan_t hybrid;
+    /* Both planners see SAME original owner PWM. Select the stronger
+     * positive correction per axis, NEVER sum. Discard P+D trim.
+     * Near-SOFT (<=180RAW) returned before reaching this block.
+     */
     Steering_S147PIApply(travel_l,length_l,dist_l,cap_l,
-                         travel_r,length_r,dist_r,cap_r,pwm_l,pwm_r);
+                         travel_r,length_r,dist_r,cap_r,&pi_l,&pi_r);
+    hybrid=M8S148_Merge(owner_l,owner_r,cap_l,cap_r,
+        previous_l,previous_r,&pd_plan,pi_l,pi_r);
+    *pwm_l=hybrid.left_pwm;
+    *pwm_r=hybrid.right_pwm;
+    steer_s142_prev_final_l=*pwm_l;
+    steer_s142_prev_final_r=*pwm_r;
+    if(steer_s148_hybrid_frames!=0xffffffffUL)steer_s148_hybrid_frames++;
+    if(hybrid.pd_win_l&&steer_s148_pd_win_l_frames!=0xffffffffUL)
+      steer_s148_pd_win_l_frames++;
+    if(hybrid.pd_win_r&&steer_s148_pd_win_r_frames!=0xffffffffUL)
+      steer_s148_pd_win_r_frames++;
+    if(hybrid.pi_win_l&&steer_s148_pi_win_l_frames!=0xffffffffUL)
+      steer_s148_pi_win_l_frames++;
+    if(hybrid.pi_win_r&&steer_s148_pi_win_r_frames!=0xffffffffUL)
+      steer_s148_pi_win_r_frames++;
     return;
   }
   /* Right MIN has a noticeably longer final 100-RAW coast-taper
@@ -6039,6 +6071,14 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned)steer_s147_boost_l_ccr,
       (unsigned)steer_s147_boost_r_ccr);
   if(M8S00_UartLine(line,n)==0U)return 0U;
+  n=snprintf(line,sizeof(line),
+      "M8S00_S148,frames=%lu,pdLf=%lu,pdRf=%lu,piLf=%lu,piRf=%lu\r\n",
+      (unsigned long)steer_s148_hybrid_frames,
+      (unsigned long)steer_s148_pd_win_l_frames,
+      (unsigned long)steer_s148_pd_win_r_frames,
+      (unsigned long)steer_s148_pi_win_l_frames,
+      (unsigned long)steer_s148_pi_win_r_frames);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
 
   /* Separate encoder RPM from normalized AS5600 travel speed.
    * cpr=0 -> rpmValid=0, with counts/s retained for calibration.
@@ -7427,12 +7467,12 @@ static void Steering_ManualUpdate(void)
     steer_s142_last = steer_s142_latched;
     steer_s142_prev_l=300U; steer_s142_prev_r=100U;
     steer_s142_prev_final_l=300U; steer_s142_prev_final_r=100U;
-    /* M8-S14.7 pilot: Level1 D-pad LEFT toward R_MIN ONLY.
-     * A new neutral->command re-latches; changing the enable in motion
-     * must not alter the active controller. No R1/R2/RX/Level2 routes.
-     * If S14.5 was left ON, keep the older S14.2/S14.5 path.
+    /* M8-S14.8 PI pilot Level1 OR Level2, D-pad LEFT -> R_MIN.
+     * Only new neutral->manual stroke latches; R1/R2/RX/D-pad RIGHT
+     * unchanged, and S14.5 remains mutually exclusive.
      */
-    steer_s147_latched = ((steer_s142_latched == 1U) &&
+    steer_s147_latched = (((steer_s142_latched == 1U) ||
+        (steer_s142_latched == 2U)) &&
         (steer_s147_velocity_pi_enable == 1U) &&
         (steer_s144_rmin_catchup_enable == 0U) &&
         (PS2_Pad.Left != 0U) && (PS2_Pad.Right == 0U) &&

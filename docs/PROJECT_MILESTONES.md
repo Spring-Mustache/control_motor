@@ -2,6 +2,9 @@
 
 ## TRẠNG THÁI HIỆN HÀNH để tiếp quản (bổ sung 2026-10-31)
 
+**M8-S14.8 [SOURCE-STAGED]** USER chọn `steer_s142_trial_level=2` mặc định, LEFT450/RIGHT200 caps. PI S14.7 vẫn boot OFF nhưng latch được Level1 hoặc Level2 theo pilot D-pad LEFT; MAX giữa PI và S14.2 P+D positive boost, không SUM và không trim giảm LEFT. NC/STOP/SOFT, +12CCR, 180RAW/100RAW guards không đổi. Chưa CubeIDE Build/Flash, không có current/clearance/coast và hardware PASS. Xem `docs/M8_S14_8_LEVEL2_PI_PD_HYBRID.md`.
+
+
 **ĐÍNH CHÍNH QUAN TRỌNG [USER, 2026-10-31]:** R1 LEFT `code=8` tại M8-S00 16:09 xảy ra vì **cơ cấu bị vướng vật cản**; người vận hành xác nhận **không phải lỗi hệ thống**. Đưa sự kiện này ra khỏi danh sách defect firmware chưa giải quyết, không sửa R1 vì sự kiện này. Log FAULT vẫn là lịch sử phản ứng bảo vệ đúng; những giả thuyết quán tính/stall phần mềm trước khi biết có vật cản không còn là nguyên nhân được ưu tiên. R1 code9 do RX và RIGHT R_MIN đến chậm là các việc độc lập.
 
 
@@ -868,3 +871,10 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 ## M8-S14.7 — compiler host sign-compare correction (2026-10-31)
 
 - CI ở `0d8f3503`: static 14 guard PASS, GCC -Werror FAIL vì 2 chỗ so `int32_t request` với macro `M8S147_MAX_EXTRA_CCR` uint. Sửa so sánh bằng `(int32_t)` cast đúng miền, không đổi mức tối đa40CCR, antiwindup, cap/soft/NC/STOP. Chưa tuyên bố host/PID PASS trước khi có CI chạy C testcase thành công.
+
+## M8-S14.8 — Level2 boot default và PI/P+D positive boost hybrid (2026-10-31)
+
+- [USER] Đồng ý triển khai phiên bản mới, yêu cầu `steer_s142_trial_level=2` mặc định, mong RIGHT nhanh mà không đánh đổi tốc độ LEFT.
+- [SOURCE-STAGED] Level2 owner baseline LEFT405/RIGHT175, cap450/200 (không tăng limit). PI boot-OFF, latch Level1/2 D-pad LEFT->R_MIN, S14.5 OFF. MAX positive boost PI/P+D trên cùng PWM owner, không cộng, không trim LEFT; cutoff180RAW, owner taper100RAW, +12CCR rise, NC/EXTI/STOP/atomic và arming giữ nguyên; M8S00_S148 mới.
+- [HOST] M8S148 pure helper C test + static verification và các regression S14.2/3/5/7 trong GitHub Actions; chỉ ghi PASS khi CI của exact new SHA chạy thành công. Handoff 17 mục theo 386 dòng không đổi.
+- [PENDING] CubeIDE Clean Build, flashed SHA, gate nguồn độc lập, quãng trôi/NC clearance/current, A/B Level2 PI OFF/ON trên giá treo, kiểm R1/R2/wheel, thử mặt đất có tải. Không tự công khai log riêng tư, không tự cấp motor trên cơ sở CI.
