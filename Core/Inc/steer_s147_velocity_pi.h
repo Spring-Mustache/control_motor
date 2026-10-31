@@ -91,7 +91,7 @@ static inline M8S147AxisPlan_t M8S147_AxisStep(
     if(request<0)request=0;
     if(request>(int32_t)M8S147_MAX_EXTRA_CCR)
       request=M8S147_MAX_EXTRA_CCR;
-    if(err>0 && request<room && request<M8S147_MAX_EXTRA_CCR)
+    if(err>0 && request<room && request<(int32_t)M8S147_MAX_EXTRA_CCR)
     {
       st->integral+=err*step_ms/40L;
       if(st->integral>6000)st->integral=6000;
@@ -99,7 +99,7 @@ static inline M8S147AxisPlan_t M8S147_AxisStep(
     }
     request=err*10L/100L+st->integral/400L;
     if(request<0)request=0;
-    if(request>M8S147_MAX_EXTRA_CCR)request=M8S147_MAX_EXTRA_CCR;
+    if(request>(int32_t)M8S147_MAX_EXTRA_CCR)request=M8S147_MAX_EXTRA_CCR;
     st->last_boost=(uint16_t)request;
   }
   extra=M8S147_Min(st->last_boost,M8S147_MAX_EXTRA_CCR);

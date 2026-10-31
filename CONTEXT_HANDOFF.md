@@ -841,4 +841,10 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 [FIX] Chỉnh `tools/verify_m8_s147_velocity_pi.py` so với đúng lời gọi trong main.c, không sửa firmware, gains, mức PWM, NC/SOFT. CI cần chạy lại toàn bộ và có bằng chứng PASS mới bàn giao để CubeIDE Clean Build/Flash.
 
 
+### M8-S14.7 — lần kiểm tra C, sửa sign-compare (2026-10-31)
+
+[HOST RUN2] SHA `0d8f35037dce78cd140cae57504bea6eb235fce4`: sau khi sửa anchor, 14 static route/safety checks PASS, nhưng GCC `-Wall -Wextra -Werror` dừng với 2 cảnh báo ở helper PI `request < MAX_EXTRA_CCR` và `request > MAX_EXTRA_CCR` (int32_t so unsigned macro). Đây là lỗi kiểu C, **không** phải phép thử vật lý hay CubeIDE target build.
+
+[FIX] Ép `(int32_t)M8S147_MAX_EXTRA_CCR` trong hai phép so; giữ nguyên giá trị MAX40 và logic, không đổi limit, duty hay bảo vệ. Cần xác minh CI tiếp theo có biên dịch và chạy toàn bộ C tests thành công.
+
 END OF CONTEXT HANDOFF

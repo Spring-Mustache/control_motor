@@ -864,3 +864,7 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 ## M8-S14.7 — CI follow-up (2026-10-31)
 
 - Commit `21e3f353` CI đầu FAIL tại static verifier `verify_m8_s147_velocity_pi.py` vì so chuỗi sai thụt lề `Steering_S142SyncApply\n`, trước khi host C test được chạy. Gate bản gốc 386/17 mục, S14.2/S14.3/S14.5 PASS. Sửa chỉ đúng hai chỗ anchor trong verifier; không thay firmware và chưa có cross-build/Flash. Chờ CI của commit mới PASS để hoàn thành host verification.
+
+## M8-S14.7 — compiler host sign-compare correction (2026-10-31)
+
+- CI ở `0d8f3503`: static 14 guard PASS, GCC -Werror FAIL vì 2 chỗ so `int32_t request` với macro `M8S147_MAX_EXTRA_CCR` uint. Sửa so sánh bằng `(int32_t)` cast đúng miền, không đổi mức tối đa40CCR, antiwindup, cap/soft/NC/STOP. Chưa tuyên bố host/PID PASS trước khi có CI chạy C testcase thành công.
