@@ -49,6 +49,14 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### KẾT LUẬN HIỆN HÀNH — R1 LEFT `code=8` do vật cản, KHÔNG phải lỗi firmware (USER xác nhận 2026-10-31)
+
+- **[USER — quan sát trực tiếp]** Người vận hành xác nhận lượt R1 LEFT không về CENTER được **do cơ cấu bị vướng vật cản**, không phải lỗi hệ thống. Thông tin này giải thích sự kiện `M8_S00_20261031_160926.txt` `FAULT event=5,axis=1,code=8,tick=67140`. Đây là bằng chứng về tác nhân bên ngoài do người vận hành cung cấp, không phải kết luận được suy ra từ UART.
+- **[REPO/LOG]** Mã `8` được firmware ghi nhận khi chuyển động bất thường/không tiến triển; chức năng ngắt PWM của trục lỗi được thiết kế sẵn. **Không xếp sự kiện này thành defect firmware đang mở, không khởi xướng patch anti-coast/wrong-way hay yêu cầu lặp lại lỗi này.** Ký hiệu FAULT trong log vẫn giữ nguyên như sự kiện lịch sử, không được xóa hoặc gọi nhầm là không có FAULT.
+- **[CẬP NHẬT THAY THẾ NHẬN ĐỊNH CŨ]** Các đoạn phía dưới ghi "R1 LEFT code8 unresolved", "cần tìm nguyên nhân quán tính" là **trạng thái đánh giá trước khi USER xác nhận vật cản**, không còn là việc cần sửa của firmware. Không diễn giải thành "lỗi phần mềm đã được sửa" — không có thay đổi firmware.
+- **[PHÂN BIỆT]** R1 `code=9` do RX rời vùng trung tính là lần hủy lệnh độc lập. RIGHT về R_MIN chậm ~0,5–0,6 giây và các điều kiện nghiệm thu dừng/coast, tải mặt đất vẫn là công việc M8 hiện hành.
+
+
 ### LOG M8 16:07–16:09: LEFT R1 FAULT 8 trước CSV; R1 code 9 do RX không trung tính (2026-10-31)
 
 [USER FILES/VERIFIED ANALYSIS] `M8S11_six_motor_20261031_160757.csv` 1031x60, board ms **78246–138813**, 60.567s, metadata complete, rows1031/missed0/invalid0/sequence_missing0/tx_errors0. `M8_S00_20261031_160926.txt` có snapshot lỗi trước CSV: manual STOP event=3 tick66899, rawL1740/rawR510, CCR342/125; FAULT event=5 axis LEFT code8 tick67140, rawL1652/rawR471, R1 active, position PWM300/100, `fault_L=1,fault_R=0`. Code 8 trong `Steering_PositionAxisUpdate()` thuộc hướng sai hoặc sai số không tiến triển/stall; hai snapshot cách241ms và LEFT đã giảm88RAW dù từ 1740 về CENTER1873 cần tăng RAW. **Lỗi đã xảy ra trước lúc bật CSV khoảng11.1s**, không thể xác định riêng nhánh trigger/code8 hoặc dòng điện/driver từ CSV; giả thuyết inertia khi đổi manual→R1 hợp lý nhưng chưa chứng minh.
@@ -799,5 +807,11 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 [MANUAL] 3 D-pad LEFT toàn hành trình full range RIGHT lag547/548/607ms (mean567.3ms), S144 OFF, S143 grants14/fastAxis28/fallback0. 1031 CSV row no NC/STOP/trip, RAW Lmin1430 Rmin209 Rmax1019 vượt SOFT vẫn đòi clearance. Wheels chỉ47/1031 row có target khác0: không đủ nghiệm thu tốc độ cao.
 
 [STATUS] Chỉ ghi lại phân tích trong docs/roadmap/handoff; không thay firmware/PWM/safety, không có biến mới, không cần CubeIDE/Flash. R1 LEFT code8 là unresolved. Lần kiểm tra tiếp theo nếu có điều kiện an toàn: ghi CSV trước R1, RX=128, không chồng lệnh manual và chờ thực tế hết trôi. Điều tra gate anti-coast trước khi đề xuất firmware behavior; không suy diễn sự cố đã được fix.
+
+### B clarification — xác nhận vật cản, sửa phân loại R1 LEFT `code=8` (2026-10-31)
+
+[USER] Người vận hành nói rõ: "bị lỗi không về được do bị dính vật cản là nha, cái này không tính là lỗi của hệ thống". Áp dụng cho sự kiện LEFT R1 `code=8` trong M8-S00 16:09 đã thảo luận ngay trước đó. Xếp là **cản trở cơ khí ngoài ý muốn**, không phải lỗi thuật toán/firmware; không cần dựng patch R1 chống trôi hay điều tra nguyên nhân chuyển hướng của sự kiện đã được giải thích. Mã FAULT=8 là dữ liệu chẩn đoán thật, không được xóa; việc firmware phát hiện sai lệch và ngắt PWM là đường phản ứng bảo vệ theo source. Mức test chức năng toàn bộ R1 vẫn dựa trên những lượt kiểm chứng độc lập, không được tự tuyên bố HARDWARE PASS chỉ vì sự kiện này đã có nguyên nhân.
+
+[CORRECTION TO HISTORY] Những bản ghi phía trên gọi code8 unresolved/inertia suspect phản ánh thời điểm chưa biết có vật cản; **đã được thông tin USER mới thay thế về nguyên nhân sự kiện**. Không biến hiện tượng vật cản thành "đã sửa lỗi firmware". R1 code9 do RX nonneutral là sự kiện riêng; RIGHT R_MIN ~0.5–0.6s lag, quãng vượt SOFT, test loaded Gate B vẫn chờ. Không thay `Core/`, NC/STOP, PWM, limits hoặc boot flags; cập nhật chỉ docs, không cần Build/Flash hoặc Live Expressions mới.
 
 END OF CONTEXT HANDOFF

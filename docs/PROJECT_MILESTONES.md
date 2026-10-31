@@ -2,6 +2,9 @@
 
 ## TRẠNG THÁI HIỆN HÀNH để tiếp quản (bổ sung 2026-10-31)
 
+**ĐÍNH CHÍNH QUAN TRỌNG [USER, 2026-10-31]:** R1 LEFT `code=8` tại M8-S00 16:09 xảy ra vì **cơ cấu bị vướng vật cản**; người vận hành xác nhận **không phải lỗi hệ thống**. Đưa sự kiện này ra khỏi danh sách defect firmware chưa giải quyết, không sửa R1 vì sự kiện này. Log FAULT vẫn là lịch sử phản ứng bảo vệ đúng; những giả thuyết quán tính/stall phần mềm trước khi biết có vật cản không còn là nguyên nhân được ưu tiên. R1 code9 do RX và RIGHT R_MIN đến chậm là các việc độc lập.
+
+
 **Nhánh làm việc:** `feature/m7-s15-ps2-controls-restoration-staged` trên `Spring-Mustache/control_motor`. **SHA hiện hành phải xác minh trên GitHub trước khi đọc**, không lưu tự tham chiếu tại HEAD trong tài liệu. Các mốc dưới đây là bằng chứng tại lúc cập nhật, không thay kết quả git ref/CI/hardware ở thời điểm tương lai.
 
 - **M8-S14.5:** thuật toán thử ưu tiên RIGHT sớm về R_MIN đã commit ở parent `eb5f006e7112e4b85d510467292a94b13098c393`; `steer_s144_rmin_catchup_enable=0` vẫn là mặc định thử nghiệm. `steer_s142_trial_level=1`, `steer_s143_fast_start_enable=1` là cấu hình boot nguồn. Dữ liệu Level1 Fast Start trên giá treo có, nhưng S14.5 **chưa có CubeIDE Build/Flash A/B/hardware PASS được chứng minh ở SHA hiện hành**; trễ RIGHT đến SOFT khoảng 0,5s và quãng trôi SOFT còn cần kiểm chứng.
@@ -842,3 +845,10 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 - [CRITICAL PRIOR SNAPSHOT] `M8_S00_20261031_160926.txt` FAULT left pos `code8` tick67140, **trước CSV đầu78246**. Manual STOP tick66899 L1740 R510 CCR342/125, FAULT L1652 R471 sau241ms đang chạy R1 PWM300/100. R1 LEFT cần tiến từ 1740 lên CENTER1873 nhưng snapshot sau lại giảm88RAW; `code8` tại firmware có thể là wrong-way/độ sai số tăng/stall, nguồn chưa đủ xác định trigger hoặc cơ khí. Không coi code8 là cùng lỗi mã9 và không đánh dấu FIX.
 - [SECOND EVENT, REPRODUCIBLE INPUT] R1 từ MAX tick112083 bị `stop=9` khi LEFT chưa vào ±5RAW, RIGHT done. CSV cho thấy `rx`128→82 lúc114460, tiếp0, cùng lúc position_active1→0. Đây phù hợp hủy vì RX ra khỏi neutral theo guard thiết kế, không phải tự phát fault8. R1 từ MIN sau đó run18 hoàn thành BOTH, left1758ms,right2149ms,skew391ms,no fault.
 - [BLOCKER] Chưa có capture đúng thời điểm code8, chưa đo current, độ trôi và khoảng hở NC. Chỉ có thể đề nghị thêm gate vẫn-đang-trôi cho R1 sau khi xác định chuyển trạng thái manual→R1; giữ PWM/SOFT/STOP/NC và firmware nguyên. Các log raw user private không push. Cần nếu thử tiếp: xác minh ngắt nguồn độc lập, STOP/NC, bắt CSV trước R1, RX trung tính và cơ cấu hết trôi; không tự test sát hard stop.
+
+## Đính chính M8 R1 LEFT code8 — nguyên nhân vật cản được người vận hành xác nhận (2026-10-31)
+
+- [USER] Xác nhận trực tiếp sự kiện `M8_S00_20261031_160926.txt` R1 LEFT `code8` trước CSV: cơ cấu bị **vướng vật cản** nên không về tâm; **không tính là lỗi của hệ thống**.
+- [LOG/REPO] Giữ nguyên `event=5,axis=1,code=8` trong lịch sử chẩn đoán; code8 là điều kiện vận động bất thường và firmware đi vào đường ngắt PWM khi trục lỗi. Đó là hành vi bảo vệ, không phải bằng chứng mã điều khiển sai. Bản ghi phía trên đánh giá nguyên nhân chưa xác định/anti-coast là lịch sử trước khi người vận hành nêu nguyên nhân; **đã được đính chính**, không cần làm lại bài này hay viết patch firmware vì sự kiện này.
+- [CURRENT OPEN] RIGHT về R_MIN chậm khoảng 0,5–0,6s, cần bằng chứng khoảng dừng cơ khí/dòng điện trước chỉnh PWM; nghiệm thu có tải và các bài bảo vệ khác vẫn riêng. R1 code9 hủy do RX rời neutral không phải code8. Không tự nâng kết luận R1 tổng thể thành fully PASS.
+- [SCOPE] Chỉ cập nhật tài liệu theo dữ kiện người dùng, không chỉnh motor firmware, các mức giới hạn, cơ chế STOP/NC hoặc flags; không cần CubeIDE Build/Flash hay biến bật thử mới.

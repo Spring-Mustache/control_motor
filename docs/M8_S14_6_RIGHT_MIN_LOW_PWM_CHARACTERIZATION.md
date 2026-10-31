@@ -68,3 +68,9 @@ CSV 1031 row complete, 60.567s, không mất mẫu. R1 từ MAX trên CSV bị *
 Ba D-pad LEFT full-travel RIGHT late 547/548/607ms (mean567.3), S14.5 OFF theo M8-S00; Lmin1430, Rmin209, Rmax1019 so soft1454/216/999; không có NC/trip/stop được log trong CSV, nhưng chưa có đo clearance/cutoff thực. Chỉ47 row trong CSV có bánh commanded nonzero. **Không sửa gần-SOFT PWM** hay tự diễn giải nghiệm thu chỉ từ UART.
 
 Bước kiểm tra R1 cần thực hiện trước khi thiết kế patch: giữ RX trung tính, chờ cơ cấu hoàn toàn ngừng trôi sau manual, kiểm tra nguồn ngắt độc lập/STOP/NC và bật capture trước R1 (event8 đã xảy ra trước CSV lần này). Không cần phát hành firmware/build/flash mới chỉ để đọc bổ sung tài liệu này.
+
+## Đính chính R1 LEFT code8 từ người vận hành (2026-10-31)
+
+Người vận hành xác nhận sự kiện R1 LEFT `code8` được mô tả ở mục bổ sung phía trên **do cơ cấu bị vướng vật cản**. Không xem đây là lỗi firmware đang mở; không cần làm lại bài thử để chứng minh quán tính hoặc sửa thuật toán R1 theo giả thuyết cũ. Giữ nguyên sự kiện `FAULT code8` trong log như bằng chứng cơ chế bảo vệ phát hiện chuyển động bất thường; nguyên nhân vật cản là **báo cáo quan sát thực tế của USER**, không phải thông tin có thể kết luận riêng từ CSV. R1 `code9` do RX xen vào vẫn là trường hợp khác.
+
+Nhiệm vụ còn lại của M8-S14.6 là RIGHT bò chậm gần R_MIN, đòi kiểm chứng clearance/coast/current trước thay đổi lực ở vùng dừng. Chỉ sửa docs, không có firmware hoặc Live Expressions mới.
