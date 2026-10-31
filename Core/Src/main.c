@@ -35,6 +35,7 @@
 #include "steer_s143_faststart.h"
 #include "steer_s147_velocity_pi.h"
 #include "steer_s148_level2_hybrid.h"
+#include "steer_s149_terminal_lead.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -2988,6 +2989,33 @@ volatile uint32_t steer_s148_pd_win_l_frames = 0U;
 volatile uint32_t steer_s148_pd_win_r_frames = 0U;
 volatile uint32_t steer_s148_pi_win_l_frames = 0U;
 volatile uint32_t steer_s148_pi_win_r_frames = 0U;
+/* M8-S14.9: opt-in lead forecast from ON-only Level2 observations.
+ * OFF by default: no silent change to the tested S14.8 ON controller.
+ * Operator explicitly enables after the stand/current/coast gate.
+ */
+volatile uint8_t steer_s149_early_lead_enable = 0U;
+volatile uint8_t steer_s149_latched = 0U;
+volatile uint8_t steer_s149_last = 0U;
+volatile uint32_t steer_s149_frames = 0U;
+volatile uint32_t steer_s149_request_frames = 0U;
+volatile uint32_t steer_s149_wins = 0U;
+volatile int16_t steer_s149_last_prediction_ms = 0;
+volatile uint16_t steer_s149_last_request_r = 0U;
+/* Distances binned by RIGHT distance to SOFT, not a claim of test PASS.
+ * Values are LAST observed in each bin, not per-bin means.
+ */
+typedef struct {
+  uint32_t frames, active_frames;
+  uint16_t target_r, measured_r, owner_r, cap_r;
+  uint16_t pi_r, pd_r, lead_r, applied_r;
+  int16_t error_r;
+} M8S149TraceBin_t;
+static M8S149TraceBin_t steer_s149_bins[4] = {{0}};
+static uint16_t steer_s149_trace_owner_r = 0U;
+static uint16_t steer_s149_trace_pi_r = 0U;
+static uint16_t steer_s149_trace_pd_r = 0U;
+static uint16_t steer_s149_trace_lead_r = 0U;
+static uint8_t steer_s149_trace_active = 0U;
 volatile uint32_t steer_s142_sync_sat_l_frames = 0U;
 volatile uint32_t steer_s142_sync_sat_r_frames = 0U;
 volatile int16_t steer_s142_sync_gap_cdeg = 0;
@@ -3038,6 +3066,7 @@ static void Steering_S14ManualReset(void)
   steer_s141_left_latched = 0U;
   steer_s142_latched = 0U;
   steer_s147_latched = 0U;
+  steer_s149_latched = 0U;
   steer_s147_pi_l = (M8S147AxisState_t){0};
   steer_s147_pi_r = (M8S147AxisState_t){0};
   steer_s142_prev_final_l = 300U;
@@ -3370,6 +3399,8 @@ static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
         steer_s14_obs_l.speed_cdeg_s,steer_s14_obs_r.speed_cdeg_s,
         (dist_l<dist_r)?dist_l:dist_r);
     M8S148Plan_t hybrid;
+    M8S149Prediction_t early={0U,0,0U,0U};
+    uint16_t hybrid_before_early;
     /* Both planners see SAME original owner PWM. Select the stronger
      * positive correction per axis, NEVER sum. Discard P+D trim.
      * Near-SOFT (<=180RAW) returned before reaching this block.
@@ -3378,6 +3409,43 @@ static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
                          travel_r,length_r,dist_r,cap_r,&pi_l,&pi_r);
     hybrid=M8S148_Merge(owner_l,owner_r,cap_l,cap_r,
         previous_l,previous_r,&pd_plan,pi_l,pi_r);
+    hybrid_before_early=hybrid.right_pwm;
+    /* Optional, bounded RIGHT terminal anticipation. The forecast uses
+     * each axis' own filtered AS5600 rate and the 337-ms trailing
+     * estimate from the four-run ON-only report. It is not a motor
+     * dynamics guarantee. The same >180RAW gates above already passed.
+     */
+    if(steer_s149_latched!=0U)
+    {
+      uint16_t raw_span_l=(start_l>goal_l)?
+          (start_l-goal_l):(goal_l-start_l);
+      uint16_t raw_span_r=(start_r>goal_r)?
+          (start_r-goal_r):(goal_r-start_r);
+      early=M8S149_Predict(dist_l,dist_r,
+          raw_span_l,raw_span_r,length_l,length_r,
+          steer_s14_obs_l.speed_cdeg_s,steer_s14_obs_r.speed_cdeg_s);
+      hybrid.right_pwm=M8S149_ChooseRight(owner_r,hybrid.right_pwm,
+          cap_r,previous_r,early.request_ccr);
+      if(steer_s149_frames!=0xffffffffUL)steer_s149_frames++;
+      if(early.request_ccr&&steer_s149_request_frames!=0xffffffffUL)
+        steer_s149_request_frames++;
+      if(hybrid.right_pwm>hybrid_before_early)
+      {
+        hybrid.pd_win_r=0U;
+        hybrid.pi_win_r=0U;
+        if(steer_s149_wins!=0xffffffffUL)steer_s149_wins++;
+      }
+      steer_s149_last_prediction_ms=early.predicted_skew_ms;
+      steer_s149_last_request_r=early.request_ccr;
+    }
+    steer_s149_trace_active=1U;
+    steer_s149_trace_pi_r=pi_r;
+    steer_s149_trace_pd_r=(uint16_t)((uint32_t)owner_r+
+        ((uint32_t)pd_plan.boost_r>(uint32_t)(cap_r-owner_r)?
+            (uint32_t)(cap_r-owner_r):(uint32_t)pd_plan.boost_r));
+    steer_s149_trace_lead_r=(uint16_t)((uint32_t)owner_r+
+        ((uint32_t)early.request_ccr>(uint32_t)(cap_r-owner_r)?
+            (uint32_t)(cap_r-owner_r):(uint32_t)early.request_ccr));
     *pwm_l=hybrid.left_pwm;
     *pwm_r=hybrid.right_pwm;
     steer_s142_prev_final_l=*pwm_l;
@@ -6079,6 +6147,41 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned long)steer_s148_pi_win_l_frames,
       (unsigned long)steer_s148_pi_win_r_frames);
   if(M8S00_UartLine(line,n)==0U)return 0U;
+  n=snprintf(line,sizeof(line),
+      "M8S00_S149,enable=%u,last=%u,frames=%lu,requests=%lu,"
+      "wins=%lu,predMs=%d,requestR=%u\r\n",
+      (unsigned)steer_s149_early_lead_enable,
+      (unsigned)steer_s149_last,
+      (unsigned long)steer_s149_frames,
+      (unsigned long)steer_s149_request_frames,
+      (unsigned long)steer_s149_wins,
+      (int)steer_s149_last_prediction_ms,
+      (unsigned)steer_s149_last_request_r);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
+  /* One LAST snapshot per RIGHT-to-SOFT distance bin.
+   * A zero targetR with active=0 means coordinator was gated out,
+   * not that the PI loop requested zero velocity.
+   * pdR/piR/leadR are candidates; appliedR is final owner PWM.
+   */
+  {
+    uint8_t bi;
+    for(bi=0U;bi<4U;bi++)
+    {
+      M8S149TraceBin_t *b=&steer_s149_bins[bi];
+      n=snprintf(line,sizeof(line),
+          "M8S00_S149_BIN,bin=%u,frames=%lu,active=%lu,"
+          "targetR=%u,measR=%u,errR=%d,ownerR=%u,capR=%u,"
+          "piR=%u,pdR=%u,leadR=%u,appliedR=%u\r\n",
+          (unsigned)bi,(unsigned long)b->frames,
+          (unsigned long)b->active_frames,
+          (unsigned)b->target_r,(unsigned)b->measured_r,
+          (int)b->error_r,(unsigned)b->owner_r,
+          (unsigned)b->cap_r,(unsigned)b->pi_r,
+          (unsigned)b->pd_r,(unsigned)b->lead_r,
+          (unsigned)b->applied_r);
+      if(M8S00_UartLine(line,n)==0U)return 0U;
+    }
+  }
 
   /* Separate encoder RPM from normalized AS5600 travel speed.
    * cpr=0 -> rpmValid=0, with counts/s retained for calibration.
@@ -7478,6 +7581,9 @@ static void Steering_ManualUpdate(void)
         (PS2_Pad.Left != 0U) && (PS2_Pad.Right == 0U) &&
         (right_direction < 0)) ? 1U : 0U;
     steer_s147_last = steer_s147_latched;
+    steer_s149_latched=((steer_s147_latched!=0U) &&
+        (steer_s149_early_lead_enable==1U))?1U:0U;
+    steer_s149_last=steer_s149_latched;
     /* S14/S14.1 never claim ownership in a high-ceiling stroke. */
     steer_s14_manual_latched =
         ((steer_s142_latched == 0U) &&
@@ -7688,6 +7794,14 @@ static void Steering_ManualUpdate(void)
   mask = Steering_TestRawLimitMask();
   Steering_ManualAxisUpdate(1U, left_direction, mask, now, lpwm, &la);
   Steering_ManualAxisUpdate(0U, right_direction, mask, now, rpwm, &ra);
+  /* Baseline RIGHT owner before any coordinator. Clear stale per-pass
+   * PI/P+D/terminal snapshots, including the last-180RAW no-boost phase.
+   */
+  steer_s149_trace_owner_r=ra;
+  steer_s149_trace_pi_r=0U;
+  steer_s149_trace_pd_r=0U;
+  steer_s149_trace_lead_r=0U;
+  steer_s149_trace_active=0U;
   /* A genuine RIGHT fault halts LEFT rather than trusting stale
    * reference feedback. Normal RIGHT NC/soft arrival is handled by
    * bounded independent LEFT completion in Steering_SyncApply().
@@ -7870,6 +7984,34 @@ static void Steering_ManualUpdate(void)
   else Steering_ManualRightOff();
 
   if (primask == 0U) __enable_irq();
+
+  /* M8-S14.9 passive, post-atomic bin snapshots. Final PWM is the
+   * ACTUAL independent owner's applied value, including any late
+   * NC/STOP cut. This never writes a duty/IRQ/GPIO register.
+   */
+  if((steer_s147_latched!=0U) && (steer_manual_active!=0U) &&
+     (left_direction<0) && (right_direction<0) &&
+     (steer_manual_right_soft_target!=0U))
+  {
+    uint16_t rnow=debug_as5600_right_raw;
+    uint16_t goal=steer_manual_right_soft_target;
+    uint16_t remain=(rnow>goal)?(rnow-goal):(goal-rnow);
+    uint8_t bi=(remain>320U)?0U:
+        ((remain>180U)?1U:((remain>100U)?2U:3U));
+    M8S149TraceBin_t *b=&steer_s149_bins[bi];
+    if(b->frames!=0xffffffffUL)b->frames++;
+    if(steer_s149_trace_active&&b->active_frames!=0xffffffffUL)
+      b->active_frames++;
+    b->owner_r=steer_s149_trace_owner_r;
+    b->cap_r=M8S142_Envelope(0U,steer_s142_latched,remain);
+    b->pi_r=steer_s149_trace_pi_r;
+    b->pd_r=steer_s149_trace_pd_r;
+    b->lead_r=steer_s149_trace_lead_r;
+    b->applied_r=steer_manual_right_pwm;
+    b->target_r=steer_s149_trace_active?steer_s147_target_r_pms:0U;
+    b->measured_r=steer_s149_trace_active?steer_s147_measured_r_pms:0U;
+    b->error_r=steer_s149_trace_active?steer_s147_error_r_pms:0;
+  }
 
   /* Do not re-arm automatically if held against a stop or stalled.
    * Preserve per-axis result for Live Expressions until next command.

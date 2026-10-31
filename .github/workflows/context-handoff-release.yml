@@ -67,6 +67,9 @@ jobs:
       - name: Test M8-S14.8 Level2 default and non-additive PI/P+D hybrid
         run: python3 tools/verify_m8_s148_level2_hybrid.py
 
+      - name: Test M8-S14.9 bounded terminal anticipation and no-motor host guards
+        run: python3 tools/verify_m8_s149_terminal_lead.py
+
       - name: Validate passive RIGHT low-PWM A/B analyzer
         run: python3 tools/analyze_m8_right_low_pwm.py --self-test
 

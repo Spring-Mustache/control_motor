@@ -49,6 +49,15 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### M8-S14.9 — hiện hành: RIGHT early terminal-lag forecast opt-in, chỉ ON (2026-10-31)
+
+[USER] Chỉ thử bộ điều khiển ON, không bắt lặp PI OFF. Người dùng yêu cầu cập nhật firmware theo báo cáo riêng tư ON Level2 phiên 17:22. Báo cáo cho thấy RIGHT vs LEFT skew tại 180RAW **+18.4ms**, tại SOFT **+355.4ms**, phần xuất hiện trong đoạn cuối **337.1ms**, RIGHT 180→SOFT **782.8ms** và LEFT **445.7ms**. Đây là bốn lượt ON; không suy ra dòng/coast/NC clearance.
+
+[CODE] Giữ `steer_s142_trial_level=2` boot; `steer_s147_velocity_pi_enable=0` boot và `steer_s149_early_lead_enable=0` boot. S14.9 mới latch ở lệnh D-pad LEFT→RMIN Level1/Level2 sau neutral khi PI ON, S14.5 OFF, và người vận hành bật riêng cờ S149. Dự đoán thời gian tới 180RAW từ tốc độ từng AS5600 + offset terminal 337ms (giả thuyết từ log), yêu cầu tối đa 25CCR trước 180 RAW, chọn MAX so với hybrid PI/P+D, giới hạn RIGHT 150/200 Level1/2 và +12CCR, giữ LEFT không giảm. Không đổi cutoff khi một bên <=180RAW, owner taper100RAW, SOFT/NC/STOP/atomic/arming/R1/R2/RX/wheels. M8S00_S149, M8S00_S149_BIN[0..3] snapshot read-only cho target/measured/error/owner/cap/candidates/applied theo khoảng RIGHT RAW.
+
+[STATE] **SOURCE-STAGED** cho tới CI exact SHA; HOST/GCC/CI không phải CubeIDE Clean Build, Flash, đo current/clearance/coast, independent motor power cut, hay HARDWARE PASS. Counterfactual raw-speed replay chỉ cho thấy 84% mẫu yêu cầu boost positive, không chứng minh RIGHT thực sự nhanh hơn; không upload raw CSV/TXT. Xem `docs/M8_S14_9_TERMINAL_LEAD_ON_ONLY.md`. Không tự ép phải thử lại OFF. Cần hardware gate mới vận hành S149; nếu không đủ, tiếp tục host/source analysis.
+
+
 ### M8-S14.8 — cập nhật hiện hành Level2 boot và PI/P+D hybrid (2026-10-31)
 
 [USER] Chọn `steer_s142_trial_level=2` mặc định ngay khi boot cho phiên bản mới; yêu cầu LEFT không bị làm chậm chỉ để RIGHT có skew nhỏ. **Không có phê duyệt nghiệm thu Level2 dưới tải**.
@@ -875,5 +884,25 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 14. **Thông số:** Level1 330/125 baseline 375/150 cap; Level2 405/175 baseline 450/200 cap; near SOFT 180/100 RAW, rise12 CCR.
 15. **Tiếp quản:** kiểm HEAD mới, CI/commit diff; tài liệu S148 supersedes S147 route; Release không bắt buộc.
 16. **Giới hạn:** CI chỉ source/host, chưa target Build/Flash/hardware/loaded; raw logs riêng tư; bảo tồn lịch sử/386-line spec.
+
+### M8-S14.9 — hồ sơ bàn giao bổ sung đầy đủ 17 mục (2026-10-31)
+
+0. **Nguồn:** HEAD branch phải xác minh mỗi phiên; báo cáo ON 17:22 riêng tư; GitHub source docs commit của hiện hành.
+1. **Hiện trạng:** S14.9 SOURCE-STAGED RIGHT early terminal forecast opt-in, Level2 boot default, không xem là H/W PASS.
+2. **Mục tiêu:** RIGHT đến SOFT nhanh hơn mà không hãm LEFT; giữ nguyên vùng STOP/NC và 180RAW cutoff.
+3. **Yêu cầu user:** sửa firmware dựa tài liệu chẩn đoán S14.8 ON; chỉ thử controller ON, không thử OFF lại; Level2 boot=2 duy trì.
+4. **Milestone:** S14.9 sau S14.8, CI host xong mới chuyển Clean Build, Flash và GateA kiểm điện/cơ; loaded GateB chưa.
+5. **Đã làm:** predictor C pure, main opt-in latch, max-based RIGHT candidate, 4-bin M8S00 snapshots, C host tests/verifier, workflow và docs.
+6. **Đang dở:** chứng minh hiệu quả chuyển động bằng ON-only data, hiệu lực tại MCU, coast/clearance/current, independent power cut.
+7. **Files:** `Core/Inc/steer_s149_terminal_lead.h`, `Core/Src/main.c`, `tools/test_m8_s149_terminal_lead.c`, `tools/verify_m8_s149_terminal_lead.py`, `docs/M8_S14_9_TERMINAL_LEAD_ON_ONLY.md`, CI, handoff và roadmap.
+8. **Quyết định:** lead forecast tự chọn opt-in OFF boot; MAX chứ không SUM; Level2 max450/200, +12 rise, RIGHT candidate max+25; không sửa owner<=180RAW.
+9. **Kết quả/lỗi:** log ON S14.8 gần đồng thời tại 180RAW nhưng RIGHT thêm ~337ms trễ cuối; không kết luận motor lỗi. R1 code9 cùng RX mất trung tính là sự kiện riêng, R1 code8 vật cản lịch sử.
+10. **Rủi ro:** tăng năng lượng động lực trước 180RAW có thể làm coast tăng dù cap không đổi; không hứa khả năng ngừng an toàn.
+11. **Bước tiếp:** CI exact SHA, Windows git status/fetch/ff-only, CubeIDE Clean Build/Flash chứng cứ, điện/cơ gate rồi ON-only short-mid pulses + D-pad LEFT on stand.
+12. **Thiếu:** flashed ELF SHA, current, coast distance, NC physical clearance, bộ ngắt nguồn động lực độc lập, SOFT arrival ON-only mới.
+13. **Chronology:** 2026-10-31 17:22 M8S14.8 ON test; phân tích sâu; người dùng chủ động yêu cầu sửa theo báo cáo.
+14. **Thông số:** S149 offset337ms/deadband50ms, request<=25CCR, actual rise<=12CCR, Level2 max450/200, fast envelope 320→180, owner taper100RAW.
+15. **Bàn giao:** kiểm HEAD và doc S149 trước khi trả lời; không dùng snapshot SHA cũ làm HEAD, không ép GitHub Release.
+16. **Hạn chế:** CI static/GCC không bằng CubeIDE/Flash/Stand/Ground PASS; dữ liệu log tư nhân không commit; đặc tả nguyên văn 386 dòng giữ nguyên.
 
 END OF CONTEXT HANDOFF

@@ -32,3 +32,8 @@ Các lượt A/B riêng tư S14.7 Level1 PI ON/OFF cho thấy giảm chênh lệ
 Level2 450/200 đã được mã hóa nhưng chưa có clearance/coast/current/temperature độc lập nên **chưa có cơ sở coi firmware boot Level2 là an toàn vận hành**. Trước test motor: chuẩn bị ngắt nguồn động lực độc lập, NC/STOP hoạt động thực, kiểm tra quãng trôi và khoảng hở cơ khí khi dừng tại hai đầu, dòng/tản nhiệt driver dưới điều kiện thích hợp; xác nhận CubeIDE Clean Build+ELF+Flash đúng SHA. Không chạy ngay toàn hành trình, không thử trên mặt đất có tải. Với điều kiện đạt, xung rất ngắn giữa hành trình Level2 PI OFF trước, rồi Level2 PI ON đối chứng cùng điều kiện; thu CSV complete, M8S00, tính riêng RIGHT arrival, LEFT arrival, last100RAW, NC, current/coast; sau đó kiểm tra hồi quy R1/R2/STOP/NC/wheel. Nếu bất thường thì cắt nguồn động lực và không tiếp tục.
 
 **Không có kết quả phần cứng cho M8-S14.8 ở thời điểm commit.** Không biến lỗi R1 LEFT code8 do vật cản thành defect firmware.
+
+
+## Bản mới M8-S14.9 (2026-10-31)
+
+Đây là tài liệu lịch sử S14.8. Khi có M8-S14.9, giữ Level2 boot default và PI/P+D MAX, thêm pilot RIGHT forecast terminal opt-in riêng, cắt ở 180RAW và telemetry bốn bin. User yêu cầu chỉ thử controller ON. Xem `docs/M8_S14_9_TERMINAL_LEAD_ON_ONLY.md`; chưa build/flash/hardware PASS.

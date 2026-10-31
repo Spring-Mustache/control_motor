@@ -2,6 +2,9 @@
 
 ## TRẠNG THÁI HIỆN HÀNH để tiếp quản (bổ sung 2026-10-31)
 
+**M8-S14.9 [SOURCE-STAGED]:** RIGHT terminal-lag forecast opt-in từ 4 lượt ON Level2 log 17:22 (337ms terminal skew), trước 180RAW, không đổi cap450/200, PI/P+D MAX, +12CCR, NC/STOP/SOFT. Flags PI và S149 đều boot OFF; Level2 boot=2. M8S00_S149 và 4 bin chẩn đoán. Chưa CubeIDE Build/Flash/current/coast/clearance/HARDWARE PASS. User chỉ muốn test ON, không yêu cầu PI OFF. Đọc `docs/M8_S14_9_TERMINAL_LEAD_ON_ONLY.md`.
+
+
 **M8-S14.8 [SOURCE-STAGED]** USER chọn `steer_s142_trial_level=2` mặc định, LEFT450/RIGHT200 caps. PI S14.7 vẫn boot OFF nhưng latch được Level1 hoặc Level2 theo pilot D-pad LEFT; MAX giữa PI và S14.2 P+D positive boost, không SUM và không trim giảm LEFT. NC/STOP/SOFT, +12CCR, 180RAW/100RAW guards không đổi. Chưa CubeIDE Build/Flash, không có current/clearance/coast và hardware PASS. Xem `docs/M8_S14_8_LEVEL2_PI_PD_HYBRID.md`.
 
 
@@ -878,3 +881,11 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 - [SOURCE-STAGED] Level2 owner baseline LEFT405/RIGHT175, cap450/200 (không tăng limit). PI boot-OFF, latch Level1/2 D-pad LEFT->R_MIN, S14.5 OFF. MAX positive boost PI/P+D trên cùng PWM owner, không cộng, không trim LEFT; cutoff180RAW, owner taper100RAW, +12CCR rise, NC/EXTI/STOP/atomic và arming giữ nguyên; M8S00_S148 mới.
 - [HOST] M8S148 pure helper C test + static verification và các regression S14.2/3/5/7 trong GitHub Actions; chỉ ghi PASS khi CI của exact new SHA chạy thành công. Handoff 17 mục theo 386 dòng không đổi.
 - [PENDING] CubeIDE Clean Build, flashed SHA, gate nguồn độc lập, quãng trôi/NC clearance/current, A/B Level2 PI OFF/ON trên giá treo, kiểm R1/R2/wheel, thử mặt đất có tải. Không tự công khai log riêng tư, không tự cấp motor trên cơ sở CI.
+
+## M8-S14.9 — RIGHT terminal lead opt-in, ON-only controller (2026-10-31)
+
+- **[USER]** Đề nghị cập nhật firmware theo deep diagnosis log S14.8 ON; chỉ test bộ điều khiển ON, không lặp OFF.
+- **[EVIDENCE]** 4 lượt D-pad LEFT Level2 Hybrid ON: skew @180RAW +18.4ms, @SOFT +355.4ms; RIGHT terminal 180→SOFT 782.8ms vs LEFT445.7ms. Khoảng 337.1ms xuất hiện sau cutoff; tăng Kp/Ki không trực tiếp tác động. Replay host xấp xỉ command request dương ~84% mẫu vùng >180RAW, không dự đoán được hiệu quả/cơ học.
+- **[SOURCE-STAGED]** S14.9 header pure dự báo time-to-180 bằng tốc độ AS5600 riêng, cộng terminal skew337ms, deadband50ms, request<=25CCR; chọn MAX với hybrid S14.8, không SUM, không giảm LEFT; áp dụng owner cap 450/200 (Level2), 375/150 (Level1), +12 rise, >180RAW cả hai, STOP/NC/late IRQ/soft unaffected. PI boot OFF, early lead boot OFF, latch chỉ lệnh D-pad LEFT RMIN mới khi hai flags ON. M8S00_S149 và 4 bin snapshot.
+- **[SAFETY]** Chưa Clean Build/Flashed/bench clearance/current/coast/ngắt động lực; giữ SOURCE-STAGED, không đánh dấu HARDWARE PASS, không thử đất. Không tăng PWM gần SOFT/taper 100 RAW.
+- **[NEXT]** GitHub Actions exact SHA PASS → xác minh CubeIDE Clean Build/Flash → khi đủ gate an toàn mới test ON-only; ưu tiên absolute RIGHT arrival, Left, last 180/100, actual CCR, NC/stop/trip, current/coast. Không đẩy CSV/TXT riêng tư lên public repo.
