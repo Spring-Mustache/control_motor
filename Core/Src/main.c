@@ -31,6 +31,7 @@
 #include "steer_s14_math.h"
 #include "steer_s142_speed.h"
 #include "steer_s142_sync.h"
+#include "steer_s144_rmin_catchup.h"
 #include "steer_s143_faststart.h"
 #include <stdio.h>
 /* USER CODE END Includes */
@@ -2948,6 +2949,15 @@ volatile uint32_t steer_s142_sync_boost_l_frames = 0U;
 volatile uint32_t steer_s142_sync_boost_r_frames = 0U;
 volatile uint32_t steer_s142_sync_taper_l_frames = 0U;
 volatile uint32_t steer_s142_sync_taper_r_frames = 0U;
+/* M8-S14.5: experimental calibrated RIGHT-to-R_MIN anticipation.
+ * Default OFF pending on-stand A/B. Level-1 D-pad LEFT only; under
+ * the same independent S14.2 owner cap, NC, SOFT, stall, and STOP.
+ */
+volatile uint8_t steer_s144_rmin_catchup_enable = 0U;
+volatile uint32_t steer_s144_rmin_bias_frames = 0U;
+volatile uint32_t steer_s144_rmin_right_priority_frames = 0U;
+volatile uint16_t steer_s144_rmin_last_bias_cdeg = 0U;
+volatile uint16_t steer_s144_rmin_peak_bias_cdeg = 0U;
 volatile uint32_t steer_s142_sync_sat_l_frames = 0U;
 volatile uint32_t steer_s142_sync_sat_r_frames = 0U;
 volatile int16_t steer_s142_sync_gap_cdeg = 0;
@@ -3186,7 +3196,8 @@ static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
   int32_t travel_l,travel_r,length_l,length_r,gap;
   uint16_t dist_l,dist_r,cap_l,cap_r;
   uint32_t now=HAL_GetTick();
-  M8S142SyncPlan_t plan;
+  M8S142SyncPlan_t plan, baseline_plan;
+  uint16_t rmin_bias_cdeg=0U;
   if ((steer_s142_latched==0U) ||
       (*pwm_l==0U)||(*pwm_r==0U) ||
       (steer_pos_left_last_sample_ms==0U) ||
@@ -3243,11 +3254,42 @@ static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
   if(gap< -9000)gap=-9000;
   cap_l=M8S142_Envelope(1U,steer_s142_latched,dist_l);
   cap_r=M8S142_Envelope(0U,steer_s142_latched,dist_r);
-  plan=M8S142_SyncPlan(*pwm_l,*pwm_r,cap_l,cap_r,
+  /* Right MIN has a noticeably longer final 100-RAW coast-taper
+   * traversal than LEFT. In a D-pad LEFT stroke, demand RIGHT's
+   * modest early ANGULAR lead to compensate its slower late approach,
+   * but only while BOTH axes are >=320 RAW away. This anticipates
+   * the terminal time difference without increasing near-SOFT PWM.
+   * Reuse the proven S14.2 P+D planner and all independent envelopes.
+   */
+  rmin_bias_cdeg=M8S144_RminBias(
+      steer_s144_rmin_catchup_enable,steer_s142_latched,
+      (uint8_t)(PS2_Pad.Left!=0U && PS2_Pad.Right==0U),
+      (uint8_t)(goal_r<start_r),
+      dist_l,dist_r,(int16_t)gap);
+  baseline_plan=M8S142_SyncPlan(*pwm_l,*pwm_r,cap_l,cap_r,
       floor_l,floor_r,(int16_t)gap,
       steer_s14_obs_l.speed_cdeg_s,
       steer_s14_obs_r.speed_cdeg_s,
       (dist_l<dist_r)?dist_l:dist_r);
+  if(rmin_bias_cdeg!=0U)
+    plan=M8S142_SyncPlan(*pwm_l,*pwm_r,cap_l,cap_r,
+        floor_l,floor_r,(int16_t)(gap+(int32_t)rmin_bias_cdeg),
+        steer_s14_obs_l.speed_cdeg_s,
+        steer_s14_obs_r.speed_cdeg_s,
+        (dist_l<dist_r)?dist_l:dist_r);
+  else
+    plan=baseline_plan;
+  steer_s144_rmin_last_bias_cdeg=rmin_bias_cdeg;
+  if(rmin_bias_cdeg!=0U)
+  {
+    if(steer_s144_rmin_bias_frames!=0xffffffffUL)
+      steer_s144_rmin_bias_frames++;
+    if(rmin_bias_cdeg>steer_s144_rmin_peak_bias_cdeg)
+      steer_s144_rmin_peak_bias_cdeg=rmin_bias_cdeg;
+    if(plan.boost_r>baseline_plan.boost_r &&
+       steer_s144_rmin_right_priority_frames!=0xffffffffUL)
+      steer_s144_rmin_right_priority_frames++;
+  }
   /* Final bounded step after coordinator: cannot defeat 12-CCR
    * owner rise limits even if P+D asks for all remaining headroom.
    * The cap can fall immediately when SOFT is approaching.
@@ -3266,7 +3308,11 @@ static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
   steer_s142_prev_final_l=*pwm_l;
   steer_s142_prev_final_r=*pwm_r;
   steer_s142_sync_gap_cdeg=(int16_t)gap;
-  steer_s142_sync_predict_cdeg=plan.predict_cdeg;
+  /* Keep the legacy diagnostic as the UNBIASED prediction. S14.5
+   * intentional anticipation is separately visible in M8S00_S144.
+   */
+  steer_s142_sync_predict_cdeg=(int16_t)((int32_t)plan.predict_cdeg-
+                                           (int32_t)rmin_bias_cdeg);
   steer_s142_sync_boost_l=plan.boost_l;
   steer_s142_sync_boost_r=plan.boost_r;
   steer_s142_sync_taper_l=plan.trim_l;
@@ -5851,6 +5897,15 @@ static uint8_t M8S05_DumpTiming(void)
   n=snprintf(line,sizeof(line),
       "M8S00_S143_GATE,missing=0x%04x\\r\\n",
       (unsigned)steer_s143_last_gate_missing_mask);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
+  n=snprintf(line,sizeof(line),
+      "M8S00_S144,enable=%u,biasFrames=%lu,rightPriority=%lu,"
+      "lastBias=%u,peakBias=%u\r\n",
+      (unsigned)steer_s144_rmin_catchup_enable,
+      (unsigned long)steer_s144_rmin_bias_frames,
+      (unsigned long)steer_s144_rmin_right_priority_frames,
+      (unsigned)steer_s144_rmin_last_bias_cdeg,
+      (unsigned)steer_s144_rmin_peak_bias_cdeg);
   if(M8S00_UartLine(line,n)==0U)return 0U;
 
   /* Separate encoder RPM from normalized AS5600 travel speed.

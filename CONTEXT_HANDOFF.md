@@ -710,4 +710,12 @@ Next Windows step: git fetch origin; merge --ff-only branch retaining dirty IDE 
 
 [NEXT] Synchronize Windows while protecting dirty project settings, run S14.2+S14.3 verifiers, CubeIDE Clean Build+Flash exact HEAD. Suspended bench with independent motor supply cutoff and checked NC/STOP: inspect boot defaults, confirm disarmed until START, short pulse & stop/coast checks Level1, no automatic UART. R_MIN tuning only after evidence of physical clearance. Level2 boot or ground test not authorized by current data.
 
+### B update 2026-10-31 — M8-S14.5 RIGHT early catch-up
+
+[USER] Asked to improve RIGHT's ability to catch up at R_MIN after new M8S11 15:11 (1722 rows, 0 missing/tx errors) and M8-S00 15:14. Existing Level1 Fast Start functional; S143 grants24 fastAxis46 fallback0, S142 last1. LEFT often reaches SOFT ~0.5s before RIGHT. CSV RIGHT PWM ~125 CCR across much early travel and ~50–100 in last 100 RAW. M8-S14.2 equal instantaneous progress does not anticipate RIGHT's deliberately slower last 100 RAW. Observed coast over SOFT (L_MIN to~1430 vs1454; R_MIN~209 vs216; R_MAX~1020 vs999). Do not turn off terminal taper or move SOFT without physical clearance/current evidence.
+
+[DESIGN/CODE staged] New Level1 D-pad LEFT/R_MIN *opt-in* `steer_s144_rmin_catchup_enable=0` boot. Helper adds 0–200 calibrated cdeg of desired early RIGHT lead to existing S14.2 P+D predictor only if RIGHT not >250 cdeg ahead and BOTH remaining >320 RAW; fades to zero 380→320 RAW. Original NC/EXTI/STOP, per-axis SOFT, 12CCR rise, Level1 caps375/150, R1/R2, RX, D-pad RIGHT and wheel PID unchanged. No effect on verified boot defaults S142 Level1/S143 FastStart ON, motor starts disarmed, UART stream boot OFF. Source tests pure GCC, CI and docs added.
+
+[NEXT] Preserve dirty Windows project; sync SHA, verify S142 and S143, CubeIDE Clean Build+Flash exact commit, bench only with independently verified motor isolation and mechanical clearance. Compare baseline S144=0 and trial=1 in matching LEFT toward R_MIN strokes (>=5 each) using CSV and M8S00_S144; monitor arrival lag and coast. No default ON of untested S144 or ground Level2 trial. If bias/priority counters rise but arrival still lags, examine mechanics and motor driver rather than increasing near SOFT blindly.
+
 END OF CONTEXT HANDOFF

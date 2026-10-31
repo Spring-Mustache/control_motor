@@ -12,6 +12,19 @@ checks={
   'disarmed at reset':'volatile uint8_t steer_manual_enable = 0U;' in s and
       'volatile uint8_t steer_ps2_manual_armed = 0U;' in s,
   'latched on new command':'steer_s142_latched = Steering_S142Level(steer_s142_trial_level);' in s,
+  'S14.5 opt-in off':'volatile uint8_t steer_s144_rmin_catchup_enable = 0U;' in s,
+  'S14.5 gain only AFTER dual sensor/soft guards':
+      'dist_l<=180U||dist_r<=180U)return;' in s and
+      'rmin_bias_cdeg=M8S144_RminBias(' in s and
+      'Steering_S142SyncApply(' in s,
+  'S14.5 D-pad LEFT+Level1 only':
+      '(uint8_t)(PS2_Pad.Left!=0U && PS2_Pad.Right==0U)' in s and
+      '(uint8_t)(goal_r<start_r)' in s and
+      'level!=1U' in (root/'Core/Inc/steer_s144_rmin_catchup.h').read_text(encoding='utf-8'),
+  'S14.5 applied through original planner+rise':
+      'plan=M8S142_SyncPlan(*pwm_l,*pwm_r,cap_l,cap_r,' in s and
+      'M8S142_Rise(plan.right_pwm,steer_s142_prev_final_r,100U)' in s,
+  'S14.5 separate diagnostic':'M8S00_S144,enable=%u,biasFrames=%lu,rightPriority=%lu,' in s,
   'speed-only manual cap':'M8S142_Envelope(left,steer_s142_latched,distance)' in s,
   'staged caps':'375U:150U' in h and '450U:200U' in h,
   'SOFT taper':'remaining<=180U' in h and 'remaining>=320U' in h,
@@ -56,4 +69,11 @@ else:
     qs=subprocess.run([str(exe)],capture_output=True,text=True)
     if qs.returncode:raise SystemExit(qs.stderr)
     print(qs.stdout)
-print('Static only; STM32 build + hardware tests pending')
+    p144=subprocess.run([cc,'-std=c11','-Wall','-Wextra','-Werror',
+       '-I',str(root/'Core/Inc'),str(root/'tools/test_m8_s144_catchup.c'),
+       '-o',str(exe)],capture_output=True,text=True)
+    if p144.returncode:raise SystemExit(p144.stderr)
+    q144=subprocess.run([str(exe)],capture_output=True,text=True)
+    if q144.returncode:raise SystemExit(q144.stdout+'\n'+q144.stderr)
+    print(q144.stdout)
+print('Static checks and pure C host tests only; target Build/Flash/physical verification pending')

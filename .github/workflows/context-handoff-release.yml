@@ -35,6 +35,12 @@ jobs:
             python3 tools/verify_m8_s143_faststart.py
           fi
 
+      - name: Check S14.2 and S14.5 capped steering tests (GCC)
+        run: |
+          if [ -f tools/verify_m8_s142_speed.py ]; then
+            python3 tools/verify_m8_s142_speed.py
+          fi
+
       - name: Build source-grounded handoff bundle
         run: python3 tools/build_context_release.py --output dist/context-release
 
