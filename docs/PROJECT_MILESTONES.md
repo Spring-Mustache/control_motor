@@ -772,3 +772,9 @@ The first S14.3 code push `81800747` was accepted on GitHub but context release 
 - [USER] Windows `python tools/verify_m8_s143_faststart.py`: PASS checks except `legacy fallback` FAIL.
 - [SOURCE] `main.c` declares `STEER_MANUAL_START_RIGHT_MIN_MS  160U` (two spaces), but the verifier's literal expected 3 spaces. Other macros 100ms LEFT, 100ms quiet, 850ms abort and the fallback `fast_now || (settle>=min && quiet>=100)` remain intact. **The failure is a script false-negative, not an observed controller safety failure.**
 - [SCRIPT CHANGE ONLY] Verify macro values with whitespace-tolerant regex and retain structural guard for actual fallback path. No firmware, PWM, controller, hardware behavior or boot default change. Full MCU build, flashing, Level1 A/B latency/coast measurements still pending. New GitHub release must match new HEAD.
+
+## M8-S14.3 correction: cache timing vs alternating idle I2C (2026-10-31)
+
+[USER IMAGE] `steer_s143_fast_start_enable=1`, `steer_s142_trial_level=2`, `steer_s142_last=2`, `steer_s143_fast_grants=0`, `steer_s143_fast_starts=0`, `steer_s143_fallback_starts=41`. The fast path did not activate in that session; this is a blocker to evaluating latency, not proof of bad hardware.
+
+[SOURCE VERIFIED] Idle poll each >=50ms alternates LEFT and RIGHT, so each axis nominal >=100ms; helper age65/gap80 could reset history every normal polling cycle. Fix header age140/gap180 and move neutral observer AFTER existing idle poll. Preserve pre-command proof, new post-command read, drift veto, old 100/160ms plus 100ms fallback, STOP/NC/SOFT and S14.2 PWM. Add two-sensor alternating-sample GCC regression and static verifier. No motor firmware hardware PASS until new STM32 Clean Build, Flash and on-stand A/B.

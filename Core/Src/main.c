@@ -12244,13 +12244,13 @@ int main(void)
         Steering_CalUpdate();      /* SELECT - any NC trip latches */
       }
     }
-    Steering_S143NeutralObserve(); /* cached AS5600 only */
-    /* Existing bounded idle telemetry already refreshes LEFT/RIGHT
-     * AS5600 alternately; do NOT enable heavyweight per-loop I2C probe
-     * while investigating timing of LY wheel control.
+    /* Existing bounded idle telemetry refreshes one AS5600 every
+     * >=50ms, alternating sides. Observe AFTER read, so the new sample
+     * is eligible immediately. No additional I2C calls are added.
      */
     if (debug_steer_auto_as5600_idle_observe != 0U)
       Steering_PositionTelemetryIdleUpdate();
+    Steering_S143NeutralObserve(); /* cached AS5600 only */
     M8S00_ClearService(); /* read-only S00 diagnostics reset */
     PS2_DebugObserveRightOutput(); /* after all PWM owners have run */
     M8S00_ObserveConcurrent(); /* PWM commands only; never actuates */

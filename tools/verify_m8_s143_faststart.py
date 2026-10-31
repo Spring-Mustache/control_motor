@@ -7,6 +7,12 @@ s=(root/'Core/Src/main.c').read_text(encoding='utf-8')
 h=(root/'Core/Inc/steer_s143_faststart.h').read_text(encoding='utf-8')
 checks={
  'opt-in boot OFF':'steer_s143_fast_start_enable = 0U;' in s,
+ 'alternate idle poll before quiet observe':
+     s.index('Steering_PositionTelemetryIdleUpdate();') < s.index('Steering_S143NeutralObserve();'),
+ 'idle cadence matches cache windows':
+     '#define STEER_POS_IDLE_POLL_MS      50U' in s and
+     '#define M8S143_MAX_GAP_MS 180U' in h and
+     '#define M8S143_MAX_AGE_MS 140U' in h,
  'both idle observers':'M8S143_Ready(&steer_s143_quiet_l,now,' in s and 'M8S143_Ready(&steer_s143_quiet_r,now,' in s,
  'new post-command sample':'dt >= 10U' in s and 'axis->fast_reference_sample_ms' in s,
   'legacy fallback':(

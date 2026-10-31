@@ -672,4 +672,14 @@ First S14.3 push `81800747` failed context-release due to verifier regex `.*` wi
 
 Người vận hành chạy `python tools/verify_m8_s143_faststart.py` trên Windows với phiên bản `4c461753`, bảy kiểm tra khác PASS, duy nhất `legacy fallback` FAIL. Đã so `Core/Src/main.c`: macro RIGHT min=160U, LEFT min=100U, quiet=100U, timeout=850U và nhánh `fast_now || (settle_ms >= min_ms && quiet_ms >= 100)` còn nguyên. Nguyên nhân là verifier tìm chuỗi đúng 3 khoảng trắng trong khi source dùng 2. Sửa verifier kiểm tra macro bằng regex linh hoạt khoảng trắng và kiểm tra các dấu hiệu logic fallback; **không đổi firmware**. Chưa có bằng chứng Clean Build, Flash hay kiểm thử fast start trên MCU của bản mới. Hành động tiếp theo: đồng bộ commit, chạy verifier rồi Clean Build/Flash và ghi CSV A/B mức 1.
 
+### Hội thoại B 2026-10-31 — sửa S14.3 neutral polling mismatch
+
+[USER IMAGE] `steer_s143_fast_start_enable=1`, `steer_s142_trial_level=2`, `steer_s142_last=2`, `steer_s143_fast_grants=0`, `steer_s143_fast_starts=0`, `steer_s143_fallback_starts=41`. Không có lượt Fast Start được cấp phép; không được coi delay đã cải thiện. `debug_as5600_*_status=39` biểu diễn MD hợp lệ nếu I2C comm_ok, không tự chứng minh lỗi nam châm.
+
+[REPO] `STEER_POS_IDLE_POLL_MS=50`, hàm IdleTelemetry chỉ đọc 1 cảm biến mỗi lượt rồi luân phiên -> thời gian cập nhật mỗi sensor >=100ms. Cấu hình S14.3 cũ `MAX_GAP=80`, `MAX_AGE=65` khiến observer xóa lịch sử yên tĩnh khi bắt gặp mẫu mới bình thường. Đây là lỗi software đã tìm được.
+
+[CODE-STAGED] Sửa `Core/Inc/steer_s143_faststart.h` MAX_AGE=140, MAX_GAP=180; chuyển observer sau IdleTelemetry (không thêm I2C). Unit test thêm mô phỏng 50ms interleaved, verifier kiểm tra thời gian và thứ tự. Giữ hoàn toàn old settle fallback và các bảo vệ độc lập, Level2 không auto-boot. Không có CubeIDE Clean Build/Flash/motor-current/coast proof cho bản sửa.
+
+[NEXT] Sau GitHub sync/verify và Clean Build/Flash: thử lại trên giá treo với Level1, Fast OFF/ON, đo `grants`, `fast_starts`, `fallback_starts`, M8S11 50ms và M8S00; >=5 lần/chiều, đo trôi gần SOFT và STOP/cutoff. Chỉ cân nhắc Level2 dưới tải khi có chứng cứ dừng an toàn.
+
 END OF CONTEXT HANDOFF

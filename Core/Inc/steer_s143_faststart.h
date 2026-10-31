@@ -3,8 +3,11 @@
 #include <stdint.h>
 /* Pure cached AS5600 neutral stillness; NO peripheral writes/reads. */
 #define M8S143_QUIET_MS 100U
-#define M8S143_MAX_AGE_MS 65U
-#define M8S143_MAX_GAP_MS 80U
+/* Alternating idle sampling: one sensor each >=50ms means each axis
+ * normally has ~100ms between samples. Stale cache still fails closed;
+ * every fast command also needs a fresh POST-COMMAND sensor read. */
+#define M8S143_MAX_AGE_MS 140U
+#define M8S143_MAX_GAP_MS 180U
 typedef struct {
  uint16_t anchor_raw,last_raw;
  uint32_t quiet_since_ms,last_sample_ms;
