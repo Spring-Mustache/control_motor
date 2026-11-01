@@ -28,7 +28,6 @@
 #include "ram_logger.h"
 #include "vc02.h"
 #include "as5600.h"
-#include "steer_s14_math.h"
 #include "steer_s142_speed.h"
 #include "steer_s142_sync.h"
 #include "steer_s144_rmin_catchup.h"
@@ -2920,20 +2919,6 @@ static uint16_t Steering_AngleStrokeProgress(int16_t start,
 }
 
 
-/* M8-S14 experimental manual cross-coupled angle/velocity taper.
- * OFF by default. A mode selection is frozen at the next valid
- * neutral->D-pad/RX command, never changed in the middle of a stroke.
- * This controller does not apply to R1/R2, ESCAPING, FINE or SELECT.
- * The existing per-axis NC, sensor, stall, soft stop and late EXTI
- * arbitration remain responsible for the actual motor outputs.
- */
-volatile uint8_t steer_s14_manual_enable = 0U;
-volatile uint8_t steer_s14_manual_latched = 0U;
-/* Independent S14.1 experimental flag, OFF by default, latched once per
- * new LEFT manual command. No PWM cap or motor owner authority changes.
- */
-#define STEER_S141_RIGHT_NEAR_CAP_PWM 98U
-volatile uint8_t steer_s141_left_enable = 0U;
 /* M8-S14.8: operator-requested Level2 default 450/200 CCR.
  * SOURCE-STAGED, not hardware-validated at Level2. No auto motor arm:
  * PS2 START+neutral, NC, STOP, SOFT owners remain authoritative.
@@ -3098,24 +3083,6 @@ volatile uint16_t steer_s142_sync_taper_r = 0U;
 volatile uint16_t steer_s142_prev_final_l = 300U;
 volatile uint16_t steer_s142_prev_final_r = 100U;
 
-volatile uint8_t steer_s141_left_latched = 0U;
-volatile uint8_t steer_s141_last_mode = 0U;
-volatile uint8_t steer_s141_last_right_near_cap = 0U;
-volatile uint16_t steer_s141_last_base_trim_l = 0U;
-volatile uint16_t steer_s141_last_plan_trim_l = 0U;
-volatile uint32_t steer_s141_extra_trim_frames = 0U;
-volatile uint8_t steer_s14_last_mode = 0U;
-volatile int16_t steer_s14_last_gap_cdeg = 0;
-volatile int16_t steer_s14_last_predict_cdeg = 0;
-volatile uint16_t steer_s14_speed_l_cdeg_s = 0U;
-volatile uint16_t steer_s14_speed_r_cdeg_s = 0U;
-volatile uint16_t steer_s14_trim_l_pwm = 0U;
-volatile uint16_t steer_s14_trim_r_pwm = 0U;
-volatile uint32_t steer_s14_valid_frames = 0U;
-volatile uint32_t steer_s14_skipped_frames = 0U;
-volatile uint32_t steer_s14_taper_l_frames = 0U;
-volatile uint32_t steer_s14_taper_r_frames = 0U;
-
 typedef struct
 {
   uint32_t sample_ms;
@@ -3131,10 +3098,6 @@ static void Steering_S14ManualReset(void)
 {
   steer_s14_obs_l = (SteeringS14Observer_t){0};
   steer_s14_obs_r = (SteeringS14Observer_t){0};
-  steer_s14_trim_l_pwm = 0U;
-  steer_s14_trim_r_pwm = 0U;
-  steer_s14_manual_latched = 0U;
-  steer_s141_left_latched = 0U;
   steer_s142_latched = 0U;
   steer_s147_latched = 0U;
   steer_s149_latched = 0U;
@@ -3182,140 +3145,6 @@ static void Steering_S14Observe(SteeringS14Observer_t *obs,
   obs->sample_ms = sample_ms;
   obs->travel_cdeg = travel;
 }
-
-static void Steering_S14ManualApply(uint16_t start_l, uint16_t goal_l,
-    uint16_t raw_l, uint16_t start_r, uint16_t goal_r, uint16_t raw_r,
-    uint16_t floor_l, uint16_t floor_r,
-    uint16_t *duty_l, uint16_t *duty_r)
-{
-  int16_t sl, gl, al, sr, gr, ar;
-  int32_t dl, dr, travel_l, travel_r, gap;
-  uint16_t dist_l, dist_r, min_dist, room_l, room_r;
-  uint32_t now = HAL_GetTick();
-  M8S14Plan_t plan, baseline_plan;
-
-  /* Output-only: never energize a channel that its own owner stopped.
-   * Recheck both sensor ages; normal motion/NC guards run separately.
-   */
-  if ((steer_s14_manual_latched != 1U) ||
-      (*duty_l == 0U) || (*duty_r == 0U) ||
-      (steer_pos_left_last_sample_ms == 0U) ||
-      (steer_pos_right_last_sample_ms == 0U) ||
-      ((uint32_t)(now - steer_pos_left_last_sample_ms) > 100U) ||
-      ((uint32_t)(now - steer_pos_right_last_sample_ms) > 100U) ||
-      (Steering_AngleFromRaw(1U, start_l, &sl) == 0U) ||
-      (Steering_AngleFromRaw(1U, goal_l, &gl) == 0U) ||
-      (Steering_AngleFromRaw(1U, raw_l, &al) == 0U) ||
-      (Steering_AngleFromRaw(0U, start_r, &sr) == 0U) ||
-      (Steering_AngleFromRaw(0U, goal_r, &gr) == 0U) ||
-      (Steering_AngleFromRaw(0U, raw_r, &ar) == 0U))
-  {
-    if (steer_s14_skipped_frames != 0xffffffffUL)
-      steer_s14_skipped_frames++;
-    return;
-  }
-  dl = (int32_t)gl - sl;
-  dr = (int32_t)gr - sr;
-  if (dl == 0 || dr == 0) return;
-  travel_l = (int32_t)al - sl;
-  travel_r = (int32_t)ar - sr;
-  if (dl < 0) { dl = -dl; travel_l = -travel_l; }
-  if (dr < 0) { dr = -dr; travel_r = -travel_r; }
-  /* Short strokes and wrong-way/unexpected overshoot go to the
-   * existing independent owners; no fabricated synchronized goal.
-   */
-  if ((dl < 500) || (dr < 500) ||
-      (travel_l < -20) || (travel_r < -20) ||
-      (travel_l > dl + 20) || (travel_r > dr + 20))
-  {
-    if (steer_s14_skipped_frames != 0xffffffffUL)
-      steer_s14_skipped_frames++;
-    return;
-  }
-  if (travel_l < 0) travel_l = 0;
-  if (travel_r < 0) travel_r = 0;
-  dist_l = (raw_l > goal_l) ? (raw_l - goal_l) : (goal_l - raw_l);
-  dist_r = (raw_r > goal_r) ? (raw_r - goal_r) : (goal_r - raw_r);
-  min_dist = (dist_l < dist_r) ? dist_l : dist_r;
-  if (min_dist <= 100U)
-  {
-    /* Near a SOFT target, the pre-existing per-axis coast taper
-     * alone controls PWM. S14 is faded out over 200->100 RAW.
-     */
-    steer_s14_trim_l_pwm = 0U;
-    steer_s14_trim_r_pwm = 0U;
-    return;
-  }
-  Steering_S14Observe(&steer_s14_obs_l,
-                      steer_pos_left_last_sample_ms, (int16_t)travel_l);
-  Steering_S14Observe(&steer_s14_obs_r,
-                      steer_pos_right_last_sample_ms, (int16_t)travel_r);
-  if ((steer_s14_obs_l.valid == 0U) ||
-      (steer_s14_obs_r.valid == 0U))
-  {
-    steer_s14_trim_l_pwm = 0U;
-    steer_s14_trim_r_pwm = 0U;
-    if (steer_s14_skipped_frames != 0xffffffffUL)
-      steer_s14_skipped_frames++;
-    return;
-  }
-  gap = travel_l - travel_r;
-  if (gap > 9000) gap = 9000;
-  if (gap < -9000) gap = -9000;
-  baseline_plan = M8S14_Plan((int16_t)gap,
-                             steer_s14_obs_l.speed_cdeg_s,
-                             steer_s14_obs_r.speed_cdeg_s, min_dist);
-  plan = baseline_plan;
-  if (steer_s141_left_latched != 0U)
-  {
-    uint8_t right_near_cap =
-        (*duty_r >= STEER_S141_RIGHT_NEAR_CAP_PWM) ? 1U : 0U;
-    steer_s141_last_right_near_cap = right_near_cap;
-    plan = M8S141_PlanLeftSaturated((int16_t)gap,
-            steer_s14_obs_l.speed_cdeg_s,
-            steer_s14_obs_r.speed_cdeg_s, min_dist, right_near_cap);
-    steer_s141_last_base_trim_l = baseline_plan.trim_left_pwm;
-    steer_s141_last_plan_trim_l = plan.trim_left_pwm;
-    if ((plan.trim_left_pwm > baseline_plan.trim_left_pwm) &&
-        (steer_s141_extra_trim_frames != 0xffffffffUL))
-      steer_s141_extra_trim_frames++;
-  }
-  steer_s14_last_gap_cdeg = (int16_t)gap;
-  steer_s14_last_predict_cdeg = plan.predicted_error_cdeg;
-  steer_s14_speed_l_cdeg_s = steer_s14_obs_l.speed_cdeg_s;
-  steer_s14_speed_r_cdeg_s = steer_s14_obs_r.speed_cdeg_s;
-  /* Update trim only on fresh AS5600 feedback, bounded to 8 CCR
-   * per new sample. No synchronous sample assumption is made.
-   */
-  if ((steer_s14_obs_l.updated != 0U) ||
-      (steer_s14_obs_r.updated != 0U))
-  {
-    steer_s14_trim_l_pwm = M8S14_Slew(steer_s14_trim_l_pwm,
-                                     plan.trim_left_pwm, 8U);
-    steer_s14_trim_r_pwm = M8S14_Slew(steer_s14_trim_r_pwm,
-                                     plan.trim_right_pwm, 8U);
-  }
-  room_l = (*duty_l > floor_l) ? (uint16_t)(*duty_l - floor_l) : 0U;
-  room_r = (*duty_r > floor_r) ? (uint16_t)(*duty_r - floor_r) : 0U;
-  if (steer_s14_trim_l_pwm > room_l)
-    steer_s14_trim_l_pwm = room_l;
-  if (steer_s14_trim_r_pwm > room_r)
-    steer_s14_trim_r_pwm = room_r;
-  /* Only reduce already-authorized PWM; never boost, reverse, hold
-   * at PWM=0, bypass NC or defeat independent soft-stop deceleration.
-   */
-  *duty_l = (uint16_t)(*duty_l - steer_s14_trim_l_pwm);
-  *duty_r = (uint16_t)(*duty_r - steer_s14_trim_r_pwm);
-  if (steer_s14_valid_frames != 0xffffffffUL)
-    steer_s14_valid_frames++;
-  if ((steer_s14_trim_l_pwm != 0U) &&
-      (steer_s14_taper_l_frames != 0xffffffffUL))
-    steer_s14_taper_l_frames++;
-  if ((steer_s14_trim_r_pwm != 0U) &&
-      (steer_s14_taper_r_frames != 0xffffffffUL))
-    steer_s14_taper_r_frames++;
-}
-
 
 /* M8-S14.8: two independent velocity PI loops on a COMMON
  * calibrated-progress trajectory. Only the D-pad LEFT/Level1 trial may
@@ -6103,40 +5932,6 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned long)steer_speed_sat_r_frames);
   if (M8S00_UartLine(line, n) == 0U) return 0U;
 
-  /* M8-S14 is optional; these are boot counters and latest dual-moving
-   * calibrated-centidegree feedback, not an R1/R2 or wheel-angle proof.
-   */
-  n = snprintf(line, sizeof(line),
-      "M8S00_S14,boot=%u,last=%u,frames=%lu,"
-      "trimLframes=%lu,trimRframes=%lu,skipped=%lu,"
-      "gap_cdeg=%d,predict_cdeg=%d,spdL_cdeg_s=%u,spdR_cdeg_s=%u,"
-      "trimL=%u,trimR=%u\r\n",
-      (unsigned)steer_s14_manual_enable,
-      (unsigned)steer_s14_last_mode,
-      (unsigned long)steer_s14_valid_frames,
-      (unsigned long)steer_s14_taper_l_frames,
-      (unsigned long)steer_s14_taper_r_frames,
-      (unsigned long)steer_s14_skipped_frames,
-      (int)steer_s14_last_gap_cdeg,
-      (int)steer_s14_last_predict_cdeg,
-      (unsigned)steer_s14_speed_l_cdeg_s,
-      (unsigned)steer_s14_speed_r_cdeg_s,
-      (unsigned)steer_s14_trim_l_pwm,
-      (unsigned)steer_s14_trim_r_pwm);
-  if (M8S00_UartLine(line, n) == 0U) return 0U;
-  /* S14.1 A/B diagnostics. last is the previous command's latched mode.
-   * Extra frames count requested taper increase, NOT measured success.
-   */
-  n = snprintf(line, sizeof(line),
-      "M8S00_S141,enable=%u,last=%u,rightNearCap=%u,"
-      "extraFrames=%lu,baseTrimL=%u,planTrimL=%u\r\n",
-      (unsigned)steer_s141_left_enable,
-      (unsigned)steer_s141_last_mode,
-      (unsigned)steer_s141_last_right_near_cap,
-      (unsigned long)steer_s141_extra_trim_frames,
-      (unsigned)steer_s141_last_base_trim_l,
-      (unsigned)steer_s141_last_plan_trim_l);
-  if (M8S00_UartLine(line, n) == 0U) return 0U;
   /* Owner demand only: not measured physical RPM or stopping distance. */
   n=snprintf(line,sizeof(line),
       "M8S00_S142,level=%u,last=%u,higherL=%lu,higherR=%lu,"
@@ -8005,19 +7800,6 @@ static void Steering_ManualUpdate(void)
     steer_s149_latched=((steer_s147_latched!=0U) &&
         (steer_s149_early_lead_enable==1U))?1U:0U;
     steer_s149_last=steer_s149_latched;
-    /* S14/S14.1 never claim ownership in a high-ceiling stroke. */
-    steer_s14_manual_latched =
-        ((steer_s142_latched == 0U) &&
-         (steer_s14_manual_enable == 1U)) ? 1U : 0U;
-    steer_s14_last_mode = steer_s14_manual_latched;
-    steer_s141_left_latched =
-        ((steer_s142_latched == 0U) &&
-         (steer_s14_manual_latched != 0U) &&
-         (steer_s141_left_enable == 1U) && (command < 0)) ? 1U : 0U;
-    steer_s141_last_mode = steer_s141_left_latched;
-    steer_s141_last_right_near_cap = 0U;
-    steer_s141_last_base_trim_l = 0U;
-    steer_s141_last_plan_trim_l = 0U;
     m8_s05_manual_kind =
         ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U)) ? 3U : 4U;
     M8S00_ArrivalBegin(3U, (left_direction < 0) ? 3U : 4U,
@@ -8262,8 +8044,7 @@ static void Steering_ManualUpdate(void)
     steer_sync_left_pwm_command=la;
     steer_sync_right_pwm_reference=ra;
   }
-  else if (((steer_angle_wp_enable == 1U) ||
-            (steer_s14_manual_latched == 1U)) &&
+  else if ((steer_angle_wp_enable == 1U) &&
            (steer_manual_left_state == STEER_MANUAL_MOVING) &&
            (steer_manual_right_state == STEER_MANUAL_MOVING))
   {
@@ -8303,15 +8084,6 @@ static void Steering_ManualUpdate(void)
           Steering_ManualClampPWM(steer_manual_left_rx_min_pwm),
           Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
           &la,&ra);
-    else if (steer_s14_manual_latched == 1U)
-      Steering_S14ManualApply(
-          steer_manual_left_axis.phase_start_raw,
-          steer_manual_left_soft_target, debug_as5600_left_raw,
-          steer_manual_right_axis.phase_start_raw,
-          steer_manual_right_soft_target, debug_as5600_right_raw,
-          Steering_ManualClampPWM(steer_manual_left_rx_min_pwm),
-          Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
-          &la, &ra);
     else if (steer_angle_wp_enable == 1U)
       Steering_AngleWaypointApply(3U,
           steer_manual_left_axis.phase_start_raw,
