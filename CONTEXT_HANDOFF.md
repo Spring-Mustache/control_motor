@@ -49,6 +49,11 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### CHỐT QUY TRÌNH TEST S15.2 — DỮ LIỆU CHỈ QUA POWERSHELL (2026-11-01)
+
+[USER, binding requirement] Người vận hành **KHÔNG dùng app terminal/COM và KHÔNG dùng Live Expressions** để gửi log. Assistant đã sai khi hướng dẫn terminal và Live Expressions; không lặp lại. [DONE SOURCE] `tools/capture_m8_s152.ps1` là PowerShell native, dùng `System.IO.Ports.SerialPort` ST-LINK VCP, lưu 4 bản `M8S152` trong 4 M8S00 frames vào 1 TXT, kiểm `kind/dirL` và final=1/PWM0; không cần app hay thay đổi MCU firmware 762534d. [TEST OPERATOR] One PowerShell command trước 4 lượt; mỗi lượt PS2 START arm, test, START disarm và **USER short press** để MCU xuất UART (gate full disarm); PowerShell auto ghi, không chạy S11 song song. [LIMIT] Chỉ RAM last stroke; xuất trước khi bắt đầu lượt sau. [VALIDATION] Github source/static and Windows parser; physical COM/CubeIDE/HW chưa nghiệm thu. Chi tiết `docs/M8_S152_POWERSHELL_CAPTURE.md`.
+
+
 ### Cập nhật SOURCE S15.2 (2026-11-01, chờ exact SHA CI)
 
 [USER] Máy local đang 17ff3d7; muốn cập nhật một lần sau khi có firmware S15.2, không pull riêng các docs trước. [SOURCE] S15.2 thêm pure helper `steer_s152_manual_relation.h` và post-atomic RAM observer `M8S152_Record` cho D-pad LEFT/RIGHT và RX; 96 rows latest stroke, 50ms, signed calibrated relation proxy, angle/speed prediction from independent AS5600 timestamps, post-disarm M8S152 UART. Không áp PWM shadow hay thêm I2C/active UART. Level2/Fast Start defaults, LEFT owner, RIGHT actual200/proposed300, STOP/NC/SOFT còn nguyên. [TEST] New HOST/static CI script, CubeIDE/Flash/hardware not verified. [NEXT] Check CI exact SHA, then local safe ff-only from 17ff3d7, Clean Build/Flash, independent electrical/NC checks before powered log. S15.3 not started; S15.4 then VC-02; S15.5 deferred.
@@ -1121,4 +1126,5 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 ### S15.2 terminal shadow row correction (2026-11-01)
 
 [BUGFIX SOURCE] M8S152_Record(force=1) executes after zeroing CCR in Steering_ManualStop while STEER_MANUAL_MOVING enum may still be retained. Set moving=0 explicitly for forced terminal sample so predValid=0, shadowR stays actual PWM=0, never report post-disarm predictive eligibility. No change to output or stop logic. [PROCESS] First correction push omitted the paired required handoff+roadmap update and handoff-contract CI failed despite earlier source HOST pass; this corrective documentation commit restores both records. Recheck full GitHub Actions at exact final SHA. No STM32/flash/hardware acceptance.
+[PowerShell-only correction, S15.2] 0=User prohibits PC serial apps/Live Expressions; 1=single PowerShell command for four traces; 2=preserve S15.2 proxy and shadow-only; 3=one file desired, no app; 4=S15.2->S15.3->S15.4->VC02; 5=new capture_m8_s152.ps1 and verifier/docs/CI; 6=physical COM/USB test still pending; 7=docs/M8_S152_POWERSHELL_CAPTURE.md; 8=do not use S11 app/Live Expressions; 9=old capture_m8_s00.ps1 one-run only; 10=USBUART after full disarm not live motor; 11=one command + USER short after each stroke; 12=real wheel-angle geometry unknown; 13=2026-11-01 explicit correction; 14=4 sections each M8S152 meta A/B; 15=privacy: local data file only, send one TXT; 16=CI != hardware COM validation.
 END OF CONTEXT HANDOFF

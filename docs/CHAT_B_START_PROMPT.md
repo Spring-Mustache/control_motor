@@ -21,6 +21,9 @@ Tôi muốn bạn tiếp tục dự án **xe tăng cướp bóng — STM32F767ZI
 
 ## Giữ đúng các quyết định và bảo vệ
 
+**[USER REQUIREMENT S15.2 LOG TRANSFER]:** Chỉ hướng dẫn một câu lệnh Windows PowerShell dùng `tools/capture_m8_s152.ps1`. Không đề xuất terminal app/Live Expressions hoặc manual GUI. Người vận hành làm 4 test, mỗi test disarm + short USER để phát UART qua M8S00, script thu cùng 1 TXT. Xem `docs/M8_S152_POWERSHELL_CAPTURE.md`.
+
+
 **S15.2 source update (2026-11-01):** M8S152 shadow observer for all D-pad/RX manual strokes with 96 RAM frames and post-disarm UART, read-only normalized calibrated angle relation, no motor changes. Verify exact SHA CI then user may fast-forward from local 17ff3d7, followed by their own CubeIDE build and hardware-safety check. S15.3 actuation not yet begun. Read `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`.
 
 

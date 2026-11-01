@@ -978,3 +978,7 @@ Manual D-pad LEFT/RIGHT and RX passive angular-relation predictor, calibrated pr
 ## S15.2 terminal prediction flag correction (2026-11-01; SOURCE-only)
 
 Last stop frame is forcibly written after manual motor CCR=0; a retained MOVING enum must not make its predictive-feedback eligibility valid. Updated `M8S152_Record` to require `force==0` for moving prediction, and kept shadow output zero in forced stop row. No actuation/owner/Level2/Fast Start/RIGHT300 change. First isolated fix commit failed workflow handoff-contract gate because it lacked paired handoff+roadmap files; this follow-up restores the required documentation. CI full retest needed at final SHA; host pass or code CI != MCU Build/Flash/HW PASS.
+
+## S15.2 PowerShell-only four-run capture — USER requirement (2026-11-01)
+
+Operator requires **only a PowerShell command to receive/file data**, no terminal app/Live Expressions/third-party serial tools. New `tools/capture_m8_s152.ps1` uses built-in .NET SerialPort, listens continuously for FOUR disarmed short-USER M8S00 dumps and saves ONE TXT of M8S152_META/A/B frames. Each manual stroke must be exported before next because S15.2 RAM overwrites last stroke. Script validates kind/direction, end marker, final zero CCR; static and Windows syntax CI introduced. No MCU/owner/PWM behavior change. Read `docs/M8_S152_POWERSHELL_CAPTURE.md`. No hardware COM validation yet.
