@@ -21,3 +21,6 @@ with tempfile.TemporaryDirectory() as d:
  p=subprocess.run([str(Path(d)/'run')],capture_output=True,text=True)
  if p.returncode:raise SystemExit(p.stdout+p.stderr)
  print(p.stdout)
+
+assert r'M8S151_META,run=' in s and r'proposalApplied=0\r\n' in s, 'M8S151 output CRLF must be real C escaped CRLF'
+assert r'\\r\\n' not in s[s.index('static uint8_t M8S151_Dump('):s.index('static void M8S00_DumpUpdate(void)')], 'escaped literal line endings forbidden'

@@ -1048,4 +1048,6 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 - [SOURCE] Trace RAM 96 mẫu của stroke D-pad LEFT S15 mới nhất, 50ms hoặc state đổi; lưu T/elapsed, AS5600 RAW/góc/timestamp/speed, encoder signed delta và dt/valid, owner/cap/candidate/actual post-atomic CCR, hai state và NC. M8S00 xuất `M8S151_META` và cặp `M8S151_A`/`M8S151_B` sau disarm. Không đổi M8S11 CSV. Nếu vượt dung lượng báo dropped, dòng cuối STOP được giữ. Không có UART blocking lúc motor chạy.
 - [VALIDATION] GCC/helper và static checks tích hợp CI, chỉ gọi HOST PASS sau khi xác nhận đúng SHA. CubeIDE Build, flashed SHA, current/coast/hardware vẫn chưa có bằng chứng. Không tự chạy motor hoặc công bố log riêng tư.
 
+
+[M8-S15.1 CORRECTION] Chỉnh chỉ escape CRLF của 4 dòng UART M8S151 (không đổi cấu trúc/motor), bổ sung static regression; cần CI đúng SHA. Không cập nhật trần PWM đang kích hoạt.
 END OF CONTEXT HANDOFF

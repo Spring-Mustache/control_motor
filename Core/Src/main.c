@@ -6161,7 +6161,7 @@ static uint8_t M8S05_DumpTiming(void)
       (unsigned long)steer_s143_quiet_frames);
   if(M8S00_UartLine(line,n)==0U)return 0U;
   n=snprintf(line,sizeof(line),
-      "M8S00_S143_GATE,missing=0x%04x\\r\\n",
+      "M8S00_S143_GATE,missing=0x%04x\r\n",
       (unsigned)steer_s143_last_gate_missing_mask);
   if(M8S00_UartLine(line,n)==0U)return 0U;
   n=snprintf(line,sizeof(line),
@@ -6700,7 +6700,7 @@ static uint8_t M8S151_Dump(void)
  char line[384];int n;uint16_t i;
  n=snprintf(line,sizeof(line),
    "M8S151_META,run=%lu,rows=%u,dropped=%lu,period=%u,RIGHTcapActive=%u,"
-   "RIGHTcapProposed=%u,proposalApplied=0\\r\\n",
+   "RIGHTcapProposed=%u,proposalApplied=0\r\n",
    (unsigned long)m8s151_run,(unsigned)m8s151_count,
    (unsigned long)m8s151_dropped,(unsigned)M8S151_PERIOD_MS,
    (unsigned)M8S151_RIGHT_ACTIVE_CAP,(unsigned)M8S151_RIGHT_PROPOSED_CAP);
@@ -6710,7 +6710,7 @@ static uint8_t M8S151_Dump(void)
   n=snprintf(line,sizeof(line),
     "M8S151_A,i=%u,ms=%lu,T=%u,elapsed=%u,rawL=%u,rawR=%u,goalL=%u,goalR=%u,"
     "angleL=%d,angleR=%d,refL=%d,refR=%d,errL=%d,errR=%d,"
-    "asVelL=%u,asVelR=%u,asTickL=%lu,asTickR=%lu\\r\\n",
+    "asVelL=%u,asVelR=%u,asTickL=%lu,asTickR=%lu\r\n",
     (unsigned)i,(unsigned long)r->ms,(unsigned)r->T,(unsigned)r->elapsed,
     (unsigned)r->rawL,(unsigned)r->rawR,(unsigned)r->goalL,(unsigned)r->goalR,
     (int)r->angleL,(int)r->angleR,(int)r->refL,(int)r->refR,
@@ -6720,7 +6720,7 @@ static uint8_t M8S151_Dump(void)
   n=snprintf(line,sizeof(line),
     "M8S151_B,i=%u,encDt=%u,dEncL=%d,dEncR=%d,encOkL=%u,encOkR=%u,"
     "ownerL=%u,ownerR=%u,capL=%u,capR=%u,candidateL=%u,candidateR=%u,"
-    "appliedL=%u,appliedR=%u,stateL=%u,stateR=%u,plan=%u,nc=%u\\r\\n",
+    "appliedL=%u,appliedR=%u,stateL=%u,stateR=%u,plan=%u,nc=%u\r\n",
     (unsigned)i,(unsigned)r->encDt,(int)r->dEncL,(int)r->dEncR,
     (unsigned)r->encOkL,(unsigned)r->encOkR,
     (unsigned)r->ownerL,(unsigned)r->ownerR,(unsigned)r->capL,(unsigned)r->capR,
