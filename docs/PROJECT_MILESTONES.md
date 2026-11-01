@@ -1,6 +1,10 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-## TRẠNG THÁI HIỆN HÀNH để tiếp quản (bổ sung 2026-10-31)
+## TRẠNG THÁI HIỆN HÀNH để tiếp quản (cập nhật kế hoạch 2026-11-01)
+
+**ĐỊNH HƯỚNG M8-S15 MỚI (2026-11-01):** Manual D-pad/joystick RX ưu tiên quan hệ góc giữa hai cơ cấu lái, KHÔNG ép đồng tốc tuyệt đối hoặc thời gian T chung. Giữ LEFT, cải thiện RIGHT, dự đoán sai lệch góc, Fast Start + Level2 boot defaults; R1/R2 và lệnh góc biết trước dùng common-T có điều kiện (R2 chỉ nếu cả hai CENTER, R2 physical MIN/NC). S15.1 mới telemetry-only; lộ trình S15.2–S15.6 ở cuối và trong `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`. Những khối S15 pilot cũ bên dưới là lịch sử, không phải lựa chọn manual mặc định mới.
+
+
 
 **M8-S15 [NHÁNH HIỆN HÀNH, ĐÃ CÓ LOG PILOT]:** two independent calibrated steering goals, ONE completion time T. Branch `feature/m8-s15-dual-target-common-time`: SHA source lúc nhận log `cee4d8bce562d6c77c36dbe0991caab28b4d8d2b`, commit hồ sơ tiếp theo `2cd12a2f753e6df4a0a9e4a4d28d95ab628c09fa` (Actions `41204441709` PASS); branch M7-S15 cũ ở `bcf6c2a4e122de91ee8fdb864f5fe7cfd10cca5d` (pre-S14.7). S15 pure plan hỗ trợ target khác nhau; đường motor hiện chỉ pilot D-pad LEFT Level2 tới SOFT. Log 19:34–19:35: S15 enable1, started7, frames844; 6/7 lệnh D-pad LEFT tới SOFT hai trục, một lệnh nhả sớm, nhưng hai lượt từ gần **L_MIN→SOFT L_MAX / R_MAX→SOFT R_MIN** có RIGHT đến sau LEFT 448/669ms theo CSV (M8-S06 một lượt ghi 628ms). **Chưa đạt cùng T vật lý** và chưa thử arbitrary target. [USER] bổ sung khoảng hở R_MIN→NC còn 3 mm; log manual không có NC trip. CI exact SHA PASS; chưa có Clean Build/Flash SHA, đo dòng/quãng trôi sau CCR0/nguồn ngắt độc lập, Gate A/B. Không chồng S147/S148/S149, boot OFF, NC/STOP giữ nguyên. Xem `docs/M8_S15_DUAL_TARGET_COMMON_TIME.md` và mục cuối tài liệu; kiểm tra lại HEAD khi tiếp quản.
 
@@ -954,3 +958,9 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 - [VALIDATION] GCC/helper và static checks tích hợp CI, chỉ gọi HOST PASS sau khi xác nhận đúng SHA. CubeIDE Build, flashed SHA, current/coast/hardware vẫn chưa có bằng chứng. Không tự chạy motor hoặc công bố log riêng tư.
 
 [M8-S15.1 CORRECTION] Chỉnh chỉ escape CRLF của 4 dòng UART M8S151 (không đổi cấu trúc/motor), bổ sung static regression; cần CI đúng SHA. Không cập nhật trần PWM đang kích hoạt.
+
+## M8-S15 — Roadmap MANUAL ANGLE-RELATION + POSITION COMMON-T (chốt 2026-11-01, DOCUMENTATION ONLY)
+
+**Quyết định hiện hành từ người vận hành:** D-pad và joystick RX cần **bám quan hệ góc hai bánh**, không ép đồng tốc góc tuyệt đối hoặc cố T chung khi không biết lúc nhả. Hai cung/hình học khác nhau khiến so RAW, góc đã đi hoặc speed bằng nhau có thể sai. **Giữ dự đoán sai lệch góc P+D, Fast Start S14.3 boot-ON và Level2 boot=2; không hãm LEFT để bù RIGHT**. RIGHT ưu tiên bám quan hệ góc trong cap, đo AS5600 và nghiên cứu encoder đã kiểm chứng. R1 có thể T chung khi khả thi; R2 **chỉ xét T chung từ CENTER của cả hai**, ngoài CENTER sử dụng điều khiển vị trí độc lập và NC-authoritative. Lệnh góc bất kỳ/Ackermann về sau dùng hai target và T chung khi feasible.
+
+**Lộ trình:** S15.1 đã SOURCE/HOST/CI PASS (trace chỉ cho pilot S15, đề xuất RIGHT 300 CCR CHƯA kích hoạt; active 200 CCR); **S15.2 manual relation SHADOW** (bước kế tiếp, no actuation); S15.3 RIGHT-only manual pilot; S15.4 route mode R1/R2 theo điểm đầu; S15.5 target góc bất kỳ/Ackermann; S15.6 hồi quy Gate A và chuẩn bị Gate B riêng. S15.2–S15.6 là kế hoạch, CHƯA hoàn thành. Không có ngưỡng độ lệch góc, hạn hoặc geometry `f` được kiểm chứng. Không tự đổi 180/100RAW cap, +12CCR, STOP/NC/SOFT/PS2 semantics. Xem [kế hoạch S15 chi tiết](M8_S15_MILESTONE_PLAN_2026_11_01.md).

@@ -1,0 +1,46 @@
+# M8-S15 — Milestone kế hoạch điều khiển đánh lái (chốt định hướng 2026-11-01)
+
+**Dự án:** xe tăng cướp bóng, STM32F767ZI, 4 motor bánh + 2 motor lái.  
+**Nhánh:** `feature/m8-s15-dual-target-common-time`; xác minh HEAD thực tế trước mọi thao tác.  
+**Tình trạng tài liệu:** kế hoạch dựa trên yêu cầu người vận hành mới nhất, không phải nghiệm thu firmware hoặc phần cứng. Giữ nguyên các kết quả S14, S15 pilot và S15.1 lịch sử ở tài liệu cũ.
+
+## 1. Quyết định điều khiển hiện hành và điều đã bị thay thế
+
+1. **D-pad LEFT/RIGHT và joystick RX là MANUAL ANGLE-RELATION:** mục tiêu là giữ **quan hệ góc đánh lái mong muốn** giữa LEFT/RIGHT trong khi vận hành, có dự đoán sai lệch góc/vận tốc. Không yêu cầu đồng tốc độ góc tuyệt đối, không ép hoàn thành chung T khi nhả bất kỳ lúc nào. Khác nhau về cung hành trình khiến `v_L=v_R` hoặc `angle_travel_L=angle_travel_R` không tự bảo đảm quan hệ góc đúng.
+2. **LEFT:** đã có đáp ứng tốt theo người vận hành; không dùng taper, hold hay slowdown LEFT làm chiến lược đồng bộ. Chỉ các bảo vệ/owner có thẩm quyền mới được hạn chế hoặc dừng.
+3. **RIGHT:** trục ưu tiên cải tiến khả năng bám quan hệ góc, đo bằng AS5600 và nghiên cứu encoder vận tốc sau khi kiểm chứng tỷ số, chiều, timestamp. Nếu bị bão hòa và không theo được quan hệ góc, công khai trạng thái không khả thi; không hứa duy trì sai số vô hạn trong giới hạn PWM.
+4. **Giữ lại các ý tưởng tốt S14:** dự đoán sai lệch góc (P+D có timestamp); Fast Start S14.3 và **Level 2 làm mặc định nguồn** theo mã hiện hành; không khôi phục S14/S14.1 taper-only làm chủ trương.
+5. **Các lệnh có góc đích:** R1 tới CENTER có thể chọn common-T nếu cả hai còn hành trình có ý nghĩa và khả thi, nếu không dùng owner vị trí độc lập. R2 chỉ được xét common-T khi **cả hai ở CENTER hợp lệ** tại lúc nhận lệnh; từ trạng thái lệch tâm/sau D-pad, một bên gần hoặc đã MIN, R2 độc lập. R2 có **MIN vật lý/NC** riêng, không biến thành đích SOFT giả và không ép chạm NC cùng T. Lệnh góc bất kỳ và Ackermann tương lai dùng hai góc riêng, common-T khi khả thi; trục đã DONE không được cấp PWM lại.
+6. **Giữ nguyên PS2 semantics:** D-pad/RX nhả thì stop manual như source hiện hành, không tự quay CENTER; đổi chiều phải qua neutral/chờ thích hợp. STOP, NC/EXTI, SOFT, fault, stall, START arm, atomic late check và wheel-owner ưu tiên cao hơn coordinator.
+7. **Giới hạn nguồn hiện có:** `steer_s142_trial_level=2` mặc định, LEFT Level2 active cap **450 CCR**, RIGHT active cap **200 CCR**; `steer_s143_fast_start_enable=1`. RIGHT **300 CCR** chỉ *proposed/dormant* của S15.1, **không cấp motor**, không thay cap hoặc profile giảm tốc 320→180/100 RAW, +12 CCR mỗi pass, dòng/quãng trôi chưa đo. Không tự nâng PWM gần NC.
+8. **Kiến trúc một owner cho mỗi trục:** mode chọn/latch lúc bắt đầu lệnh hợp lệ, không chồng S14 PI/P+D/S149/S15 hay đổi mode đột ngột giữa stroke. Có thể dùng chung observer nhưng từng mode chỉ có một đường quyết định candidate; owner an toàn vẫn có quyết định cuối.
+
+## 2. Phân biệt ba đại lượng
+
+- **Góc tuyệt đối hiệu chuẩn:** `theta_L,theta_R` từ hai AS5600 theo mapping CENTER/MIN/MAX riêng; `-45°..+45°` hiện là tọa độ phần mềm, chưa phải đo trực tiếp góc bánh xe thực tế.
+- **Quan hệ góc mong muốn:** `theta_R_ref=f(theta_L, direction, geometry/calibration)`; sai số `e=theta_R_ref-theta_R`. Chưa có hàm `f` hình học đã hiệu chuẩn thực tế. Dùng normalized fraction từng cung CENTER→biên chỉ là **proxy để SHADOW**, không gắn nhãn Ackermann/đúng vật lý.
+- **Dự đoán sai lệch:** `e_pred=e+tau*(d theta_R_ref/dt - omega_R)`, dùng timestamp riêng, độ mới AS5600 và/hoặc encoder đã hiệu chuẩn. `tau=120ms` trong S14 là mốc thử lịch sử, **không phải gain chốt**. Khi dữ liệu stale, đảo chiều, đích/đo không hợp lệ, không dùng dự đoán như căn cứ tăng PWM.
+
+## 3. Milestone và cổng kiểm chứng
+
+| ID | Đầu ra | Tiêu chí chuyển bước | Trạng thái |
+|---|---|---|---|
+| **S15.0 (lịch sử)** | C kernel common-T hai target, pilot D-pad LEFT Level2 | HOST đã kiểm pure C; pilot thực tế RIGHT tới SOFT sau LEFT 448/669ms, không nhận là T vật lý PASS | **Đã triển khai; CHƯA ĐẠT common-T ngoài thực tế** |
+| **S15.1 (hiện tại)** | RAM trace 96 samples của stroke S15 cuối, AS5600/encoder delta/T/ref/owner/cap/applied, M8S151 dump; RIGHT 300 chỉ proposed | SOURCE+HOST/CI exact SHA; **còn cần** CubeIDE Clean Build, flash SHA và xác minh log khi có điều kiện; trace hiện chỉ cho S15 pilot, chưa bao phủ toàn manual | **SOURCE/HOST-CI PASS; HARDWARE CHƯA KIỂM** |
+| **S15.2 — Manual relation SHADOW** | Một helper C thuần tính quan hệ góc, sai số dự đoán, marker stale/saturation; telemetry D-pad cả hai hướng & RX; chỉ đọc, không ghi CCR | HOST unit tests: cung L/R khác nhau, CENTER/biên, đổi hướng, nhấn ngắn, nhả, stale/invalid, nhiều timestamp, NC/SOFT. So offline với log, ghi rõ sai số proxy và hạn chế mapping | **CHƯA BẮT ĐẦU; ưu tiên kế tiếp** |
+| **S15.3 — RIGHT-only manual tracking** | Một coordinator opt-in mới, chỉ can thiệp RIGHT khi owner bảo vệ cho phép, không cắt/hãm LEFT để làm đẹp skew; lấy candidate boost/trim RIGHT hợp lệ (encoder chỉ sau validation) | HOST/CI và CubeIDE đúng SHA trước thử; khi an toàn điện/cơ cho phép, A/B có cùng mốc đầu và RX magnitude, đo max/mean/time-over-limit của sai số quan hệ, RIGHT response/arrival, LEFT response không suy giảm, NC/STOP/SOFT/coast/current. Không có ngưỡng góc nghiệm thu được đo/duyệt thì chưa PASS | **CHƯA BẮT ĐẦU; phụ thuộc S15.2** |
+| **S15.4 — Chọn mode điều khiển vị trí** | Route `MANUAL_RELATION`, `POSITION_COMMON_T`, `POSITION_INDEPENDENT`, `SAFETY_STOP`; R1 về CENTER common-T có điều kiện; R2 chỉ xét common-T từ CENTER cả hai, còn lại independent và NC-authoritative | HOST đầy đủ điều kiện CENTER, một trục gần MIN/đã DONE, R2 NC, short stroke, infeasible T, neutral/release, ưu tiên STOP. CubeIDE/Flash và đo motor từng mode trước khi bật mặc định. Không tự chuyển chế độ giữa stroke | **CHƯA BẮT ĐẦU; thiết kế thống nhất** |
+| **S15.5 — Hai target góc bất kỳ / Ackermann** | Route owner dừng ở góc trung gian L/R riêng, dùng common-T được kiểm tra feasibility, mapping góc bánh thực tế/động học | +35°/+30° và nhiều dấu/góc/điểm đầu phải đến từng đích trong dung sai đo, không chạm NC, T feasible thực tế; **chưa có mô hình hình học và dung sai được nghiệm thu** | **CHƯA BẮT ĐẦU** |
+| **S15.6 — Regression và kết thúc S15** | Kiểm thử D-pad/RX/R1/R2/SELECT, PS2/Voice, STOP/NC/soft, 4 bánh, phối hợp sáu motor | **Gate A** treo an toàn PASS có bằng chứng; thử mặt đất có tải thuộc **Gate B riêng**, không suy tự động từ Gate A hoặc CI | **CHƯA BẮT ĐẦU / GATE A-B mở** |
+
+Không đặt hạn, phần trăm tiến độ hoặc ngưỡng độ lệch góc cụ thể khi chưa có dữ liệu/đồng thuận. `S15.2–S15.6` là ID lập kế hoạch mới, chưa phải các bản firmware đã commit.
+
+## 4. Kế hoạch triển khai ngay sau tài liệu này
+
+**Bước trực tiếp:** S15.2 SHADOW, KHÔNG đổi PWM. Tạo hàm C thuần và bộ test với hai cung khác nhau; tính quan hệ góc trên tọa độ tương ứng của từng bên và một khoảng dự đoán có kiểm soát; bổ sung log cho manual D-pad/RX trong RAM có giới hạn; đối chiếu trên dữ liệu sẵn có khi đủ. Chưa khẳng định proxy chuẩn hóa là quan hệ góc bánh thực tế.
+
+**Điều cần xác định trước khi chuyển sang active:** mapping `f` đúng cơ cấu thực tế, dung sai góc chấp nhận, độ mới và chất lượng encoder/AS5600, headroom RIGHT trước 180 RAW và vùng cuối, cùng bằng chứng an toàn điện-cơ. Có thể phát triển HOST chỉ với dữ liệu source sẵn có, không bắt người dùng đo motor ngay để bắt đầu S15.2.
+
+**Cách đánh giá FAIL/PASS:** tách `SOURCE/STATIC`, `HOST`, `CUBEIDE`, `FLASHED SHA`, `HARDWARE`; tách lỗi script verifier, phản hồi motor, chênh lệch góc, thời gian arrival và an toàn. Không đánh dấu PASS chỉ vì skew giảm do LEFT chậm, hoặc vì đạt SOFT cả hai khi RIGHT trễ. Báo riêng số khung S15/RIGHT tracking thực thi; `M8S00` last-session không phải lịch sử mọi stroke.
+
+**Không đổi trong commit lập milestone:** `Core/`, `tools/`, `stm32...`, công tắc an toàn, Level2, Fast Start, các flag, PWM, NC, STOP, phần mềm logger hoặc dữ liệu log riêng tư. Cần kiểm GitHub Actions đúng SHA tài liệu sau khi commit.

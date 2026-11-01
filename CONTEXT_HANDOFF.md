@@ -49,6 +49,14 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### CẬP NHẬT ĐỊNH HƯỚNG 2026-11-01 — milestone S15 (ưu tiên nguồn hiện hành)
+
+[USER] Đã làm rõ mục tiêu: manual D-pad/joystick RX cần **giữ quan hệ góc** giữa hai bánh trong thời gian điều khiển; "đồng tốc" trước đó là diễn giải không đúng vì cung đánh lái khác nhau. Giữ **dự đoán sai lệch góc** (ý tưởng P+D S14), **Fast Start mặc định ON**, **Level2 mặc định 2**, **giữ LEFT** không hãm để đồng bộ; tập trung tăng khả năng bám của RIGHT. R1 target CENTER có thể dùng common-T nếu feasible; R2 **chỉ xét common-T khi cả LEFT/RIGHT xuất phát CENTER hợp lệ**; không từ CENTER thì owner vị trí độc lập tới MIN vật lý/NC. Lệnh góc mục tiêu/Ackermann tương lai mới dùng common-T có điều kiện. Chế độ manual không tự quay CENTER khi nhả joystick. [THAY THẾ] Không dùng "hai trục manual phải đồng tốc góc" hay "S15 T chung cho mọi lệnh D-pad" như mục tiêu hiện hành.
+
+[PLAN] Chi tiết trong `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`: S15.1 telemetry HOST/CI PASS nhưng chưa CubeIDE/Flash/HARDWARE; S15.2 SHADOW bám quan hệ góc cho D-pad/RX là việc kế tiếp; S15.3 RIGHT-only controller; S15.4 routing R1/R2 theo xuất phát; S15.5 target góc bất kỳ/Ackermann; S15.6 regression Gate A, Gate B riêng. Không có gain `tau`, mapping góc thực tế hoặc dung sai sai lệch được nghiệm thu. RIGHT 300CCR proposed ONLY, active 200; giữ cap LEFT450, +12/180/100RAW, STOP/NC/SOFT. Chưa chỉnh firmware ở commit roadmap này.
+
+
+
 ### HIỆN HÀNH — kết quả thử M8-S15 19:34–19:35 ngày 2026-10-31
 
 - **[GITHUB]** SHA source tại lúc nhận log là `cee4d8bce562d6c77c36dbe0991caab28b4d8d2b`, Actions run `41200962485` PASS; commit hồ sơ sau phân tích `2cd12a2f753e6df4a0a9e4a4d28d95ab628c09fa` có Actions run `41204441709` PASS, gồm contract 386 dòng/17 mục và static/GCC host regression S14.2–S15, Release job SKIP theo chính sách. Nhánh M7-S15 cũ ở `bcf6c2a4e122de91ee8fdb864f5fe7cfd10cca5d` là mốc trước S14.7. Đây là các mốc đã kiểm, không tự nhận là HEAD tương lai; phải đọc ref GitHub lại khi tiếp quản.
@@ -221,6 +229,10 @@ Current goal: user requests near-immediate steering response; Level2 turning spe
 USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjectively preferred, reduce startup lag. ASSISTANT design keeps Level2 opt-in and safe old coasting wait; FIRST-STOP remains user-confirmed FIX, R2 code9 separate.
 
 ## 4. Roadmap và milestone
+
+**Bổ sung hiện hành 2026-11-01 (không thay thế lịch sử bên dưới):** S15.1 source+HOST CI pass/chưa có CubeIDE Clean Build, flash SHA, hardware pass; S15.2 manual relation SHADOW chưa bắt đầu (ưu tiên); S15.3 right-only tracking chưa bắt đầu; S15.4 R1/R2 mode routing chưa bắt đầu; S15.5 arbitrary-angle/Ackermann chưa bắt đầu; S15.6 Gate A hồi quy + Gate B tách biệt chưa bắt đầu. Tiêu chí/điều kiện chuyển mốc và quyết định [USER] xem `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`. Không có hạn/chỉ tiêu sai số được chốt.
+
+
 
 > Các trạng thái dưới đây được cập nhật theo **bằng chứng mới nhất tìm được**, không bê nguyên bảng snapshot 2026-10-17 ở đầu `PROJECT_MILESTONES.md`. Cột “hạn” là **CHƯA CÓ DỮ LIỆU** nếu chưa thấy cam kết. Mã có thể có nhưng chưa hẳn đã nghiệm thu toàn milestone.
 
@@ -411,6 +423,10 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 **Khi cần tái hiện phần kỹ thuật quan trọng:** ưu tiên copy `CONTEXT_HANDOFF.md`, cung cấp repo link + SHA, và chuyển **toàn bộ log M8S11/M8S00** nếu định phân tích A/B. Không tự giả định sandbox link của A dùng được trong B.
 
 ## 8. Lịch sử quyết định và các phương án đã cân nhắc
+
+**[USER, quyết định mới 2026-11-01]** Giữ thuật toán dự báo sai lệch góc, S14.3 Fast Start và Level2 boot. **Đính chính yêu cầu cũ:** không ép manual LEFT/RIGHT cùng số độ/giây; cung khác nhau có thể tạo góc thực tế lệch lớn. Manual cần giữ quan hệ góc mong muốn; thuật toán phải hỗ trợ RIGHT bám, không hãm LEFT. T chung giữ cho góc target biết trước, R2 chỉ xét từ CENTER của cả hai; ngoài CENTER không ép T. **[ĐỀ XUẤT, chưa nghiệm thu]** SHADOW `e=theta_R_ref-theta_R`, `e_pred=e+tau*(omega_R_ref-omega_R)`, mapping `f` giữa hai trục/geometry và `tau` chưa hiệu chuẩn. Xem milestone plan.
+
+
 
 | Quyết định | Trạng thái hiện hành | Chọn/lý do | Đánh đổi | Loại/thay thế | Điều kiện mở lại | Nguồn |
 |---|---|---|---|---|---|---|
@@ -1050,4 +1066,23 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 
 
 [M8-S15.1 CORRECTION] Chỉnh chỉ escape CRLF của 4 dòng UART M8S151 (không đổi cấu trúc/motor), bổ sung static regression; cần CI đúng SHA. Không cập nhật trần PWM đang kích hoạt.
+### M8-S15 roadmap plan 2026-11-01 — 17-section update guard
+
+[0] Nguồn người vận hành/trao đổi mới và GitHub source/docs ở branch S15, theo SHA kiểm lúc bắt đầu.
+[1] Điểm dừng: S15.1 telemetry đã commit, bước tiếp theo S15.2 SHADOW manual relation.
+[2] Mục tiêu: manual quan hệ góc, known-target common-T; không đánh đổi LEFT.
+[3] Ràng buộc user: Fast Start/Level2 boot defaults, không giảm LEFT, RIGHT ưu tiên, R2 CENTER-only common-T.
+[4] S15.1 → S15.2 → S15.3 → S15.4 → S15.5 → S15.6, Gate A/B riêng.
+[5] Hiện trạng SOURCE/HOST trên S15.1; roadmap mới DOCS ONLY.
+[6] Chưa có manual relation mapping/threshold, CubeIDE/Flash/HW cho S15.1 chưa xác minh.
+[7] Canonical: docs/M8_S15_MILESTONE_PLAN_2026_11_01.md, M8_S15_DUAL_TARGET_COMMON_TIME.md, PROJECT_MILESTONES.md, main.c, S14 headers.
+[8] Không đồng tốc tuyệt đối, không hãm LEFT; S14.8 positive boost và S14.9 forecast là hướng tham khảo, không tự chạy song song.
+[9] S14 taper-only có thể làm LEFT chậm; script FAIL khác hardware FAIL.
+[10] RIGHT terminal 180RAW, trần 200 active/300 proposed; không thay ngay vì current/coast/NC.
+[11] Việc đầu tiên: pure-C SHADOW geometry-proxy/angle error/speed prediction + HOST/CI, không đổi PWM.
+[12] Còn mở: cơ sở vật lý quan hệ góc, ngưỡng sai số, encoder ratio/direction, điều kiện bảo vệ.
+[13] 2026-11-01 định hướng điều khiển được sửa; ngày lịch sử S14/S15 giữ nguyên.
+[14] Giá trị active LEFT450/RIGHT200 CCR, Fast Start ON, Level2=2, +12, 180/100RAW, R2 NC MIN.
+[15] Hội thoại tiếp theo phải đọc plan và HEAD cùng SHA, không lấy tài liệu lịch sử làm code hiện hành.
+[16] Đây chỉ là docs; source/CI cần check đúng SHA, không ghi CubeIDE/HW PASS khi chưa có.
 END OF CONTEXT HANDOFF

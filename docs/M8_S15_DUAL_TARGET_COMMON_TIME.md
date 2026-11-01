@@ -62,3 +62,11 @@ Hai trục dùng cùng mốc giảm tốc 180/100 RAW, nhưng owner Level2 ở v
 - [VALIDATION] GCC/helper và static checks tích hợp CI, chỉ gọi HOST PASS sau khi xác nhận đúng SHA. CubeIDE Build, flashed SHA, current/coast/hardware vẫn chưa có bằng chứng. Không tự chạy motor hoặc công bố log riêng tư.
 
 [M8-S15.1 CORRECTION] Chỉnh chỉ escape CRLF của 4 dòng UART M8S151 (không đổi cấu trúc/motor), bổ sung static regression; cần CI đúng SHA. Không cập nhật trần PWM đang kích hoạt.
+
+## Cập nhật phạm vi milestone (2026-11-01; DOCUMENTATION ONLY)
+
+**Không xóa bất biến cũ của KERNEL S15:** khi **đã có 2 góc target** và chọn common-T hợp lệ, hai trục cần bám một lịch trình T với góc đích riêng. Tuy nhiên, **không áp dụng mặc định T chung cho D-pad/joystick RX**: lệnh manual nhả bất kỳ lúc nào, cung hai trục khác nhau, ưu tiên bám **quan hệ góc** có dự đoán sai lệch; LEFT không bị hãm làm đẹp skew. D-pad LEFT là route pilot lịch sử, chưa phải mode routing chính thức về sau.
+
+Giữ Level2 boot=2 và Fast Start boot-ON theo source, đề xuất RIGHT 300 CCR ở S15.1 vẫn **chưa thực thi** (active 200 CCR). R1 về CENTER có thể common-T khi cả hai cần dịch chuyển và khả thi. R2 chỉ xét common-T khi cả hai được xác nhận CENTER; còn lại MIN/NC độc lập, không đòi NC tới đồng thời. Các lệnh góc Ackermann biết trước sẽ dùng common-T khi feasible.
+
+**Định hướng mới và tiêu chí cho từng mốc:** [M8-S15 milestone plan](M8_S15_MILESTONE_PLAN_2026_11_01.md). M8-S15.2–S15.6 chưa được triển khai.
