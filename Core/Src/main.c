@@ -38,6 +38,7 @@
 #include "steer_s149_terminal_lead.h"
 #include "steer_s1410_right_terminal_shadow.h"
 #include "steer_s15_common_time.h"
+#include "steer_s151_trace.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -3043,6 +3044,21 @@ volatile uint16_t steer_s15_candidate_r = 0U;
 volatile uint16_t steer_s15_applied_l = 0U;
 volatile uint16_t steer_s15_applied_r = 0U;
 static M8S15Session_t steer_s15_session = {0};
+/* Last S15 stroke: passive RAM snapshots only. No changes to output owners. */
+typedef struct {
+ uint32_t ms,asTickL,asTickR;
+ uint16_t T,elapsed,rawL,rawR,goalL,goalR,velL,velR;
+ int16_t angleL,angleR,refL,refR,errL,errR,dEncL,dEncR;
+ uint16_t encDt,ownerL,ownerR,capL,capR,candidateL,candidateR,appliedL,appliedR;
+ uint8_t encOkL,encOkR,stateL,stateR,plan,nc;
+} M8S151Row_t;
+static M8S151Row_t m8s151_rows[M8S151_MAX_ROWS];
+static uint16_t m8s151_count=0U;
+static uint32_t m8s151_run=0U,m8s151_last=0U,m8s151_dropped=0U;
+static uint16_t m8s151_prevL=0U,m8s151_prevR=0U;
+static uint8_t m8s151_active=0U,m8s151_primed=0U,m8s151_plan=0U;
+static uint16_t m8s151_ownerL=0U,m8s151_ownerR=0U;
+
 /* M8-S14.10: read-only hypothesis recorder. No assignment to owner or CCR.
  * Speed sampled independently by the already-existing manual AS5600 reader.
  */
@@ -6679,6 +6695,44 @@ static void M8S11_StreamUpdate(void)
   else m8_s11_stream_busy++;
 }
 
+static uint8_t M8S151_Dump(void)
+{
+ char line[384];int n;uint16_t i;
+ n=snprintf(line,sizeof(line),
+   "M8S151_META,run=%lu,rows=%u,dropped=%lu,period=%u,RIGHTcapActive=%u,"
+   "RIGHTcapProposed=%u,proposalApplied=0\\r\\n",
+   (unsigned long)m8s151_run,(unsigned)m8s151_count,
+   (unsigned long)m8s151_dropped,(unsigned)M8S151_PERIOD_MS,
+   (unsigned)M8S151_RIGHT_ACTIVE_CAP,(unsigned)M8S151_RIGHT_PROPOSED_CAP);
+ if(M8S00_UartLine(line,n)==0U)return 0U;
+ for(i=0U;i<m8s151_count;i++){
+  const M8S151Row_t *r=&m8s151_rows[i];
+  n=snprintf(line,sizeof(line),
+    "M8S151_A,i=%u,ms=%lu,T=%u,elapsed=%u,rawL=%u,rawR=%u,goalL=%u,goalR=%u,"
+    "angleL=%d,angleR=%d,refL=%d,refR=%d,errL=%d,errR=%d,"
+    "asVelL=%u,asVelR=%u,asTickL=%lu,asTickR=%lu\\r\\n",
+    (unsigned)i,(unsigned long)r->ms,(unsigned)r->T,(unsigned)r->elapsed,
+    (unsigned)r->rawL,(unsigned)r->rawR,(unsigned)r->goalL,(unsigned)r->goalR,
+    (int)r->angleL,(int)r->angleR,(int)r->refL,(int)r->refR,
+    (int)r->errL,(int)r->errR,(unsigned)r->velL,(unsigned)r->velR,
+    (unsigned long)r->asTickL,(unsigned long)r->asTickR);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
+  n=snprintf(line,sizeof(line),
+    "M8S151_B,i=%u,encDt=%u,dEncL=%d,dEncR=%d,encOkL=%u,encOkR=%u,"
+    "ownerL=%u,ownerR=%u,capL=%u,capR=%u,candidateL=%u,candidateR=%u,"
+    "appliedL=%u,appliedR=%u,stateL=%u,stateR=%u,plan=%u,nc=%u\\r\\n",
+    (unsigned)i,(unsigned)r->encDt,(int)r->dEncL,(int)r->dEncR,
+    (unsigned)r->encOkL,(unsigned)r->encOkR,
+    (unsigned)r->ownerL,(unsigned)r->ownerR,(unsigned)r->capL,(unsigned)r->capR,
+    (unsigned)r->candidateL,(unsigned)r->candidateR,
+    (unsigned)r->appliedL,(unsigned)r->appliedR,
+    (unsigned)r->stateL,(unsigned)r->stateR,
+    (unsigned)r->plan,(unsigned)r->nc);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
+ }
+ return 1U;
+}
+
 static void M8S00_DumpUpdate(void)
 {
   static const char begin[] = "#M8S00_BEGIN,1\r\n";
@@ -6738,6 +6792,7 @@ static void M8S00_DumpUpdate(void)
       (M8S04_DumpAngleWaypoint() == 0U) ||
       (M8S05_DumpTiming() == 0U) ||
       (M8S00_DumpR2Encoder() == 0U) ||
+      (M8S151_Dump() == 0U) ||
       (M8S06_DumpStrokes() == 0U) ||
       (M8S00_DumpArrival() == 0U) ||
       (M8S00_DumpInputResponse() == 0U) ||
@@ -6812,6 +6867,65 @@ static void Steering_ManualRightOff(void)
   steer_manual_right_pwm = 0U;
 }
 
+/* Called post-atomic: no UART/I2C, PWM or GPIO write here. */
+static void M8S151_Record(uint16_t preL,uint16_t preR,uint8_t force)
+{
+ M8S151Row_t *r;
+ uint32_t now,dt;
+ uint16_t cntL,cntR,dL,dR;
+ int16_t aL=0,aR=0;
+ if(m8s151_active==0U)return;
+ now=HAL_GetTick();dt=(uint32_t)(now-m8s151_last);
+ if(force==0U && m8s151_count!=0U && dt<M8S151_PERIOD_MS &&
+    m8s151_rows[m8s151_count-1U].stateL==steer_manual_left_state &&
+    m8s151_rows[m8s151_count-1U].stateR==steer_manual_right_state)return;
+ if(m8s151_count>=M8S151_MAX_ROWS){
+    if(m8s151_dropped!=0xffffffffUL)m8s151_dropped++;
+    if(force==0U)return;
+    r=&m8s151_rows[M8S151_MAX_ROWS-1U];
+ }else r=&m8s151_rows[m8s151_count++];
+ *r=(M8S151Row_t){0};
+ cntL=(uint16_t)__HAL_TIM_GET_COUNTER(&htim4);
+ cntR=(uint16_t)hlptim1.Instance->CNT;
+ r->ms=now;
+ r->T=(steer_s15_session.ready!=0U)?steer_s15_session.total_ms:steer_s15_last_T_ms;
+ if(steer_s15_session.ready!=0U){
+    uint32_t elapsed=(uint32_t)(now-steer_s15_session.start_tick);
+    r->elapsed=(uint16_t)((elapsed>r->T)?r->T:elapsed);
+ }else r->elapsed=steer_s15_last_elapsed_ms;
+ r->rawL=debug_as5600_left_raw;r->rawR=debug_as5600_right_raw;
+ r->goalL=steer_manual_left_soft_target;r->goalR=steer_manual_right_soft_target;
+ (void)Steering_AngleFromRaw(1U,r->rawL,&aL);
+ (void)Steering_AngleFromRaw(0U,r->rawR,&aR);
+ r->angleL=aL;r->angleR=aR;
+ r->asTickL=steer_pos_left_last_sample_ms;r->asTickR=steer_pos_right_last_sample_ms;
+ r->velL=steer_manual_left_axis.speed_filtered_raw_s;
+ r->velR=steer_manual_right_axis.speed_filtered_raw_s;
+ r->encDt=(dt>65535U)?65535U:(uint16_t)dt;
+ if(m8s151_primed!=0U){
+   r->dEncL=M8S151_SignedDelta(cntL,m8s151_prevL);
+   r->dEncR=M8S151_SignedDelta(cntR,m8s151_prevR);
+   r->encOkL=M8S151_DeltaValid(dt,debug_turn_left_start_ok);
+   r->encOkR=M8S151_DeltaValid(dt,debug_turn_right_start_ok);
+ }
+ m8s151_prevL=cntL;m8s151_prevR=cntR;m8s151_primed=1U;m8s151_last=now;
+ dL=(r->rawL>r->goalL)?r->rawL-r->goalL:r->goalL-r->rawL;
+ dR=(r->rawR>r->goalR)?r->rawR-r->goalR:r->goalR-r->rawR;
+ r->ownerL=preL;r->ownerR=preR;
+ r->capL=M8S142_Envelope(1U,steer_s142_latched,dL);
+ r->capR=M8S142_Envelope(0U,steer_s142_latched,dR);
+ r->plan=(force==0U)?m8s151_plan:0U;
+ if(r->plan!=0U){
+   r->refL=steer_s15_ref_l_cd;r->refR=steer_s15_ref_r_cd;
+   r->errL=steer_s15_error_l_cd;r->errR=steer_s15_error_r_cd;
+   r->candidateL=steer_s15_candidate_l;r->candidateR=steer_s15_candidate_r;
+ }
+ r->appliedL=(uint16_t)__HAL_TIM_GET_COMPARE(&htim12,TIM_CHANNEL_2);
+ r->appliedR=(uint16_t)__HAL_TIM_GET_COMPARE(&htim14,TIM_CHANNEL_1);
+ r->stateL=steer_manual_left_state;r->stateR=steer_manual_right_state;
+ r->nc=Steering_TestRawLimitMask();
+}
+
 static void Steering_ManualStop(void)
 {
   /* If manual does not own the PWM, do NOT overwrite R1/R2 or
@@ -6832,6 +6946,8 @@ static void Steering_ManualStop(void)
   Steering_S14ManualReset();
   Steering_ManualLeftOff();
   Steering_ManualRightOff();
+  M8S151_Record(0U,0U,1U); /* last zero-CCR frame */
+  m8s151_active=0U;
   Steering_SyncReset();
   steer_manual_stop_count++;
   steer_manual_active = 0U;
@@ -7602,6 +7718,7 @@ static void Steering_S15Apply(uint16_t start_l,uint16_t goal_l,
   steer_s15_candidate_l=*pwm_l;
   steer_s15_candidate_r=*pwm_r;
   if(steer_s15_frames!=0xffffffffUL)steer_s15_frames++;
+  m8s151_plan=1U; /* read-only indicator */
 }
 
 static void Steering_ManualUpdate(void)
@@ -7797,6 +7914,11 @@ static void Steering_ManualUpdate(void)
         ((PS2_Pad.Left != 0U) || (PS2_Pad.Right != 0U)) ? 3U : 4U;
     M8S00_ArrivalBegin(3U, (left_direction < 0) ? 3U : 4U,
                         (right_direction < 0) ? 3U : 4U, now);
+    if(steer_s15_latched!=0U){
+      m8s151_count=0U;m8s151_dropped=0U;m8s151_last=0U;
+      m8s151_active=1U;m8s151_primed=0U;
+      m8s151_run=m8_s00_arrival.run_id;
+    }
     Steering_SyncReset(); /* new independent speed history per command */
     steer_sync_left_speed_raw_s = 0U;
     steer_sync_right_speed_raw_s = 0U;
@@ -8037,6 +8159,7 @@ static void Steering_ManualUpdate(void)
   else
     Steering_SyncApply(HAL_GetTick(),la,ra,&la);
 
+  m8s151_ownerL=la;m8s151_ownerR=ra;m8s151_plan=0U;
   /* AS5600 two-axis speed/phase feedback may BOOST the slower motor,
    * but only within tested per-axis caps and outside coast clearance.
    * It NEVER commands zero PWM to hold the leading axis.
@@ -8197,6 +8320,8 @@ static void Steering_ManualUpdate(void)
     steer_s15_applied_l=steer_manual_left_pwm;
     steer_s15_applied_r=steer_manual_right_pwm;
   }
+
+  M8S151_Record(m8s151_ownerL,m8s151_ownerR,0U);
 
   /* M8-S14.9 passive, post-atomic bin snapshots. Final PWM is the
    * ACTUAL independent owner's applied value, including any late

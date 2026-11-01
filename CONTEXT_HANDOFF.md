@@ -1040,4 +1040,12 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 15. **Bàn giao:** luôn đọc HEAD của `feature/m8-s15-dual-target-common-time` trước, dùng prompt/roadmap hiện hành và CI cùng SHA; giữ lịch sử nhánh M7-S15 cũ, không yêu cầu Release. Trình bày SOURCE, HOST, CUBEIDE, FLASH, HARDWARE riêng.
 16. **Kiểm tra chất lượng:** không suy SHA flashed từ UART; không gọi sáu lần chạm SOFT là hoàn thành đồng thời; không phủ nhận khoảng hở 3 mm do [USER] báo; không gọi STOP/NC/current PASS vượt phạm vi quan sát. Đặc tả gốc trong Git tree vẫn 386 dòng và SHA-256 `13d8976ec0d74057af94bf84c8445bddbb48715b308964e22eb6684711f708a4`; các khoảng trống khác nêu trên còn mở.
 
+
+## M8-S15.1 — Telemetry-only; RIGHT Level2 ceiling proposal (2026-11-01)
+
+- [USER] LEFT đã tốt, không giảm LEFT để chờ RIGHT. Yêu cầu tăng RIGHT ceiling 100 CCR **chưa tăng PWM thực tế**.
+- [SOURCE] RIGHT Level2 200 CCR ACTIVE không thay, 300 CCR PROPOSED khai báo riêng chỉ để ghi báo cáo; không nối vào các hàm owner, envelope hay TIM14.
+- [SOURCE] Trace RAM 96 mẫu của stroke D-pad LEFT S15 mới nhất, 50ms hoặc state đổi; lưu T/elapsed, AS5600 RAW/góc/timestamp/speed, encoder signed delta và dt/valid, owner/cap/candidate/actual post-atomic CCR, hai state và NC. M8S00 xuất `M8S151_META` và cặp `M8S151_A`/`M8S151_B` sau disarm. Không đổi M8S11 CSV. Nếu vượt dung lượng báo dropped, dòng cuối STOP được giữ. Không có UART blocking lúc motor chạy.
+- [VALIDATION] GCC/helper và static checks tích hợp CI, chỉ gọi HOST PASS sau khi xác nhận đúng SHA. CubeIDE Build, flashed SHA, current/coast/hardware vẫn chưa có bằng chứng. Không tự chạy motor hoặc công bố log riêng tư.
+
 END OF CONTEXT HANDOFF

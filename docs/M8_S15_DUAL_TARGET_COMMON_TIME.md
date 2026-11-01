@@ -53,3 +53,10 @@ Hai trục dùng cùng mốc giảm tốc 180/100 RAW, nhưng owner Level2 ở v
 2. Đối chiếu CubeIDE Clean Build, ELF và SHA đã flash nếu có bằng chứng; log UART chỉ xác nhận tính năng S15 đang chạy, không định danh commit đã nạp.
 3. Phân tích RAW/CCR/timing của log hiện có. R_MIN→NC đã được người vận hành báo còn 3 mm; không yêu cầu đo lại chỉ để lặp thông tin này. Để quyết định sửa planner hay duty, cần T/ref/error theo từng stroke hoặc phép đo tương đương; các điều kiện nguồn ngắt độc lập, dòng và quãng trôi sau CCR0 chỉ cần đối chiếu khi đề xuất thao tác phần cứng phụ thuộc vào chúng. Không tự lặp test powered từ phân tích này.
 4. Khi đủ gate, chỉ thử controller ON trên giá với lệnh và vị trí đầu được ghi rõ; PASS cần cả hai tới đúng góc và cùng T trong dung sai được xác lập, không chỉ mỗi bên chạm SOFT. Nếu không đủ thời gian do PWM cap/nguồn/cơ khí phải giữ kết quả chưa đạt, không tự nâng trần.
+
+## M8-S15.1 — Telemetry-only; RIGHT Level2 ceiling proposal (2026-11-01)
+
+- [USER] LEFT đã tốt, không giảm LEFT để chờ RIGHT. Yêu cầu tăng RIGHT ceiling 100 CCR **chưa tăng PWM thực tế**.
+- [SOURCE] RIGHT Level2 200 CCR ACTIVE không thay, 300 CCR PROPOSED khai báo riêng chỉ để ghi báo cáo; không nối vào các hàm owner, envelope hay TIM14.
+- [SOURCE] Trace RAM 96 mẫu của stroke D-pad LEFT S15 mới nhất, 50ms hoặc state đổi; lưu T/elapsed, AS5600 RAW/góc/timestamp/speed, encoder signed delta và dt/valid, owner/cap/candidate/actual post-atomic CCR, hai state và NC. M8S00 xuất `M8S151_META` và cặp `M8S151_A`/`M8S151_B` sau disarm. Không đổi M8S11 CSV. Nếu vượt dung lượng báo dropped, dòng cuối STOP được giữ. Không có UART blocking lúc motor chạy.
+- [VALIDATION] GCC/helper và static checks tích hợp CI, chỉ gọi HOST PASS sau khi xác nhận đúng SHA. CubeIDE Build, flashed SHA, current/coast/hardware vẫn chưa có bằng chứng. Không tự chạy motor hoặc công bố log riêng tư.
