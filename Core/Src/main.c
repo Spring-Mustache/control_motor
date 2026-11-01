@@ -6995,7 +6995,8 @@ static void M8S152_Record(uint8_t force)
       (Steering_PositionRawInRange(0U,rawR)!=0U)&&
       (Steering_AngleFromRaw(1U,rawL,&aL)!=0U)&&
       (Steering_AngleFromRaw(0U,rawR,&aR)!=0U));
- moving=(uint8_t)((steer_manual_left_state==STEER_MANUAL_MOVING)&&
+ moving=(uint8_t)((force==0U)&&
+                  (steer_manual_left_state==STEER_MANUAL_MOVING)&&
                   (steer_manual_right_state==STEER_MANUAL_MOVING));
  p152=M8S152_Observe(&m8s152_obs,aL,aR,
        steer_pos_left_last_sample_ms,steer_pos_right_last_sample_ms,
