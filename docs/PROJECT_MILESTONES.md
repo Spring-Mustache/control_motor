@@ -970,3 +970,7 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 ## Quyết định giới hạn scope S15 và ưu tiên VC-02 (2026-11-01, DOCS ONLY)
 
 [USER] Giữ S15.2 manual angle-relation SHADOW → S15.3 RIGHT-only → **S15.4 R1/R2 mode routing**, sau đó quay lại chức năng **VC-02 điều khiển xe**. S15.5 Ackermann/arbitrary angle tạm hoãn tới khi có động học; S15.6 legacy regression chuyển sang VC-02 integration / Gate A/B, không bỏ an toàn hoặc tuyên bố PASS. Bộ VC-02 hiện có parser/builder/STOP/PS2 priority, nhưng source executor chỉ tiến/lùi thẳng; các lệnh TURN/ANGLE/ROTATE hiện bị từ chối. Không tự nói đã tích hợp đánh lái Voice. Xem tài liệu `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md` để tiếp tục. Không sửa firmware trong commit này.
+
+## M8-S15.2 implementation (2026-11-01; SOURCE-only)
+
+Manual D-pad LEFT/RIGHT and RX passive angular-relation predictor, calibrated proxy not Ackermann, read-only latest-stroke RAM 96 rows, M8S152 META/A/B after disarm, hypothetical RIGHT output never applied. Level2/Fast Start unchanged; LEFT and RIGHT PWM output remains owner-authoritative. HOST/static CI pending exact SHA, STM32 clean build/flash/hardware not verified. S15.3 not started. See docs/M8_S15_MILESTONE_PLAN_2026_11_01.md.

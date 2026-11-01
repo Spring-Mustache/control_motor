@@ -49,6 +49,12 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### Cập nhật SOURCE S15.2 (2026-11-01, chờ exact SHA CI)
+
+[USER] Máy local đang 17ff3d7; muốn cập nhật một lần sau khi có firmware S15.2, không pull riêng các docs trước. [SOURCE] S15.2 thêm pure helper `steer_s152_manual_relation.h` và post-atomic RAM observer `M8S152_Record` cho D-pad LEFT/RIGHT và RX; 96 rows latest stroke, 50ms, signed calibrated relation proxy, angle/speed prediction from independent AS5600 timestamps, post-disarm M8S152 UART. Không áp PWM shadow hay thêm I2C/active UART. Level2/Fast Start defaults, LEFT owner, RIGHT actual200/proposed300, STOP/NC/SOFT còn nguyên. [TEST] New HOST/static CI script, CubeIDE/Flash/hardware not verified. [NEXT] Check CI exact SHA, then local safe ff-only from 17ff3d7, Clean Build/Flash, independent electrical/NC checks before powered log. S15.3 not started; S15.4 then VC-02; S15.5 deferred.
+
+
+
 ### CẬP NHẬT PHẠM VI MỚI NHẤT 2026-11-01 — S15 kết thúc chặng tại S15.4; chuyển sang VC-02
 
 [USER] Chỉ triển khai chuỗi S15.2 SHADOW → S15.3 RIGHT-only → **S15.4 R1/R2 route** trong hiện tại. Không chờ Ackermann hoàn chỉnh. **S15.5 TẠM HOÃN** vì động học chưa hoàn chỉnh, **S15.6 tạm hoãn dưới nhãn S15**; regression sáu motor và Gate A/B chuyển sang giai đoạn VC-02 integration, không bỏ nghiệm thu. Bước sau S15.4 là tích hợp lệnh VC-02 với các owner bánh/lái được bảo vệ, không tự suy từ event parser rằng TURN/ANGLE được thực thi.
@@ -1110,4 +1116,5 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] Level2 LEFT450/RIGHT200; Fast Start ON; 300CCR only proposed; S15.5 geometry deferred.
 [15] Cập nhật đủ docs roadmap/handoff/prompt; không sửa motor code trong commit này.
 [16] Docs/CI only, không gộp với motor acceptance.
+[S15.2 source update, 17-section crosscheck] (0) exact SHA CI required; (1) stage S15.2 observer; (2) geometry proxy not physical angle; (3) keep LEFT/Fast Start/Level2; (4) S15.2→S15.3→S15.4→VC02; (5) source+host+docs created; (6) target build/flash/hardware unknown; (7) main.c, steer_s152_manual_relation.h, test and verifier; (8) no slowing LEFT, no T for manual; (9) historical S14 skew not geometry; (10) 180/100RAW and NC current guards stay; (11) check CI then safe user-side build; (12) physical mapping and angular tolerance not established; (13) 2026-11-01 shadow; (14) 96 rows, 50ms, tau120ms, +25 hypothetical; (15) private test logs stay private; (16) no actuator change or hardware PASS.
 END OF CONTEXT HANDOFF
