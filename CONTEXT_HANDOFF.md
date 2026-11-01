@@ -1117,4 +1117,8 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] Cập nhật đủ docs roadmap/handoff/prompt; không sửa motor code trong commit này.
 [16] Docs/CI only, không gộp với motor acceptance.
 [S15.2 source update, 17-section crosscheck] (0) exact SHA CI required; (1) stage S15.2 observer; (2) geometry proxy not physical angle; (3) keep LEFT/Fast Start/Level2; (4) S15.2→S15.3→S15.4→VC02; (5) source+host+docs created; (6) target build/flash/hardware unknown; (7) main.c, steer_s152_manual_relation.h, test and verifier; (8) no slowing LEFT, no T for manual; (9) historical S14 skew not geometry; (10) 180/100RAW and NC current guards stay; (11) check CI then safe user-side build; (12) physical mapping and angular tolerance not established; (13) 2026-11-01 shadow; (14) 96 rows, 50ms, tau120ms, +25 hypothetical; (15) private test logs stay private; (16) no actuator change or hardware PASS.
+
+### S15.2 terminal shadow row correction (2026-11-01)
+
+[BUGFIX SOURCE] M8S152_Record(force=1) executes after zeroing CCR in Steering_ManualStop while STEER_MANUAL_MOVING enum may still be retained. Set moving=0 explicitly for forced terminal sample so predValid=0, shadowR stays actual PWM=0, never report post-disarm predictive eligibility. No change to output or stop logic. [PROCESS] First correction push omitted the paired required handoff+roadmap update and handoff-contract CI failed despite earlier source HOST pass; this corrective documentation commit restores both records. Recheck full GitHub Actions at exact final SHA. No STM32/flash/hardware acceptance.
 END OF CONTEXT HANDOFF

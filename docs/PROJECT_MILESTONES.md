@@ -974,3 +974,7 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 ## M8-S15.2 implementation (2026-11-01; SOURCE-only)
 
 Manual D-pad LEFT/RIGHT and RX passive angular-relation predictor, calibrated proxy not Ackermann, read-only latest-stroke RAM 96 rows, M8S152 META/A/B after disarm, hypothetical RIGHT output never applied. Level2/Fast Start unchanged; LEFT and RIGHT PWM output remains owner-authoritative. HOST/static CI pending exact SHA, STM32 clean build/flash/hardware not verified. S15.3 not started. See docs/M8_S15_MILESTONE_PLAN_2026_11_01.md.
+
+## S15.2 terminal prediction flag correction (2026-11-01; SOURCE-only)
+
+Last stop frame is forcibly written after manual motor CCR=0; a retained MOVING enum must not make its predictive-feedback eligibility valid. Updated `M8S152_Record` to require `force==0` for moving prediction, and kept shadow output zero in forced stop row. No actuation/owner/Level2/Fast Start/RIGHT300 change. First isolated fix commit failed workflow handoff-contract gate because it lacked paired handoff+roadmap files; this follow-up restores the required documentation. CI full retest needed at final SHA; host pass or code CI != MCU Build/Flash/HW PASS.
