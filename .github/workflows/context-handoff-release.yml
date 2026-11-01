@@ -49,6 +49,9 @@ jobs:
       - name: Test handoff workflow invariants and no-Release resume
         run: python3 tools/test_context_handoff_process.py
 
+      - name: Guard retirement of rejected S14 and S14.1 LEFT taper
+        run: python3 tools/verify_retired_s14_taper.py
+
       - name: Check S14.3 guard verifier and pure C host regression
         run: |
           if [ -f tools/verify_m8_s143_faststart.py ]; then

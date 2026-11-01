@@ -1,3 +1,5 @@
+**Staged, unmerged evidence-based cleanup branch (2026-11-01):** User requested discard failed/obsolete code but KEEP successful, pending, PS2/VC02, NC/STOP and PowerShell log. `docs/M8_MAINTENANCE_CLEANUP_AUDIT_2026_11_01.md` audits each path. First candidate removes old boot-OFF S14/S14.1 manual LEFT taper and old diagnostics only, retains S14 AS5600 observer shared with S142, unchanged Level2/Fast Start, S11/S00/S152 and wheel logger. NO FLASH/HARDWARE PASS. Do not conflate separate cleanup branch with active S15.2 head; only promote after exact CI + target/physical verification.
+
 # LỜI NHẮN KHỞI ĐẦU CHO HỘI THOẠI MỚI — TIẾP QUẢN TRỰC TIẾP TỪ GITHUB
 
 > **Sao chép nguyên văn phần lời nhắn bên dưới vào một hội thoại mới.** Đây là hướng dẫn lấy ngữ cảnh, không thay thế `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md` 386 dòng.

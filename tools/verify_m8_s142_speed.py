@@ -35,7 +35,8 @@ checks={
        '*pwm_r=M8S142_Rise(plan.right_pwm,steer_s142_prev_final_r,100U);' in s,
   'S142 angle+speed active': 'Steering_S142SyncApply(' in s and
        'M8S142_SyncPlan(' in s,
-  'old S14.1 never runs in speed mode': '((steer_s142_latched == 0U) &&' in s,
+  'retired S14 and S14.1 taper absent': 'steer_s14_manual_latched' not in s and
+      'steer_s141_left_enable' not in s and 'Steering_S14ManualApply(' not in s,
   'S142 owner PWM reserves headroom': 'M8S142_Base(left,steer_s142_latched)' in s,
   'sync cap uses individual SOFT distance':
        'M8S142_Envelope(1U,steer_s142_latched,dist_l)' in s and
