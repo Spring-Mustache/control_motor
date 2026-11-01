@@ -2,6 +2,8 @@
 
 ## TRẠNG THÁI HIỆN HÀNH để tiếp quản (cập nhật kế hoạch 2026-11-01)
 
+**ĐỊNH HƯỚNG PHẠM VI MỚI NHẤT [USER, 2026-11-01]:** chỉ hoàn thành chặng phát triển M8-S15 đến **S15.4** rồi quay về **tích hợp VC-02 với cơ cấu điều khiển xe**. S15.5 target góc/Ackermann **TẠM HOÃN vì chưa có động học**; S15.6 không còn là giai đoạn ưu tiên trước VC-02, hồi quy sáu motor/Gate A/B vẫn cần nghiệm thu riêng trong chặng tích hợp tiếp theo. VC02 parser/builder đã có nhưng executor hiện chỉ tiến/lùi thẳng; TURN/ANGLE/ROTATE chưa được kết nối thực thi motor. Chi tiết và thứ tự VC02-I1/I2/I3 đề xuất: `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`. Không đụng firmware hoặc kích hoạt RIGHT 300CCR.
+
 **ĐỊNH HƯỚNG M8-S15 MỚI (2026-11-01):** Manual D-pad/joystick RX ưu tiên quan hệ góc giữa hai cơ cấu lái, KHÔNG ép đồng tốc tuyệt đối hoặc thời gian T chung. Giữ LEFT, cải thiện RIGHT, dự đoán sai lệch góc, Fast Start + Level2 boot defaults; R1/R2 và lệnh góc biết trước dùng common-T có điều kiện (R2 chỉ nếu cả hai CENTER, R2 physical MIN/NC). S15.1 mới telemetry-only; lộ trình S15.2–S15.6 ở cuối và trong `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`. Những khối S15 pilot cũ bên dưới là lịch sử, không phải lựa chọn manual mặc định mới.
 
 
@@ -964,3 +966,7 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 **Quyết định hiện hành từ người vận hành:** D-pad và joystick RX cần **bám quan hệ góc hai bánh**, không ép đồng tốc góc tuyệt đối hoặc cố T chung khi không biết lúc nhả. Hai cung/hình học khác nhau khiến so RAW, góc đã đi hoặc speed bằng nhau có thể sai. **Giữ dự đoán sai lệch góc P+D, Fast Start S14.3 boot-ON và Level2 boot=2; không hãm LEFT để bù RIGHT**. RIGHT ưu tiên bám quan hệ góc trong cap, đo AS5600 và nghiên cứu encoder đã kiểm chứng. R1 có thể T chung khi khả thi; R2 **chỉ xét T chung từ CENTER của cả hai**, ngoài CENTER sử dụng điều khiển vị trí độc lập và NC-authoritative. Lệnh góc bất kỳ/Ackermann về sau dùng hai target và T chung khi feasible.
 
 **Lộ trình:** S15.1 đã SOURCE/HOST/CI PASS (trace chỉ cho pilot S15, đề xuất RIGHT 300 CCR CHƯA kích hoạt; active 200 CCR); **S15.2 manual relation SHADOW** (bước kế tiếp, no actuation); S15.3 RIGHT-only manual pilot; S15.4 route mode R1/R2 theo điểm đầu; S15.5 target góc bất kỳ/Ackermann; S15.6 hồi quy Gate A và chuẩn bị Gate B riêng. S15.2–S15.6 là kế hoạch, CHƯA hoàn thành. Không có ngưỡng độ lệch góc, hạn hoặc geometry `f` được kiểm chứng. Không tự đổi 180/100RAW cap, +12CCR, STOP/NC/SOFT/PS2 semantics. Xem [kế hoạch S15 chi tiết](M8_S15_MILESTONE_PLAN_2026_11_01.md).
+
+## Quyết định giới hạn scope S15 và ưu tiên VC-02 (2026-11-01, DOCS ONLY)
+
+[USER] Giữ S15.2 manual angle-relation SHADOW → S15.3 RIGHT-only → **S15.4 R1/R2 mode routing**, sau đó quay lại chức năng **VC-02 điều khiển xe**. S15.5 Ackermann/arbitrary angle tạm hoãn tới khi có động học; S15.6 legacy regression chuyển sang VC-02 integration / Gate A/B, không bỏ an toàn hoặc tuyên bố PASS. Bộ VC-02 hiện có parser/builder/STOP/PS2 priority, nhưng source executor chỉ tiến/lùi thẳng; các lệnh TURN/ANGLE/ROTATE hiện bị từ chối. Không tự nói đã tích hợp đánh lái Voice. Xem tài liệu `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md` để tiếp tục. Không sửa firmware trong commit này.

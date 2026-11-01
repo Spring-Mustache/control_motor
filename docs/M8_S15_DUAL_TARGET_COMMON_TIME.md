@@ -70,3 +70,7 @@ Hai trục dùng cùng mốc giảm tốc 180/100 RAW, nhưng owner Level2 ở v
 Giữ Level2 boot=2 và Fast Start boot-ON theo source, đề xuất RIGHT 300 CCR ở S15.1 vẫn **chưa thực thi** (active 200 CCR). R1 về CENTER có thể common-T khi cả hai cần dịch chuyển và khả thi. R2 chỉ xét common-T khi cả hai được xác nhận CENTER; còn lại MIN/NC độc lập, không đòi NC tới đồng thời. Các lệnh góc Ackermann biết trước sẽ dùng common-T khi feasible.
 
 **Định hướng mới và tiêu chí cho từng mốc:** [M8-S15 milestone plan](M8_S15_MILESTONE_PLAN_2026_11_01.md). M8-S15.2–S15.6 chưa được triển khai.
+
+## Cập nhật phạm vi sau roadmap (2026-11-01, DOCS ONLY)
+
+[USER] Đợt phát triển S15 hiện hành **chỉ đến S15.4** (manual relation + RIGHT-only + position R1/R2 routing). S15.5 arbitrary target/Ackermann **tạm hoãn** cho tới khi hoàn thiện động học, không dùng làm điều kiện chờ để phát triển tiếp xe. S15.6 cũ tạm hoãn dưới nhãn S15; bài kiểm tra tích hợp sáu motor/Gate A/B vẫn được thực hiện theo giai đoạn VC-02 tiếp theo, không bỏ nghiệm thu. Sau S15.4 quay về **kết nối VC-02 command executor với điều khiển xe** theo các chế độ đã được xác minh; parser/builder hiện có TURN/ANGLE/ROTATE nhưng M4' mới hỗ trợ thực thi forward/backward không lái. Không sửa S15 kernel hay source PWM ở commit này. Chi tiết ở [S15 milestone plan](M8_S15_MILESTONE_PLAN_2026_11_01.md).

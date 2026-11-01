@@ -49,6 +49,12 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
+### CẬP NHẬT PHẠM VI MỚI NHẤT 2026-11-01 — S15 kết thúc chặng tại S15.4; chuyển sang VC-02
+
+[USER] Chỉ triển khai chuỗi S15.2 SHADOW → S15.3 RIGHT-only → **S15.4 R1/R2 route** trong hiện tại. Không chờ Ackermann hoàn chỉnh. **S15.5 TẠM HOÃN** vì động học chưa hoàn chỉnh, **S15.6 tạm hoãn dưới nhãn S15**; regression sáu motor và Gate A/B chuyển sang giai đoạn VC-02 integration, không bỏ nghiệm thu. Bước sau S15.4 là tích hợp lệnh VC-02 với các owner bánh/lái được bảo vệ, không tự suy từ event parser rằng TURN/ANGLE được thực thi.
+
+[SOURCE CHECK] `Voice_FinalizeCommand` và `VC02_M2_ProcessEvent` đã parse/build nhiều loại sự kiện/chuỗi, nhưng `Voice_IsOpenLoopCommandSupported` **chỉ thực thi FORWARD/BACKWARD không góc**, còn `Voice_ExecuteMotorControl` gọi `Turn_Motors_Stop()`. Mốc voice tiếp theo phải phân biệt parser với executor, giữ `STOP > PS2 > Voice > Idle`. ID dự kiến VC02-I1 parser/route audit & HOST, VC02-I2 opt-in executor, VC02-I3 regression/Gate A với Gate B riêng; không có SHA firmware hay acceptance mới. RIGHT proposed 300 vẫn inactive. Tài liệu chuẩn: `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`.
+
 ### CẬP NHẬT ĐỊNH HƯỚNG 2026-11-01 — milestone S15 (ưu tiên nguồn hiện hành)
 
 [USER] Đã làm rõ mục tiêu: manual D-pad/joystick RX cần **giữ quan hệ góc** giữa hai bánh trong thời gian điều khiển; "đồng tốc" trước đó là diễn giải không đúng vì cung đánh lái khác nhau. Giữ **dự đoán sai lệch góc** (ý tưởng P+D S14), **Fast Start mặc định ON**, **Level2 mặc định 2**, **giữ LEFT** không hãm để đồng bộ; tập trung tăng khả năng bám của RIGHT. R1 target CENTER có thể dùng common-T nếu feasible; R2 **chỉ xét common-T khi cả LEFT/RIGHT xuất phát CENTER hợp lệ**; không từ CENTER thì owner vị trí độc lập tới MIN vật lý/NC. Lệnh góc mục tiêu/Ackermann tương lai mới dùng common-T có điều kiện. Chế độ manual không tự quay CENTER khi nhả joystick. [THAY THẾ] Không dùng "hai trục manual phải đồng tốc góc" hay "S15 T chung cho mọi lệnh D-pad" như mục tiêu hiện hành.
@@ -1072,17 +1078,36 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [1] Điểm dừng: S15.1 telemetry đã commit, bước tiếp theo S15.2 SHADOW manual relation.
 [2] Mục tiêu: manual quan hệ góc, known-target common-T; không đánh đổi LEFT.
 [3] Ràng buộc user: Fast Start/Level2 boot defaults, không giảm LEFT, RIGHT ưu tiên, R2 CENTER-only common-T.
-[4] S15.1 → S15.2 → S15.3 → S15.4 → S15.5 → S15.6, Gate A/B riêng.
+[4] S15.1 → S15.2 → S15.3 → S15.4 (phạm vi S15 hiện hành) → VC02-I1/I2/I3 (kế hoạch) + Gate A/B riêng. S15.5 Ackermann và S15.6 cũ tạm hoãn, KHÔNG chặn VC-02.
 [5] Hiện trạng SOURCE/HOST trên S15.1; roadmap mới DOCS ONLY.
 [6] Chưa có manual relation mapping/threshold, CubeIDE/Flash/HW cho S15.1 chưa xác minh.
 [7] Canonical: docs/M8_S15_MILESTONE_PLAN_2026_11_01.md, M8_S15_DUAL_TARGET_COMMON_TIME.md, PROJECT_MILESTONES.md, main.c, S14 headers.
 [8] Không đồng tốc tuyệt đối, không hãm LEFT; S14.8 positive boost và S14.9 forecast là hướng tham khảo, không tự chạy song song.
 [9] S14 taper-only có thể làm LEFT chậm; script FAIL khác hardware FAIL.
 [10] RIGHT terminal 180RAW, trần 200 active/300 proposed; không thay ngay vì current/coast/NC.
-[11] Việc đầu tiên: pure-C SHADOW geometry-proxy/angle error/speed prediction + HOST/CI, không đổi PWM.
+[11] Việc đầu tiên: S15.2 pure-C SHADOW geometry-proxy/angle error/speed prediction + HOST/CI, không đổi PWM; sau S15.4 chuyển sang VC-02 pipeline/owner mapping.
 [12] Còn mở: cơ sở vật lý quan hệ góc, ngưỡng sai số, encoder ratio/direction, điều kiện bảo vệ.
 [13] 2026-11-01 định hướng điều khiển được sửa; ngày lịch sử S14/S15 giữ nguyên.
 [14] Giá trị active LEFT450/RIGHT200 CCR, Fast Start ON, Level2=2, +12, 180/100RAW, R2 NC MIN.
 [15] Hội thoại tiếp theo phải đọc plan và HEAD cùng SHA, không lấy tài liệu lịch sử làm code hiện hành.
 [16] Đây chỉ là docs; source/CI cần check đúng SHA, không ghi CubeIDE/HW PASS khi chưa có.
+### Quyết định scope S15→VC-02 (2026-11-01; ưu tiên mới nhất)
+
+[0] USER quyết định S15 chỉ làm tới S15.4 trong đợt hiện tại.
+[1] Điểm dừng SOURCE: S15.1; việc kế tiếp S15.2 SHADOW; sau S15.4 tích hợp Voice.
+[2] Mục tiêu: manual quan hệ góc/RIGHT, R1/R2 route, sau đó lệnh giọng nói điều khiển bánh và lái.
+[3] Không dùng hình học Ackermann chưa có làm đầu vào giả.
+[4] S15.5 và S15.6 lịch sử tạm hoãn; Voice VC02-I1/I2/I3 là đề xuất quản lý, Gate A/B riêng.
+[5] Parser/builder đã có; executor chưa điều khiển TURN/ANGLE/ROTATE.
+[6] Chưa có firmware Voice mới, CubeIDE/Flash/HARDWARE của route mới.
+[7] Nguồn: main.c Voice_FinalizeCommand, Voice_IsOpenLoopCommandSupported, Voice_ExecuteMotorControl và docs/M8_S15_MILESTONE_PLAN_2026_11_01.md.
+[8] Không khôi phục ép đồng tốc, không giảm LEFT, không bật RIGHT cap 300.
+[9] Khác biệt: valid voice command builder không đồng nghĩa đã chạy bánh/lái.
+[10] STOP>PS2>Voice>Idle và NC/soft/stall/atomic kiểm tra phải giữ.
+[11] Cần bắt đầu S15.2 shadow trước; sau S15.4 kiểm tra code VOICE để thiết kế mapping thật.
+[12] Lệnh Voice yêu cầu góc có thể cần động học chưa có; giữ từ chối an toàn nếu không hỗ trợ.
+[13] Quyết định mới nhất sau milestone commit S15.2–S15.6 bản trước.
+[14] Level2 LEFT450/RIGHT200; Fast Start ON; 300CCR only proposed; S15.5 geometry deferred.
+[15] Cập nhật đủ docs roadmap/handoff/prompt; không sửa motor code trong commit này.
+[16] Docs/CI only, không gộp với motor acceptance.
 END OF CONTEXT HANDOFF

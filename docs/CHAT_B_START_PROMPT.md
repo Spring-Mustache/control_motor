@@ -21,6 +21,8 @@ Tôi muốn bạn tiếp tục dự án **xe tăng cướp bóng — STM32F767ZI
 
 ## Giữ đúng các quyết định và bảo vệ
 
+**Phạm vi mới nhất [USER, 2026-11-01]:** giai đoạn S15 chỉ làm S15.2 → S15.3 → S15.4, rồi chuyển sang tích hợp lệnh điều khiển **VC-02** vào hệ thống xe. S15.5 arbitrary-angle/Ackermann TẠM HOÃN vì chưa có động học hoàn chỉnh, S15.6 legacy regression không còn là bước chặn VC-02 (nhưng Gate A/B an toàn vẫn chưa PASS và phải làm ở giai đoạn tích hợp). Voice parser/builder đã có, còn executor hiện chỉ tiến/lùi thẳng, từ chối TURN/ANGLE/ROTATE; xem `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`. Đây là kế hoạch docs, không phải firmware triển khai.
+
 **Cập nhật người vận hành 2026-11-01:** Đọc `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md` trước khi đề xuất code: D-pad/joystick RX phải bám quan hệ góc (không ép đồng tốc tuyệt đối hay dùng common-T mặc định); giữ LEFT/Fast Start/Level2, ưu tiên RIGHT. T chung cho lệnh có góc đích; R2 chỉ xét common-T khi cả hai CENTER, còn lại owner độc lập tới MIN/NC. S15.2 SHADOW là bước dự kiến, S15.1 telemetry chỉ cho pilot cũ. Những đoạn mô tả S15 D-pad LEFT common-T bên dưới là route pilot lịch sử.
 
 
