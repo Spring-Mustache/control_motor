@@ -152,11 +152,11 @@ try {
             }
             if ($sourceDirty -ne 0) {
                 $ok = $false
-                Write-Warning "FW DIRTY frame $complete: local changes existed at compilation."
+                Write-Warning "FW DIRTY frame ${complete}: local changes existed at compilation."
             }
         } else {
             $ok = $false
-            Write-Warning "FW UNKNOWN frame $complete: missing/invalid MCU firmware ID."
+            Write-Warning "FW UNKNOWN frame ${complete}: missing/invalid MCU firmware ID."
         }
         $kind = -1
         $dirL = 0
