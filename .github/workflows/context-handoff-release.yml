@@ -85,6 +85,9 @@ jobs:
       - name: Verify S15.3 RIGHT-only opt-in bounded owner and C HOST regression
         run: python3 tools/verify_m8_s153_right_only.py
 
+      - name: Verify embedded firmware Git identity and fail-closed UART capture
+        run: python3 tools/verify_firmware_build_identity.py
+
       - name: Verify S15.2 four-run PowerShell-only UART capture
         run: python3 tools/verify_m8_s152_capture.py
 
@@ -100,19 +103,42 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Parse S15.2 PowerShell script without serial hardware
+      - name: Parse serial capture and Git stamping scripts without serial hardware
         shell: powershell
         run: |
           $tokens = $null
           $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            ".\\tools\\capture_m8_s152.ps1",
-            [ref]$tokens, [ref]$errors) | Out-Null
+          foreach ($path in @(".\\tools\\capture_m8_s152.ps1",
+                               ".\\tools\\stamp_firmware_build.ps1")) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $path, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+          }
           if ($errors.Count -gt 0) {
             $errors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
           Write-Host "PASS: PowerShell 5.1 syntax verified at exact commit."
+
+      - name: Generate Git-stamped C header on Windows and check exact SHA/clean
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\tools\\stamp_firmware_build.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Firmware stamping failed" }
+          $head = (git rev-parse HEAD).Trim()
+          $content = [IO.File]::ReadAllText(".\\Core\\Inc\\firmware_build_id_generated.h")
+          if (-not $content.Contains('#define FW_BUILD_GIT_SHA "' + $head + '"')) {
+            throw "Wrong Git commit embedded in generated firmware header"
+          }
+          if (-not $content.Contains('#define FW_BUILD_GIT_DIRTY 0U')) {
+            throw "Clean checkout improperly marked dirty"
+          }
+          Write-Host "PASS: Generated header contains exact checkout SHA, clean."
 
   publish-release:
     name: Optional milestone / offline context package

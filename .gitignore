@@ -21,3 +21,8 @@ __pycache__/
 # Temporary files
 *.tmp
 *.bak
+# Firmware build identity is generated from Git by a PowerShell pre-build step.
+/Core/Inc/firmware_build_id_generated.h
+
+# UART diagnostic captures are local evidence, never firmware source.
+/logs/

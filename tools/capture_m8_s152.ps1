@@ -16,9 +16,24 @@ param(
     [int]$TimeoutSeconds = 1200,
     [ValidateRange(128, 1200)]
     [int]$MaxLinesPerRun = 750,
-    [string]$OutputDirectory = '.\logs'
+    [string]$OutputDirectory = '.\logs',
+    [string]$ExpectedCommit = ''
 )
 $ErrorActionPreference = 'Stop'
+# Expected Git HEAD is only an expectation, not proof of flashed firmware.
+if ([string]::IsNullOrWhiteSpace($ExpectedCommit)) {
+    $root = Split-Path -Parent $PSScriptRoot
+    $gitResult = & git -C $root rev-parse --verify HEAD 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Cannot determine Git HEAD. Pass -ExpectedCommit <40-hex-sha>.'
+    }
+    $ExpectedCommit = ($gitResult | Out-String).Trim()
+}
+$ExpectedCommit = $ExpectedCommit.Trim().ToLowerInvariant()
+if ($ExpectedCommit -cnotmatch '^[0-9a-f]{40}$') {
+    throw 'ExpectedCommit must be the exact 40-character Git SHA.'
+}
+Write-Host "Expected firmware SHA: $ExpectedCommit"
 $available = @([System.IO.Ports.SerialPort]::GetPortNames() | Sort-Object)
 if ($available.Count -eq 0) { throw 'No COM port. Check ST-LINK USB VCP cable and driver.' }
 if ([string]::IsNullOrWhiteSpace($Port)) {
@@ -62,6 +77,7 @@ $complete = 0
 $receiving = $false
 $linesInRun = 0
 $meta = ''
+$firmwareLine = ''
 $haveRows = $false
 $haveFinalZero = $false
 $badRuns = 0
@@ -101,6 +117,7 @@ try {
             $receiving = $true
             $linesInRun = 0
             $meta = ''
+            $firmwareLine = ''
             $haveRows = $false
             $haveFinalZero = $false
         }
@@ -109,7 +126,9 @@ try {
         if ($linesInRun -gt $MaxLinesPerRun) {
             throw "M8S00 frame exceeded $MaxLinesPerRun lines without END."
         }
-        if ($line -match '^M8S152_META,') {
+        if ($line -match '^M8S00_FW,') {
+            $firmwareLine = $line
+        } elseif ($line -match '^M8S152_META,') {
             $meta = $line
         } elseif ($line -match '^M8S152_A,i=') {
             $haveRows = $true
@@ -122,6 +141,23 @@ try {
         $receiving = $false
         $complete++
         $ok = $true
+        $sourceSha = ''
+        $sourceDirty = -1
+        if ($firmwareLine -match '^M8S00_FW,proto=1,sha=([0-9a-f]{40}),dirty=([01]),') {
+            $sourceSha = $Matches[1]
+            $sourceDirty = [int]$Matches[2]
+            if ($sourceSha -cne $ExpectedCommit) {
+                $ok = $false
+                Write-Warning "FW MISMATCH frame $complete: MCU=$sourceSha expected=$ExpectedCommit."
+            }
+            if ($sourceDirty -ne 0) {
+                $ok = $false
+                Write-Warning "FW DIRTY frame $complete: local changes existed at compilation."
+            }
+        } else {
+            $ok = $false
+            Write-Warning "FW UNKNOWN frame $complete: missing/invalid MCU firmware ID."
+        }
         $kind = -1
         $dirL = 0
         $runId = -1L
@@ -151,8 +187,8 @@ try {
         }
         if (-not $ok) { $badRuns++ }
         Write-Host (("Captured {0}/{1}: run={2}, kind={3}, dirL={4}, " +
-            "lines={5}, valid={6}") -f $complete, $ExpectedRuns, $runId,
-            $kind, $dirL, $linesInRun, $ok)
+            "lines={5}, valid={6}, fw={7}, dirty={8}") -f $complete, $ExpectedRuns, $runId,
+            $kind, $dirL, $linesInRun, $ok, $sourceSha, $sourceDirty)
         if ($complete -lt $ExpectedRuns) {
             Write-Host "NEXT: perform test $($complete + 1) then DISARM + short USER."
         }
@@ -174,7 +210,7 @@ if ($complete -ne $ExpectedRuns) {
     throw "Timeout: only $complete/$ExpectedRuns complete frames. Partial data preserved in $file"
 }
 if ($badRuns -ne 0) {
-    Write-Warning "$badRuns run(s) need inspection. Upload the SAME TXT, do not discard evidence."
+    throw "$badRuns invalid frame(s): firmware identity mismatch/unknown/dirty or invalid samples. TXT preserved at $file."
 } else {
-    Write-Host 'SUCCESS: four M8S152 runs captured in one TXT. Upload this TXT only.'
+    Write-Host 'SUCCESS: exact expected STM32 firmware SHA verified for every frame.'
 }

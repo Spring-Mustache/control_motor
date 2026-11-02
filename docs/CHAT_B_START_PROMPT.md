@@ -1,3 +1,5 @@
+**Firmware-commit log identity (2026-11-02):** All new M8S00 dumps have MCU-stamped full Git SHA/dirty/UTC from CubeIDE PowerShell pre-build, and `capture_m8_s152.ps1` fails closed if SHA mismatches/unknown/dirty. Previous 14:04 log had `M8S153 enable=0,last=0`, RIGHT late 528ms, but no SHA. Read `docs/M8_FIRMWARE_LOG_IDENTITY_2026_11_02.md`. Target CubeIDE build/flash after prebuild addition still must be verified. S15.3 active remains OFF by default.
+
 **S15.3 LEFT preservation refinement (2026-11-02):** S14.2 remains calculated for LEFT only, its RIGHT result goes to unused temporary; clamp LEFT to max(owner baseline, S14.2 left candidate); S15.3 owns only RIGHT. Mode still boot OFF and safe gates unchanged. See docs/M8_S153_RIGHT_ONLY_STAGE_2026_11_02.md. No target/hardware test yet.
 
 # LỜI NHẮN KHỞI ĐẦU CHO HỘI THOẠI MỚI — TIẾP QUẢN TRỰC TIẾP TỪ GITHUB

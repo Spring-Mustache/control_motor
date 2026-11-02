@@ -44,3 +44,7 @@ PowerShell script validates four records, increasing run IDs, \`kind\` and \`dir
 ## Failure diagnosis from script output
 
 If \`No COM port\`: check ST-LINK USB/driver; specify \`-Port COMx\` if multiple. If no \`#M8S00_BEGIN\`, ensure disarm completed, brief USER release, no other COM program. If only a partial log is saved, preserve the TXT and inspect UART/gating. If \`M8S152_META\` is missing, verify flashed firmware SHA and that an eligible D-pad/RX manual stroke was executed. The script does not manipulate any MCU motor-control flag.
+
+## Firmware identity added to each M8S00 capture (2026-11-02)
+
+New CubeIDE Debug/Release `prebuildStep` generates `firmware_build_id_generated.h` from Git HEAD using only native PowerShell; `M8S00_FW,proto=1,sha=<full40>,dirty=<0|1>,branch=...,builtUtc=...,target=STM32F767ZI` is written **by MCU** at the beginning of every safe post-disarm M8S00 frame. Updated `capture_m8_s152.ps1` automatically expects local git HEAD or `-ExpectedCommit <full 40-hex SHA>` and rejects missing/different/dirty stamped firmware without discarding TXT. Historical logs before this commit have unknown SHA. Read `docs/M8_FIRMWARE_LOG_IDENTITY_2026_11_02.md`; Clean Build + flash identity physically needed; no new motor enable, Live Expressions or serial apps.
