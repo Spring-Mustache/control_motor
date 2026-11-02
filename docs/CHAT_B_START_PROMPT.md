@@ -1,3 +1,5 @@
+**S15.3 LEFT preservation refinement (2026-11-02):** S14.2 remains calculated for LEFT only, its RIGHT result goes to unused temporary; clamp LEFT to max(owner baseline, S14.2 left candidate); S15.3 owns only RIGHT. Mode still boot OFF and safe gates unchanged. See docs/M8_S153_RIGHT_ONLY_STAGE_2026_11_02.md. No target/hardware test yet.
+
 # LỜI NHẮN KHỞI ĐẦU CHO HỘI THOẠI MỚI — TIẾP QUẢN TRỰC TIẾP TỪ GITHUB
 
 > **Sao chép nguyên văn phần lời nhắn bên dưới vào một hội thoại mới.** Đây là hướng dẫn lấy ngữ cảnh, không thay thế `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md` 386 dòng.

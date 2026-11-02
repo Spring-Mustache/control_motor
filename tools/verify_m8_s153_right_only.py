@@ -26,8 +26,13 @@ checks={
  'S14.7/9 suppressed by pilot selection':
   '(steer_s153_latched==0U)' in s and
   'steer_s149_latched=((steer_s147_latched!=0U)' in s,
- 'S15.3 replaces S142 when latched, not layered':
-  'else if(steer_s153_latched!=0U)\n      Steering_S153RightApply(' in manual[a:b],
+ 'S15.3 preserves legacy LEFT boosts, drops RIGHT trim, no LEFT taper':
+  'else if(steer_s153_latched!=0U)\n    {' in manual[a:b] and
+  'uint16_t baseline_l=la,legacy_r=ra;' in manual[a:b] and
+  '&la,&legacy_r);' in manual[a:b] and
+  'if(la<baseline_l)la=baseline_l;' in manual[a:b] and
+  'left_direction,&la,&ra);' in manual[a:b] and
+  'ra=legacy_r' not in manual[a:b],
  'observer reset each command; no stale mode after stop':
   'steer_s153_latched=0U;' in reset and 'steer_s153_obs=(M8S152State_t){0};' in reset,
  'RIGHT-only path no modification LEFT or owner direction':

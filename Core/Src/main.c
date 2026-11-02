@@ -8402,12 +8402,29 @@ static void Steering_ManualUpdate(void)
           Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
           &la,&ra);
     else if(steer_s153_latched!=0U)
+    {
+      /* Preserve the existing S14.2 LEFT positive correction path.
+       * Discard ALL its RIGHT candidate (including trims) in legacy_r.
+       * No S15.3 output is ever copied into LEFT. If legacy S14.2
+       * proposed a LEFT taper, keep LEFT's own baseline instead.
+       */
+      uint16_t baseline_l=la,legacy_r=ra;
+      Steering_S142SyncApply(
+          steer_manual_left_axis.phase_start_raw,
+          steer_manual_left_soft_target, debug_as5600_left_raw,
+          steer_manual_right_axis.phase_start_raw,
+          steer_manual_right_soft_target, debug_as5600_right_raw,
+          Steering_ManualClampPWM(steer_manual_left_rx_min_pwm),
+          Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
+          &la,&legacy_r);
+      if(la<baseline_l)la=baseline_l;
       Steering_S153RightApply(
           steer_manual_left_axis.phase_start_raw,
           steer_manual_left_soft_target, debug_as5600_left_raw,
           steer_manual_right_axis.phase_start_raw,
           steer_manual_right_soft_target, debug_as5600_right_raw,
           left_direction,&la,&ra);
+    }
     else if (steer_s142_latched != 0U)
       Steering_S142SyncApply(
           steer_manual_left_axis.phase_start_raw,
