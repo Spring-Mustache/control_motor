@@ -36,3 +36,9 @@ In replacement D-pad LEFT at LEFT completion (~1957ms), RIGHT was **51 RAW** fro
 5. Compare same starting calibrated angles, joystick magnitude and motor supply/load, collect output **only using native PowerShell** (`capture_m8_s152.ps1`), and verify `M8S153,last=1` and `appliedFrames>0` for a genuine active correction. `frames>0` alone is not proof of change. Separately assess normalized angle error over time, RIGHT SOFT arrival, LEFT responsiveness, NC, stop and driver currents. No arbitrary PASS tolerance without measurement.
 
 **Not yet achieved:** CubeIDE build, flash verification, physical safety, power current/coast data, target input-to-CCR latency or demonstrable reduction of the 625–649ms RIGHT terminal lag. S15.4 R1/R2 and VC02 phases unchanged.
+
+## S15.3 actual STM32CubeIDE build failure and fix (2026-11-02)
+
+Operator's **real CubeIDE build** of SHA `0cb9df9` failed in `Core/Src/main.c`: S15.3 function appeared at line 3422 **before** declaration of `Steering_PositionRawInRange(uint8_t,uint16_t)` at line 4071 and **before** `#define STEER_MANUAL_MOVING 1U` at line 5553. GCC reported 3 errors, 1 warning. Previous HOST/CI success did not compile full STM32 `main.c`: **do not call 0cb9df9 target build PASS**.
+
+**Fixed source:** move the entire unchanged `Steering_S153RightApply` function down to immediately before `Steering_ManualUpdate` (after state macros and Range function). No motor-control algorithm, gating, PWM, logging or PS2 owner edits. Add explicit static source ordering check to `tools/verify_m8_s153_right_only.py`. Verify CI exact updated SHA, then operator re-runs STM32CubeIDE Clean Build; cannot claim target PASS until this is reported. Physical safety/current/coast gates remain pending; keep `steer_s153_right_only_enable=0U`.

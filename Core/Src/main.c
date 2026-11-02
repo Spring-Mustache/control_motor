@@ -3414,53 +3414,6 @@ static void Steering_S147PIApply(
  * No I2C, direction writes, zero holds or manual DONE decisions.
  * When sensor validity fails, leave each independent owner demand.
  */
-/* M8-S15.3: ALTERNATIVE manual controller, not a layer on S14.2.
- * Reads existing cached AS5600 values only; no extra I2C. No LEFT write.
- * All STOP/NC/SOFT/phase-start owner restrictions are rechecked by the
- * existing final atomic arbitration AFTER this bounded RIGHT candidate.
- */
-static void Steering_S153RightApply(uint16_t start_l,uint16_t goal_l,
-    uint16_t raw_l,uint16_t start_r,uint16_t goal_r,uint16_t raw_r,
-    int8_t direction_l,uint16_t *pwm_l,uint16_t *pwm_r)
-{
-  uint16_t remain_l,remain_r,moved_l,moved_r,cap_r;
-  int16_t aL=0,aR=0;
-  uint32_t now=HAL_GetTick();
-  uint8_t geometry_ok;
-  M8S152Plan_t rel;
-  M8S153Plan_t p;
-  remain_l=(raw_l>goal_l)?(raw_l-goal_l):(goal_l-raw_l);
-  remain_r=(raw_r>goal_r)?(raw_r-goal_r):(goal_r-raw_r);
-  moved_l=(raw_l>start_l)?(raw_l-start_l):(start_l-raw_l);
-  moved_r=(raw_r>start_r)?(raw_r-start_r):(start_r-raw_r);
-  cap_r=M8S142_Envelope(0U,steer_s142_latched,remain_r);
-  geometry_ok=(uint8_t)((Steering_PositionRawInRange(1U,raw_l)!=0U)&&
-      (Steering_PositionRawInRange(0U,raw_r)!=0U)&&
-      (Steering_AngleFromRaw(1U,raw_l,&aL)!=0U)&&
-      (Steering_AngleFromRaw(0U,raw_r,&aR)!=0U));
-  rel=M8S152_Observe(&steer_s153_obs,aL,aR,
-      steer_pos_left_last_sample_ms,steer_pos_right_last_sample_ms,
-      now,direction_l,geometry_ok,1U);
-  steer_s153_last_owner_r=*pwm_r;
-  p=M8S153_PlanRight(*pwm_l,*pwm_r,cap_r,remain_l,remain_r,
-      moved_l,moved_r,
-      (uint8_t)((steer_manual_left_state==STEER_MANUAL_MOVING)&&
-                (steer_manual_right_state==STEER_MANUAL_MOVING)&&
-                (steer_safety_motion_permit==1U)&&
-                (steer_safety_trip_latched==0U)&&
-                (control_stop_latched==0U)),
-      (uint8_t)(Steering_TestRawLimitMask()==0U),&rel);
-  if(steer_s153_frames!=0xffffffffUL)steer_s153_frames++;
-  if(p.eligible==0U&&steer_s153_skipped!=0xffffffffUL)
-    steer_s153_skipped++;
-  if(p.boost_ccr!=0U&&steer_s153_requested!=0xffffffffUL)
-    steer_s153_requested++;
-  if(p.boost_ccr>steer_s153_peak_extra)
-    steer_s153_peak_extra=p.boost_ccr;
-  steer_s153_last_candidate_r=p.right_pwm;
-  *pwm_r=p.right_pwm; /* bounded RIGHT only: never change *pwm_l */
-}
-
 static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
     uint16_t raw_l,uint16_t start_r,uint16_t goal_r,uint16_t raw_r,
     uint16_t floor_l,uint16_t floor_r,uint16_t *pwm_l,uint16_t *pwm_r)
@@ -7915,6 +7868,53 @@ static void Steering_S15Apply(uint16_t start_l,uint16_t goal_l,
   steer_s15_candidate_r=*pwm_r;
   if(steer_s15_frames!=0xffffffffUL)steer_s15_frames++;
   m8s151_plan=1U; /* read-only indicator */
+}
+
+/* M8-S15.3: ALTERNATIVE manual controller, not a layer on S14.2.
+ * Reads existing cached AS5600 values only; no extra I2C. No LEFT write.
+ * All STOP/NC/SOFT/phase-start owner restrictions are rechecked by the
+ * existing final atomic arbitration AFTER this bounded RIGHT candidate.
+ */
+static void Steering_S153RightApply(uint16_t start_l,uint16_t goal_l,
+    uint16_t raw_l,uint16_t start_r,uint16_t goal_r,uint16_t raw_r,
+    int8_t direction_l,uint16_t *pwm_l,uint16_t *pwm_r)
+{
+  uint16_t remain_l,remain_r,moved_l,moved_r,cap_r;
+  int16_t aL=0,aR=0;
+  uint32_t now=HAL_GetTick();
+  uint8_t geometry_ok;
+  M8S152Plan_t rel;
+  M8S153Plan_t p;
+  remain_l=(raw_l>goal_l)?(raw_l-goal_l):(goal_l-raw_l);
+  remain_r=(raw_r>goal_r)?(raw_r-goal_r):(goal_r-raw_r);
+  moved_l=(raw_l>start_l)?(raw_l-start_l):(start_l-raw_l);
+  moved_r=(raw_r>start_r)?(raw_r-start_r):(start_r-raw_r);
+  cap_r=M8S142_Envelope(0U,steer_s142_latched,remain_r);
+  geometry_ok=(uint8_t)((Steering_PositionRawInRange(1U,raw_l)!=0U)&&
+      (Steering_PositionRawInRange(0U,raw_r)!=0U)&&
+      (Steering_AngleFromRaw(1U,raw_l,&aL)!=0U)&&
+      (Steering_AngleFromRaw(0U,raw_r,&aR)!=0U));
+  rel=M8S152_Observe(&steer_s153_obs,aL,aR,
+      steer_pos_left_last_sample_ms,steer_pos_right_last_sample_ms,
+      now,direction_l,geometry_ok,1U);
+  steer_s153_last_owner_r=*pwm_r;
+  p=M8S153_PlanRight(*pwm_l,*pwm_r,cap_r,remain_l,remain_r,
+      moved_l,moved_r,
+      (uint8_t)((steer_manual_left_state==STEER_MANUAL_MOVING)&&
+                (steer_manual_right_state==STEER_MANUAL_MOVING)&&
+                (steer_safety_motion_permit==1U)&&
+                (steer_safety_trip_latched==0U)&&
+                (control_stop_latched==0U)),
+      (uint8_t)(Steering_TestRawLimitMask()==0U),&rel);
+  if(steer_s153_frames!=0xffffffffUL)steer_s153_frames++;
+  if(p.eligible==0U&&steer_s153_skipped!=0xffffffffUL)
+    steer_s153_skipped++;
+  if(p.boost_ccr!=0U&&steer_s153_requested!=0xffffffffUL)
+    steer_s153_requested++;
+  if(p.boost_ccr>steer_s153_peak_extra)
+    steer_s153_peak_extra=p.boost_ccr;
+  steer_s153_last_candidate_r=p.right_pwm;
+  *pwm_r=p.right_pwm; /* bounded RIGHT only: never change *pwm_l */
 }
 
 static void Steering_ManualUpdate(void)

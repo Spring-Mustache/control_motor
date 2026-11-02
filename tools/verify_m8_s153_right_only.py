@@ -6,11 +6,18 @@ root=Path(__file__).resolve().parents[1]
 s=(root/'Core/Src/main.c').read_text(encoding='utf-8')
 h=(root/'Core/Inc/steer_s153_right_only.h').read_text(encoding='utf-8')
 reset=s[s.index('static void Steering_S14ManualReset(void)'):s.index('static void Steering_S14Observe(',s.index('static void Steering_S14ManualReset(void)'))]
-active=s[s.index('static void Steering_S153RightApply('):s.index('static void Steering_S142SyncApply(',s.index('static void Steering_S153RightApply('))]
+active=s[s.index('static void Steering_S153RightApply('):s.index('static void Steering_ManualUpdate(void)\n{',s.index('static void Steering_S153RightApply('))]
 manual=s[s.index('static void Steering_ManualUpdate(void)\n{'):]
 a=manual.index('if(steer_s15_latched!=0U)\n      Steering_S15Apply(')
 b=manual.index('else if (steer_s142_latched != 0U)',a)
 checks={
+ 'S15.3 function dependencies and state macros declared before use':
+  s.index('static uint8_t Steering_PositionRawInRange(uint8_t left, uint16_t raw)')<
+  s.index('static void Steering_S153RightApply(') and
+  s.index('#define STEER_MANUAL_MOVING     1U')<
+  s.index('static void Steering_S153RightApply(') and
+  s.index('static void Steering_S153RightApply(')<
+  s.index('static void Steering_ManualUpdate(void)'),
  'S15.3 boot OFF and Level2/Fast Start unchanged':
   'steer_s153_right_only_enable=0U;' in s and
   'steer_s142_trial_level = 2U;' in s and
