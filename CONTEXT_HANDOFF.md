@@ -1145,4 +1145,5 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 
 [2026-11-02 FWID fix] Windows Parser caught `$complete:` in firmware-mismatch warning; use `${complete}:` before asserting PowerShell success. Firmware motor unchanged. Exact new SHA and target CubeIDE + MCU serial required.
 [FWID Windows parser follow-up 2026-11-02] Corrected both remaining $complete: in DIRTY and UNKNOWN status strings to ${complete}: to eliminate invalid PowerShell interpolation. No MCU control changes; require CI exact new SHA, CubeIDE Clean Build and physical log.
+[FW identity Windows PS5.1 runtime fix 2026-11-02] $PSScriptRoot was empty in param default expression in CI; now derive $RepoRoot from running script path AFTER param binding. Exact new SHA and Windows CI runtime required, MCU behavior unchanged. Never claim actual CubeIDE prebuild verified until user reports.
 END OF CONTEXT HANDOFF

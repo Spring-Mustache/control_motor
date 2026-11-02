@@ -1004,3 +1004,5 @@ Operator's **real CubeIDE build** of SHA `0cb9df9` failed in `Core/Src/main.c`: 
 [2026-11-02 identity CI fix] First Windows PowerShell parser failed on interpolated `$complete:` in new capture warning (PowerShell treats colon as drive syntax). Replaced with `${complete}:`; firmware C and actual motor routing untouched. Await CI exact new SHA and CubeIDE clean build.
 
 [FW identity CI parser correction, 2026-11-02] Windows runner found two more literal `$complete:` variable-colon interpolations in FW DIRTY/UNKNOWN warnings. Both now use `${complete}:`. No firmware/control changes. Require parser and end-to-end Windows stamping CI PASS at final exact SHA.
+
+[FWID Windows runtime correction 2026-11-02] First script runtime under Powershell 5.1 failed: parameter default `Split-Path -Parent $PSScriptRoot` evaluated with empty `$PSScriptRoot`. Revised `param([string]$RepoRoot = '')` and after binding derive root via `$MyInvocation.MyCommand.Path`. This is build tooling only; no MCU algorithm change. Require Windows runtime stamp CI PASS and actual CubeIDE Clean Build.

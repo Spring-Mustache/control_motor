@@ -1,8 +1,18 @@
 # PowerShell 5.1: generate exact Git source identity BEFORE CubeIDE compiles main.c.
 # If Git/stamp fails, build must fail (never silently claim an old commit).
 [CmdletBinding()]
-param([string]$RepoRoot = (Split-Path -Parent $PSScriptRoot))
+param([string]$RepoRoot = '')
 $ErrorActionPreference = 'Stop'
+# PowerShell 5.1 may evaluate param default expressions BEFORE $PSScriptRoot
+# is assigned. Resolve through the actual running script path after binding.
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $scriptPath = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($scriptPath)) {
+        throw 'Cannot discover stamp script path; supply -RepoRoot.'
+    }
+    $toolsFolder = Split-Path -Parent $scriptPath
+    $RepoRoot = Split-Path -Parent $toolsFolder
+}
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 function Read-Git([string[]]$GitArgs) {
     $lines = & git -C $RepoRoot @GitArgs 2>&1
