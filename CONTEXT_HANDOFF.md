@@ -4,6 +4,8 @@
 
 ---
 
+**CURRENT 2026-11-02:** PowerShell receiver now uses SHA reported by STM32 (no local Git lookup) and accepts complete frames even when CubeIDE marks firmware dirty=1 due to .prefs changes. Optional manual label is explicitly unverified. Operator had 4/4 frames at 16:06 but old script reported invalid4; TXT saved locally. Firmware itself unchanged; S15.3 OFF, no new flash required. See final addendum.
+
 ## 0. Thông tin hồ sơ và phạm vi bao phủ
 
 ### Hai lớp nội dung — KHÔNG gộp lịch sử vào trạng thái hiện tại
@@ -1146,4 +1148,7 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [2026-11-02 FWID fix] Windows Parser caught `$complete:` in firmware-mismatch warning; use `${complete}:` before asserting PowerShell success. Firmware motor unchanged. Exact new SHA and target CubeIDE + MCU serial required.
 [FWID Windows parser follow-up 2026-11-02] Corrected both remaining $complete: in DIRTY and UNKNOWN status strings to ${complete}: to eliminate invalid PowerShell interpolation. No MCU control changes; require CI exact new SHA, CubeIDE Clean Build and physical log.
 [FW identity Windows PS5.1 runtime fix 2026-11-02] $PSScriptRoot was empty in param default expression in CI; now derive $RepoRoot from running script path AFTER param binding. Exact new SHA and Windows CI runtime required, MCU behavior unchanged. Never claim actual CubeIDE prebuild verified until user reports.
+
+[2026-11-02 S15.2 logging 17-section current addendum]
+[0] Host-only PowerShell change; [1] actual MCU SHA in each log, no local Git query; [2] user reported four complete frames 16:06, SHA 815231a, dirty1 due CubeIDE prefs, old invalid4; [3] S15.3 remains OFF and Fast Start/Level2 same; [4] S15.2 baseline -> S15.3 gated -> S15.4 -> VC02; [5] modified capture/verifier/docs, exact new SHA CI required; [6] no new CubeIDE/Flash or active motor PASS; [7] M8_S152_POWERSHELL_CAPTURE.md and M8_FIRMWARE_LOG_IDENTITY_2026_11_02.md; [8] native PowerShell one TXT four tests, no serial GUI/Live Expressions; [9] old fail-on-dirty policy superseded, historical logs unchanged; [10] STOP/NC/SOFT and physical R_MIN clearance still critical; [11] pull receiver update, no reflash, submit private TXT; [12] manual label not SHA proof, firmware M8S00_FW is compile provenance; [13] user explicitly requested no dirty-blocked capture; [14] preserve four framed META/A/B rows and PWM0 final plus MCU SHA; [15] never upload raw operator logs publicly; [16] CI source is not S15.3 active hardware validation.
 END OF CONTEXT HANDOFF

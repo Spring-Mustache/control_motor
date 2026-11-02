@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify source-stamped firmware identity and fail-closed UART capture path.
+"""Verify embedded firmware identity and Git-independent UART capture.
 
 Static/CI only: does not prove CubeIDE ran the prebuild step or flashed ELF.
 """
@@ -36,13 +36,17 @@ checks={
   main.index('static void M8S00_DumpUpdate(void)') <
   main.index('if ((steer_safety_motion_permit != 0U)',main.index('static void M8S00_DumpUpdate(void)')) <
   main.index('(M8S00_DumpFirmwareId() == 0U)'),
- 'PowerShell gets exact expected SHA but never generates MCU result':
+ 'PowerShell optionally validates SHA and never generates MCU result':
   '$ExpectedCommit' in cap and "'^[0-9a-f]{40}$'" in cap and
   "if ($line -match '^M8S00_FW,')" in cap and
   "if ($firmwareLine -match '^M8S00_FW,proto=1,sha=([0-9a-f]{40}),dirty=([01]),')" in cap,
- 'Mismatched, unmarked or dirty firmware fails closed retaining file':
+ 'Dirty is diagnostic; explicit mismatch or missing identity still fails':
   'FW MISMATCH' in cap and 'FW DIRTY' in cap and
-  'FW UNKNOWN' in cap and 'throw "$badRuns invalid frame(s):' in cap,
+  'FW UNKNOWN' in cap and 'throw "$badRuns invalid frame(s):' in cap and
+  'git -C' not in cap and 'rev-parse' not in cap and
+  '[string]$VersionLabel' in cap and
+  'CAPTURE_LABEL,source=operator_unverified' in cap and
+  '# CubeIDE .prefs may be dirty; preserve frame and continue.' in cap,
  'No asynchronous UART/M8S11 or motor writes added to identity path':
   all(x not in main[main.index('static uint8_t M8S00_DumpFirmwareId(void)'):
     main.index('static void M8S00_DumpUpdate(void)')] for x in

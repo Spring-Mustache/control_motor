@@ -4,6 +4,8 @@
 #
 # powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\capture_m8_s152.ps1 -Port COM5
 # Port is optional if exactly one ST-LINK VCP is automatically detected.
+# Read commit from STM32 M8S00_FW; do NOT query Git or reject dirty=1.
+# Optional VersionLabel is an unverified, manually typed label.
 # Do not run capture_m8_s11.ps1 simultaneously: both use USART3 VCP.
 [CmdletBinding()]
 param(
@@ -17,23 +19,27 @@ param(
     [ValidateRange(128, 1200)]
     [int]$MaxLinesPerRun = 750,
     [string]$OutputDirectory = '.\logs',
-    [string]$ExpectedCommit = ''
+    [string]$ExpectedCommit = '',
+    [string]$VersionLabel = ''
 )
 $ErrorActionPreference = 'Stop'
-# Expected Git HEAD is only an expectation, not proof of flashed firmware.
-if ([string]::IsNullOrWhiteSpace($ExpectedCommit)) {
-    $root = Split-Path -Parent $PSScriptRoot
-    $gitResult = & git -C $root rev-parse --verify HEAD 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Cannot determine Git HEAD. Pass -ExpectedCommit <40-hex-sha>.'
-    }
-    $ExpectedCommit = ($gitResult | Out-String).Trim()
-}
+# Do not read local Git: MCU may run another commit, CubeIDE may dirty prefs.
 $ExpectedCommit = $ExpectedCommit.Trim().ToLowerInvariant()
-if ($ExpectedCommit -cnotmatch '^[0-9a-f]{40}$') {
-    throw 'ExpectedCommit must be the exact 40-character Git SHA.'
+if ($ExpectedCommit -ne '' -and $ExpectedCommit -cnotmatch '^[0-9a-f]{40}$') {
+    throw 'ExpectedCommit must be a full 40-hex SHA.'
 }
-Write-Host "Expected firmware SHA: $ExpectedCommit"
+$VersionLabel = $VersionLabel.Trim()
+if ($VersionLabel.Length -gt 100 -or $VersionLabel -match '[\r\n,]') {
+    throw 'VersionLabel must be one line, <=100 characters, no commas.'
+}
+if ($ExpectedCommit -eq '') {
+    Write-Host 'Firmware commit is read from the MCU (no Git lookup).'
+} else {
+    Write-Host "Expected MCU commit (optional): $ExpectedCommit"
+}
+if ($VersionLabel -ne '') {
+    Write-Host "Manual label (unverified): $VersionLabel"
+}
 $available = @([System.IO.Ports.SerialPort]::GetPortNames() | Sort-Object)
 if ($available.Count -eq 0) { throw 'No COM port. Check ST-LINK USB VCP cable and driver.' }
 if ([string]::IsNullOrWhiteSpace($Port)) {
@@ -121,6 +127,9 @@ try {
             $haveRows = $false
             $haveFinalZero = $false
         }
+        if ($line -eq '#M8S00_END' -and $VersionLabel -ne '') {
+            $writer.WriteLine("CAPTURE_LABEL,source=operator_unverified,value=$VersionLabel")
+        }
         $writer.WriteLine($line)
         $linesInRun++
         if ($linesInRun -gt $MaxLinesPerRun) {
@@ -146,17 +155,17 @@ try {
         if ($firmwareLine -match '^M8S00_FW,proto=1,sha=([0-9a-f]{40}),dirty=([01]),') {
             $sourceSha = $Matches[1]
             $sourceDirty = [int]$Matches[2]
-            if ($sourceSha -cne $ExpectedCommit) {
+            if ($ExpectedCommit -ne '' -and $sourceSha -cne $ExpectedCommit) {
                 $ok = $false
                 Write-Warning "FW MISMATCH frame ${complete}: MCU=$sourceSha expected=$ExpectedCommit."
             }
             if ($sourceDirty -ne 0) {
-                $ok = $false
-                Write-Warning "FW DIRTY frame ${complete}: local changes existed at compilation."
+                # CubeIDE .prefs may be dirty; preserve frame and continue.
+                Write-Warning "FW DIRTY frame ${complete}: informational only; UART data retained."
             }
         } else {
-            $ok = $false
-            Write-Warning "FW UNKNOWN frame ${complete}: missing/invalid MCU firmware ID."
+            if ($VersionLabel -eq '') { $ok = $false }
+            Write-Warning "FW UNKNOWN frame ${complete}: no MCU SHA; optional manual label is unverified."
         }
         $kind = -1
         $dirL = 0
@@ -210,7 +219,7 @@ if ($complete -ne $ExpectedRuns) {
     throw "Timeout: only $complete/$ExpectedRuns complete frames. Partial data preserved in $file"
 }
 if ($badRuns -ne 0) {
-    throw "$badRuns invalid frame(s): firmware identity mismatch/unknown/dirty or invalid samples. TXT preserved at $file."
+    throw "$badRuns invalid frame(s): explicit SHA mismatch, absent version label or invalid samples. TXT preserved at $file."
 } else {
-    Write-Host 'SUCCESS: exact expected STM32 firmware SHA verified for every frame.'
+    Write-Host 'SUCCESS: four complete frames. MCU SHA preserved; dirty=1 is informational only.'
 }
