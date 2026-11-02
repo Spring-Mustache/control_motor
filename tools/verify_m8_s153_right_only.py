@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""S15.3 route and safety static plus pure C regression; MCU proof separate."""
+from pathlib import Path
+import os,subprocess,shutil,tempfile
+root=Path(__file__).resolve().parents[1]
+s=(root/'Core/Src/main.c').read_text(encoding='utf-8')
+h=(root/'Core/Inc/steer_s153_right_only.h').read_text(encoding='utf-8')
+reset=s[s.index('static void Steering_S14ManualReset(void)'):s.index('static void Steering_S14Observe(',s.index('static void Steering_S14ManualReset(void)'))]
+active=s[s.index('static void Steering_S153RightApply('):s.index('static void Steering_S142SyncApply(',s.index('static void Steering_S153RightApply('))]
+manual=s[s.index('static void Steering_ManualUpdate(void)\n{'):s.index('static void Steering_PositionUpdate(void)',s.index('static void Steering_ManualUpdate(void)\n{'))]
+a=manual.index('if(steer_s15_latched!=0U)\n      Steering_S15Apply(')
+b=manual.index('else if (steer_s142_latched != 0U)',a)
+checks={
+ 'S15.3 boot OFF and Level2/Fast Start unchanged':
+  'steer_s153_right_only_enable = 0U;' in s and
+  'steer_s142_trial_level = 2U;' in s and
+  'steer_s143_fast_start_enable = 1U;' in s,
+ 'S15 common-T remains OFF, RIGHT300 proposal inactive':
+  'steer_s15_common_time_enable = 0U;' in s and
+  s.count('M8S151_RIGHT_PROPOSED_CAP')==1,
+ 'enable latched only at fresh manual command':
+  'steer_s153_latched = ((steer_s153_right_only_enable==1U)' in s and
+  '(steer_s142_latched==2U)' in s and
+  '(steer_s15_latched==0U)' in s and
+  'steer_s153_last=steer_s153_latched;' in s,
+ 'S14.7/9 suppressed by pilot selection':
+  '(steer_s153_latched==0U)' in s and
+  'steer_s149_latched=((steer_s147_latched!=0U)' in s,
+ 'S15.3 replaces S142 when latched, not layered':
+  'else if(steer_s153_latched!=0U)\n      Steering_S153RightApply(' in manual[a:b],
+ 'observer reset each command; no stale mode after stop':
+  'steer_s153_latched=0U;' in reset and 'steer_s153_obs=(M8S152State_t){0};' in reset,
+ 'RIGHT-only path no modification LEFT or owner direction':
+  '*pwm_r=p.right_pwm;' in active and
+  not any(t in active for t in ('*pwm_l=', '__HAL_TIM_SET_COMPARE',
+    'HAL_GPIO_WritePin','HAL_UART_Transmit','Steering_PositionReadOne(', 'WheelControl_')),
+ 'S15.2 independent shadow unchanged':
+  'M8S152_Record(0U); /* passive D-pad/RX SHADOW, post-atomic */' in s and
+  'M8S152_ShadowRight' in s,
+ 'fresh AS5600 and geometry required and no NC bypass':
+  'M8S152_Observe(' in active and
+  'Steering_PositionRawInRange(1U,raw_l)' in active and
+  'Steering_PositionRawInRange(0U,raw_r)' in active and
+  'Steering_TestRawLimitMask()==0U' in active,
+ 'S15.3 pure C only capped RIGHT and far from both terminal regions':
+  all(t in h for t in ('M8S153_RIGHT_MAX_EXTRA_CCR 12U',
+   'remain_l<=M8S153_TERMINAL_RAW','remain_r<=M8S153_TERMINAL_RAW',
+   'owner_l==0U||owner_r==0U','obs->pred_valid==0U',
+   'moved_l<M8S153_START_MOTION_RAW','moved_r<M8S153_START_MOTION_RAW')),
+ 'S15.3 has after-atomic post-disarm-only diagnostic':
+  'M8S153_Dump() == 0U' in s and 'M8S153,enable=%u,last=%u,run=%lu,' in s and
+  'steer_s153_last_applied_r=steer_manual_right_pwm;' in s and
+  'if ((steer_safety_motion_permit != 0U)' in s,
+ 'late atomic NC/STOP/CCR guard still present':
+  'primask = __get_PRIMASK();\n  __disable_irq();\n  mask = Steering_TestRawLimitMask();' in manual and
+  '__HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, ra);' in manual,
+ 'PS2/Voice and PowerShell capture intact':
+  'Control_Arbitrate();' in s and
+  (root/'tools/capture_m8_s152.ps1').is_file(),
+}
+for k,v in checks.items():print(('PASS' if v else 'FAIL')+': '+k)
+if not all(checks.values()):raise SystemExit('S15.3 static verification FAIL')
+cc=shutil.which('gcc') or shutil.which('clang') or shutil.which('cc')
+if not cc:raise SystemExit('No HOST C compiler: FAIL, not PASS')
+with tempfile.TemporaryDirectory() as tmp:
+ exe=Path(tmp)/('s153.exe' if os.name=='nt' else 's153')
+ p=subprocess.run([cc,'-std=c11','-Wall','-Wextra','-Werror','-I',
+  str(root/'Core/Inc'),str(root/'tools/test_m8_s153_right_only.c'),
+  '-o',str(exe)],capture_output=True,text=True)
+ if p.returncode:raise SystemExit(p.stdout+p.stderr)
+ p=subprocess.run([str(exe)],capture_output=True,text=True)
+ if p.returncode:raise SystemExit(p.stdout+p.stderr)
+ print(p.stdout)
+print('S15.3 HOST/STATIC PASS, not target MCU build/flash, real-time or motor safety acceptance')

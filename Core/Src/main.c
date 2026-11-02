@@ -40,6 +40,7 @@
 #include "steer_s15_common_time.h"
 #include "steer_s151_trace.h"
 #include "steer_s152_manual_relation.h"
+#include "steer_s153_right_only.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -3072,6 +3073,22 @@ static uint32_t m8s152_run=0U,m8s152_last=0U,m8s152_drop=0U,m8s152_strokes=0U;
 static uint16_t m8s152_count=0U;
 static uint8_t m8s152_active=0U,m8s152_kind=0U;
 static int8_t m8s152_direction_l=0;
+/* M8-S15.3: RIGHT-only opt-in, 1 mode per new D-pad/RX stroke.
+ * Do not change the Level2 default owner while disabled.
+ * This branch does not use LEFT taper or S14.2 PI/P+D concurrently.
+ */
+volatile uint8_t steer_s153_right_only_enable=0U;
+volatile uint8_t steer_s153_latched=0U;
+volatile uint8_t steer_s153_last=0U;
+static M8S152State_t steer_s153_obs={0};
+static uint32_t steer_s153_run=0U;
+static uint32_t steer_s153_frames=0U,steer_s153_skipped=0U;
+static uint32_t steer_s153_requested=0U,steer_s153_applied=0U;
+static uint16_t steer_s153_last_owner_r=0U;
+static uint16_t steer_s153_last_candidate_r=0U;
+static uint16_t steer_s153_last_applied_r=0U;
+static uint16_t steer_s153_peak_extra=0U;
+
 
 /* M8-S14.10: read-only hypothesis recorder. No assignment to owner or CCR.
  * Speed sampled independently by the already-existing manual AS5600 reader.
@@ -3139,6 +3156,8 @@ static void Steering_S14ManualReset(void)
   steer_s147_latched = 0U;
   steer_s149_latched = 0U;
   steer_s15_latched = 0U;
+  steer_s153_latched=0U;
+  steer_s153_obs=(M8S152State_t){0};
   steer_s15_session = (M8S15Session_t){0};
   steer_s147_pi_l = (M8S147AxisState_t){0};
   steer_s147_pi_r = (M8S147AxisState_t){0};
@@ -3395,6 +3414,53 @@ static void Steering_S147PIApply(
  * No I2C, direction writes, zero holds or manual DONE decisions.
  * When sensor validity fails, leave each independent owner demand.
  */
+/* M8-S15.3: ALTERNATIVE manual controller, not a layer on S14.2.
+ * Reads existing cached AS5600 values only; no extra I2C. No LEFT write.
+ * All STOP/NC/SOFT/phase-start owner restrictions are rechecked by the
+ * existing final atomic arbitration AFTER this bounded RIGHT candidate.
+ */
+static void Steering_S153RightApply(uint16_t start_l,uint16_t goal_l,
+    uint16_t raw_l,uint16_t start_r,uint16_t goal_r,uint16_t raw_r,
+    int8_t direction_l,uint16_t *pwm_l,uint16_t *pwm_r)
+{
+  uint16_t remain_l,remain_r,moved_l,moved_r,cap_r;
+  int16_t aL=0,aR=0;
+  uint32_t now=HAL_GetTick();
+  uint8_t geometry_ok;
+  M8S152Plan_t rel;
+  M8S153Plan_t p;
+  remain_l=(raw_l>goal_l)?(raw_l-goal_l):(goal_l-raw_l);
+  remain_r=(raw_r>goal_r)?(raw_r-goal_r):(goal_r-raw_r);
+  moved_l=(raw_l>start_l)?(raw_l-start_l):(start_l-raw_l);
+  moved_r=(raw_r>start_r)?(raw_r-start_r):(start_r-raw_r);
+  cap_r=M8S142_Envelope(0U,steer_s142_latched,remain_r);
+  geometry_ok=(uint8_t)((Steering_PositionRawInRange(1U,raw_l)!=0U)&&
+      (Steering_PositionRawInRange(0U,raw_r)!=0U)&&
+      (Steering_AngleFromRaw(1U,raw_l,&aL)!=0U)&&
+      (Steering_AngleFromRaw(0U,raw_r,&aR)!=0U));
+  rel=M8S152_Observe(&steer_s153_obs,aL,aR,
+      steer_pos_left_last_sample_ms,steer_pos_right_last_sample_ms,
+      now,direction_l,geometry_ok,1U);
+  steer_s153_last_owner_r=*pwm_r;
+  p=M8S153_PlanRight(*pwm_l,*pwm_r,cap_r,remain_l,remain_r,
+      moved_l,moved_r,
+      (uint8_t)((steer_manual_left_state==STEER_MANUAL_MOVING)&&
+                (steer_manual_right_state==STEER_MANUAL_MOVING)&&
+                (steer_safety_motion_permit==1U)&&
+                (steer_safety_trip_latched==0U)&&
+                (control_stop_latched==0U)),
+      (uint8_t)(Steering_TestRawLimitMask()==0U),&rel);
+  if(steer_s153_frames!=0xffffffffUL)steer_s153_frames++;
+  if(p.eligible==0U&&steer_s153_skipped!=0xffffffffUL)
+    steer_s153_skipped++;
+  if(p.boost_ccr!=0U&&steer_s153_requested!=0xffffffffUL)
+    steer_s153_requested++;
+  if(p.boost_ccr>steer_s153_peak_extra)
+    steer_s153_peak_extra=p.boost_ccr;
+  steer_s153_last_candidate_r=p.right_pwm;
+  *pwm_r=p.right_pwm; /* bounded RIGHT only: never change *pwm_l */
+}
+
 static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
     uint16_t raw_l,uint16_t start_r,uint16_t goal_r,uint16_t raw_r,
     uint16_t floor_l,uint16_t floor_r,uint16_t *pwm_l,uint16_t *pwm_r)
@@ -6784,6 +6850,27 @@ static uint8_t M8S152_Dump(void)
  return 1U;
 }
 
+/* One S15.3 status line, UART only via the fully disarmed M8S00 gate.
+ * The S15.2 timestamped RAW/angle/CCR samples stay intact.
+ */
+static uint8_t M8S153_Dump(void)
+{
+  char line[256];int n=snprintf(line,sizeof(line),
+     "M8S153,enable=%u,last=%u,run=%lu,frames=%lu,skip=%lu,"
+     "requestFrames=%lu,appliedFrames=%lu,peakExtra=%u,"
+     "ownerR=%u,candidateR=%u,appliedR=%u\r\n",
+     (unsigned)steer_s153_right_only_enable,(unsigned)steer_s153_last,
+     (unsigned long)steer_s153_run,(unsigned long)steer_s153_frames,
+     (unsigned long)steer_s153_skipped,
+     (unsigned long)steer_s153_requested,
+     (unsigned long)steer_s153_applied,
+     (unsigned)steer_s153_peak_extra,
+     (unsigned)steer_s153_last_owner_r,
+     (unsigned)steer_s153_last_candidate_r,
+     (unsigned)steer_s153_last_applied_r);
+  return M8S00_UartLine(line,n);
+}
+
 static void M8S00_DumpUpdate(void)
 {
   static const char begin[] = "#M8S00_BEGIN,1\r\n";
@@ -6845,6 +6932,7 @@ static void M8S00_DumpUpdate(void)
       (M8S00_DumpR2Encoder() == 0U) ||
       (M8S151_Dump() == 0U) ||
       (M8S152_Dump() == 0U) ||
+      (M8S153_Dump() == 0U) ||
       (M8S06_DumpStrokes() == 0U) ||
       (M8S00_DumpArrival() == 0U) ||
       (M8S00_DumpInputResponse() == 0U) ||
@@ -7990,11 +8078,18 @@ static void Steering_ManualUpdate(void)
         (PS2_Pad.Left != 0U) && (PS2_Pad.Right == 0U) &&
         (right_direction < 0)) ? 1U : 0U;
     steer_s15_last = steer_s15_latched;
+    /* S15.3 is exclusive with S15 common-T and S14.7/S149 pilots.
+     * Only a NEW neutral->manual command latches the operator opt-in.
+     */
+    steer_s153_latched = ((steer_s153_right_only_enable==1U) &&
+        (steer_s142_latched==2U) && (steer_s15_latched==0U))?1U:0U;
+    steer_s153_last=steer_s153_latched;
     /* M8-S14.8 PI pilot Level1 OR Level2, D-pad LEFT -> R_MIN.
      * Only new neutral->manual stroke latches; R1/R2/RX/D-pad RIGHT
      * unchanged, and S14.5 remains mutually exclusive.
      */
     steer_s147_latched = ((steer_s15_latched==0U) &&
+        (steer_s153_latched==0U) &&
         ((steer_s142_latched == 1U) ||
         (steer_s142_latched == 2U)) &&
         (steer_s147_velocity_pi_enable == 1U) &&
@@ -8026,6 +8121,11 @@ static void Steering_ManualUpdate(void)
     m8s152_count=0U;m8s152_drop=0U;m8s152_last=0U;
     m8s152_obs=(M8S152State_t){0};
     m8s152_run=m8_s00_arrival.run_id;
+    steer_s153_run=m8_s00_arrival.run_id;
+    steer_s153_frames=0U;steer_s153_skipped=0U;
+    steer_s153_requested=0U;steer_s153_applied=0U;
+    steer_s153_last_owner_r=0U;steer_s153_last_candidate_r=0U;
+    steer_s153_last_applied_r=0U;steer_s153_peak_extra=0U;
     m8s152_kind=m8_s05_manual_kind;
     m8s152_direction_l=left_direction;
     m8s152_active=1U;
@@ -8275,6 +8375,13 @@ static void Steering_ManualUpdate(void)
   else
     Steering_SyncApply(HAL_GetTick(),la,ra,&la);
 
+  /* Exact baseline for post-atomic S15.3 applied-vs-proposed counts.
+   * Some cycles may not enter the two-MOVING controller branch.
+   */
+  if(steer_s153_latched!=0U){
+    steer_s153_last_owner_r=ra;
+    steer_s153_last_candidate_r=ra;
+  }
   m8s151_ownerL=la;m8s151_ownerR=ra;m8s151_plan=0U;
   /* AS5600 two-axis speed/phase feedback may BOOST the slower motor,
    * but only within tested per-axis caps and outside coast clearance.
@@ -8294,6 +8401,13 @@ static void Steering_ManualUpdate(void)
           Steering_ManualClampPWM(steer_manual_left_rx_min_pwm),
           Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
           &la,&ra);
+    else if(steer_s153_latched!=0U)
+      Steering_S153RightApply(
+          steer_manual_left_axis.phase_start_raw,
+          steer_manual_left_soft_target, debug_as5600_left_raw,
+          steer_manual_right_axis.phase_start_raw,
+          steer_manual_right_soft_target, debug_as5600_right_raw,
+          left_direction,&la,&ra);
     else if (steer_s142_latched != 0U)
       Steering_S142SyncApply(
           steer_manual_left_axis.phase_start_raw,
@@ -8437,6 +8551,14 @@ static void Steering_ManualUpdate(void)
     steer_s15_applied_r=steer_manual_right_pwm;
   }
 
+  /* S15.3 counts only post-atomic ACTUAL RIGHT CCR, not proposal. */
+  if(steer_s153_latched!=0U)
+  {
+    steer_s153_last_applied_r=steer_manual_right_pwm;
+    if((steer_s153_last_owner_r!=0U)&&
+       (steer_manual_right_pwm>steer_s153_last_owner_r)&&
+       (steer_s153_applied!=0xffffffffUL))steer_s153_applied++;
+  }
   M8S151_Record(m8s151_ownerL,m8s151_ownerR,0U);
   M8S152_Record(0U); /* passive D-pad/RX SHADOW, post-atomic */
 

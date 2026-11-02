@@ -21,6 +21,9 @@ Tôi muốn bạn tiếp tục dự án **xe tăng cướp bóng — STM32F767ZI
 
 ## Giữ đúng các quyết định và bảo vệ
 
+**S15.3 2026-11-02:** SOURCE right-only opt-in default OFF from 4 S15.2 log strokes; RIGHT RMIN late 649/625ms. Source pure-C bounded +<=12 CCR only >180 RAW both, no LEFT taper or S14.2 PI stack; M8S153 disarmed diagnostic via M8S00/PowerShell. Before physical pilot require CubeIDE/flash + driver current/coast/NC clearance/isolated motor supply cutoff. Read docs/M8_S153_RIGHT_ONLY_STAGE_2026_11_02.md. Do not mistake HOST for hardware PASS, and do not suggest terminal apps/Live Expressions.
+
+
 **[USER REQUIREMENT S15.2 LOG TRANSFER]:** Chỉ hướng dẫn một câu lệnh Windows PowerShell dùng `tools/capture_m8_s152.ps1`. Không đề xuất terminal app/Live Expressions hoặc manual GUI. Người vận hành làm 4 test, mỗi test disarm + short USER để phát UART qua M8S00, script thu cùng 1 TXT. Xem `docs/M8_S152_POWERSHELL_CAPTURE.md`.
 
 
