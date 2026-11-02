@@ -148,7 +148,7 @@ try {
             $sourceDirty = [int]$Matches[2]
             if ($sourceSha -cne $ExpectedCommit) {
                 $ok = $false
-                Write-Warning "FW MISMATCH frame $complete: MCU=$sourceSha expected=$ExpectedCommit."
+                Write-Warning "FW MISMATCH frame ${complete}: MCU=$sourceSha expected=$ExpectedCommit."
             }
             if ($sourceDirty -ne 0) {
                 $ok = $false
