@@ -3083,11 +3083,11 @@ static uint32_t m8s152_run=0U,m8s152_last=0U,m8s152_drop=0U,m8s152_strokes=0U;
 static uint16_t m8s152_count=0U;
 static uint8_t m8s152_active=0U,m8s152_kind=0U;
 static int8_t m8s152_direction_l=0;
-/* M8-S15.3: RIGHT-only opt-in, 1 mode per new D-pad/RX stroke.
- * Do not change the Level2 default owner while disabled.
- * This branch does not use LEFT taper or S14.2 PI/P+D concurrently.
+/* M8-S15.3: operator-requested active R_MIN comparison, boot ON.
+ * Only fresh Level2 RIGHT-to-R_MIN strokes latch this trial;
+ * RIGHT-to-MAX keeps the production S14.2 path.
  */
-volatile uint8_t steer_s153_right_only_enable=0U;
+volatile uint8_t steer_s153_right_only_enable=1U;
 volatile uint8_t steer_s153_latched=0U;
 volatile uint8_t steer_s153_last=0U;
 static M8S152State_t steer_s153_obs={0};
@@ -8145,7 +8145,8 @@ static void Steering_ManualUpdate(void)
      * Only a NEW neutral->manual command latches the operator opt-in.
      */
     steer_s153_latched = ((steer_s153_right_only_enable==1U) &&
-        (steer_s142_latched==2U) && (steer_s15_latched==0U))?1U:0U;
+        (steer_s142_latched==2U) && (steer_s15_latched==0U) &&
+        (right_direction<0))?1U:0U;
     steer_s153_last=steer_s153_latched;
     /* M8-S14.8 PI pilot Level1 OR Level2, D-pad LEFT -> R_MIN.
      * Only new neutral->manual stroke latches; R1/R2/RX/D-pad RIGHT

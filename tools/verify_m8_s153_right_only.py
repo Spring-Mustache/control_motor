@@ -18,8 +18,9 @@ checks={
   s.index('static void Steering_S153RightApply(') and
   s.index('static void Steering_S153RightApply(')<
   s.index('static void Steering_ManualUpdate(void)'),
- 'S15.3 boot OFF and Level2/Fast Start unchanged':
-  'steer_s153_right_only_enable=0U;' in s and
+ 'S15.3 ON only for RIGHT-to-R_MIN in new Level2 command':
+  'steer_s153_right_only_enable=1U;' in s and
+  '(right_direction<0))?1U:0U;' in s and
   'steer_s142_trial_level = 2U;' in s and
   'steer_s143_fast_start_enable = 1U;' in s,
  'S15 common-T remains OFF, RIGHT300 proposal inactive':
