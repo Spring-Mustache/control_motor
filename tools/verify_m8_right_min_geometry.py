@@ -30,7 +30,7 @@ required = (
     "((left == 0U) && (direction < 0) && (raw <= goal))",
     "(Steering_TestRawLimitMask()==0U)",
     "steer_manual_right_rx_min_pwm = 50U;",
-    "steer_s153_right_only_enable=1U;",
+    "steer_s153_right_only_enable=0U;",
     "steer_cal_right_min_runtime = steer_cal_right_axis.min_raw;",
     "Steering_PositionNcDirectionAllowed(",
 )
