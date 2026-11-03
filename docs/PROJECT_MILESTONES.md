@@ -1058,3 +1058,6 @@ New S15.3D diagnostic source changes **boot S15.3 default to OFF** while preserv
 
 
 [2026-11-03 NC repair verification follow-up] At cc82185 own manual NC HOST extracted C PASS, but verify-handoff overall failed solely because S15.3D source verifier depended on the removed comment marker 'After a bounded departure'. Correct S15.3D verifier to extract Steering_ManualAxisFault by balanced C braces, not prose. Firmware unchanged; exact next SHA CI required. Target Build/Flash/physical acceptance still not proven.
+
+## 2026-11-03 — S15.3 Mode B RIGHT trim isolation staged
+Source-only trial, ETA still default OFF. Latest ETA-OFF 20:36 evidence 2/4 completed: RIGHT code13 at RAW257/CCR56 and RAW255/CCR55, SOFT245, progress661ms, NC0. Source boot mode1 selected on new Level2 RIGHT->RMIN manual stroke, discards S14.2 RIGHT trim while keeping LEFT positive boosts and RIGHT independent owner. Mode0=legacy, mode2=pre-existing S15.3 ETA only when separately enabled. New M8S153_MODE post-disarm UART; static verifier and CI. Never raise terminal floor50 or alter STOP/NC/650ms STALL/geometry; independent power cutoff/current/coast and new 4-run verification necessary. S15.3 BLOCKED, S15.4/VC02 pending. See docs/M8_S153_TRIM_ISOLATION_2026_11_03.md.

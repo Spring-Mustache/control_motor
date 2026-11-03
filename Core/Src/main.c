@@ -3088,6 +3088,10 @@ static int8_t m8s152_direction_l=0;
  * This release adds diagnostics only; no new PWM or motion grants.
  */
 volatile uint8_t steer_s153_right_only_enable=0U;
+volatile uint8_t steer_s153_trim_only_enable=1U; /* new mode B, boot ON candidate */
+volatile uint8_t steer_s153_trim_only_latched=0U;
+volatile uint8_t steer_s153_trim_only_last=0U;
+static uint32_t steer_s153_trim_only_frames=0U;
 volatile uint8_t steer_s153_latched=0U;
 volatile uint8_t steer_s153_last=0U;
 static M8S152State_t steer_s153_obs={0};
@@ -3172,6 +3176,7 @@ static void Steering_S14ManualReset(void)
   steer_s149_latched = 0U;
   steer_s15_latched = 0U;
   steer_s153_latched=0U;
+  steer_s153_trim_only_latched=0U;
   steer_s153_obs=(M8S152State_t){0};
   steer_s15_session = (M8S15Session_t){0};
   steer_s147_pi_l = (M8S147AxisState_t){0};
@@ -6863,6 +6868,17 @@ static uint8_t M8S153_Dump(void)
      (unsigned long)steer_s153_avoided_reduction_r_frames,
      (unsigned long)steer_s153_eta_frames,
      (unsigned)steer_s153_peak_eta_lag_ms);
+  if(M8S00_UartLine(line,n)==0U)return 0U;
+  n=snprintf(line,sizeof(line),
+      "M8S153_MODE,mode=%u,isoEnable=%u,isoLast=%u,etaEnable=%u,"
+      "isoFrames=%lu,avoidedTrim=%lu\r\n",
+      (unsigned)(steer_s153_last!=0U?2U:
+                 (steer_s153_trim_only_last!=0U?1U:0U)),
+      (unsigned)steer_s153_trim_only_enable,
+      (unsigned)steer_s153_trim_only_last,
+      (unsigned)steer_s153_right_only_enable,
+      (unsigned long)steer_s153_trim_only_frames,
+      (unsigned long)steer_s153_avoided_reduction_r_frames);
   return M8S00_UartLine(line,n);
 }
 
@@ -8306,12 +8322,17 @@ static void Steering_ManualUpdate(void)
         (steer_s142_latched==2U) && (steer_s15_latched==0U) &&
         (right_direction<0))?1U:0U;
     steer_s153_last=steer_s153_latched;
+    steer_s153_trim_only_latched=((steer_s153_trim_only_enable==1U) &&
+        (steer_s153_latched==0U) && (steer_s15_latched==0U) &&
+        (steer_s142_latched==2U) && (right_direction<0))?1U:0U;
+    steer_s153_trim_only_last=steer_s153_trim_only_latched;
     /* M8-S14.8 PI pilot Level1 OR Level2, D-pad LEFT -> R_MIN.
      * Only new neutral->manual stroke latches; R1/R2/RX/D-pad RIGHT
      * unchanged, and S14.5 remains mutually exclusive.
      */
     steer_s147_latched = ((steer_s15_latched==0U) &&
         (steer_s153_latched==0U) &&
+        (steer_s153_trim_only_latched==0U) &&
         ((steer_s142_latched == 1U) ||
         (steer_s142_latched == 2U)) &&
         (steer_s147_velocity_pi_enable == 1U) &&
@@ -8346,6 +8367,7 @@ static void Steering_ManualUpdate(void)
     steer_s153_run=m8_s00_arrival.run_id;
     steer_s153_frames=0U;steer_s153_skipped=0U;
     steer_s153_requested=0U;steer_s153_applied=0U;
+    steer_s153_trim_only_frames=0U;
     steer_s153_early_frames=0U;steer_s153_eta_frames=0U;
     steer_s153_peak_eta_lag_ms=0U;
     steer_s153_avoided_reduction_r_frames=0U;
@@ -8665,6 +8687,29 @@ static void Steering_ManualUpdate(void)
           steer_manual_right_axis.phase_start_raw,
           steer_manual_right_soft_target, debug_as5600_right_raw,
           left_direction,&la,&ra);
+    }
+    else if(steer_s153_trim_only_latched!=0U)
+    {
+      /* S15.3 isolation B: retain LEFT S14.2 positive feedback only.
+       * Compute RIGHT candidate into PRIVATE temp, never copy to ra.
+       * Unlike ETA mode C this cannot raise RIGHT above its owner.
+       * No extra PWM in the last 100RAW, no STOP/NC/fault changes.
+       */
+      uint16_t baseline_l=la,discarded_right=ra;
+      Steering_S142SyncApply(
+          steer_manual_left_axis.phase_start_raw,
+          steer_manual_left_soft_target, debug_as5600_left_raw,
+          steer_manual_right_axis.phase_start_raw,
+          steer_manual_right_soft_target, debug_as5600_right_raw,
+          Steering_ManualClampPWM(steer_manual_left_rx_min_pwm),
+          Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
+          &la,&discarded_right);
+      if(la<baseline_l)la=baseline_l;
+      if(steer_s153_trim_only_frames!=0xffffffffUL)
+        steer_s153_trim_only_frames++;
+      if((discarded_right<ra)&&
+         (steer_s153_avoided_reduction_r_frames!=0xffffffffUL))
+        steer_s153_avoided_reduction_r_frames++;
     }
     else if (steer_s142_latched != 0U)
       Steering_S142SyncApply(

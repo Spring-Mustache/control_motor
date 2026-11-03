@@ -24,6 +24,8 @@
 
 **HIỆN HÀNH 2026-11-03 NC manual:** User D-pad/RX needs second press leaving NC, R1 normal. Source patch manual ESCAPE→MOVING after 120ms release without SETTLING; own origin NC edge holds PWM0 full pass. No CubeIDE/Flash/hardware PASS. S15.3D STALL remains BLOCKED. Details docs/M8_MANUAL_NC_DIRECTIONAL_RELEASE_2026_11_03.md.
 
+**HIỆN HÀNH 03/11 S15.3:** Chế độ B cô lập RIGHT trim S14.2 boot ON trên Level2 RIGHT->RMIN mới, ETA OFF; UART M8S153_MODE; log 20:36 ETA OFF 2/4, RIGHT STALL RAW257/255 CCR56/55 NC0. Chưa kết luận PASS; xem docs/M8_S153_TRIM_ISOLATION_2026_11_03.md.
+
 ## 0. Thông tin hồ sơ và phạm vi bao phủ
 
 ### Hai lớp nội dung — KHÔNG gộp lịch sử vào trạng thái hiện tại
@@ -1219,4 +1221,24 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 
 
 [CI follow-up 2026-11-03] cc82185 manual D-pad/RX source C HOST PASS; total Actions FAILED only because old S15.3D verifier sliced fault by deleted comment marker. Changed verifier to balanced C function slicing, no motor source/CCR/NC changes. Verify new SHA CI; CubeIDE and real motor remain PENDING.
+
+## 2026-11-03 — S15.3 Mode B 17-section current crosscheck
+[0] New M8 source trim-isolation pilot after 8cbec2d, preserve full history.
+[1] User requests pass S15.3; requires real motor angle-tracking acceptance, not CI.
+[2] 20:36 four UART frames ETA OFF: only 2/4 complete, RIGHT STALL at RAW257/255 CCR56/55 and NC0.
+[3] Keep LEFT fast, preserve RIGHT RMIN195/SOFT245 and floor50; no STALL timeout weakening.
+[4] Mode0 baseline vs mode1 no RIGHT trim vs mode2 no trim+ETA; S15.4/VC-02 still blocked.
+[5] Mode1 code uses temp discarded_right and preserves LEFT positive boost, fresh stroke latch and read-only UART mode.
+[6] Source/host static gate separate from CubeIDE Clean Build, flashed SHA and motor PASS.
+[7] Core/Src/main.c, tools/verify_m8_s153_trim_ab.py, workflow, docs/M8_S153_TRIM_ISOLATION_2026_11_03.md, roadmap.
+[8] R1 and previous D-pad/RX NC direction-only repair preserved, no new terminal power.
+[9] Driver current/mechanical binding or current limiting remain unverified; CCR55 does not prove output torque.
+[10] NC/STOP/atomic CCR, hard/soft AS5600, 650ms STALL, 50CCR terminal and physical cutoff intact.
+[11] Exact SHA CI then motor-power-isolated target Clean Build/Flash, verify cutoff/NC/coast/current, safe PowerShell 4-run.
+[12] No certified current/coast and no agreed angular-error pass threshold; cannot claim hardware S15.3 PASS.
+[13] 2026-11-03 post-NC fix user requested pass S15.3.
+[14] Mode1 needs 4/4 fault-free, no STOP5/NC, real RIGHT response and no LEFT slowdown before assessing mode2.
+[15] Next chat use HEAD and CI, only PowerShell native UART from main Windows repo, private logs not committed.
+[16] Original 386-line requirement and 17 sections preserved; no source=hardware conflation.
+
 END OF CONTEXT HANDOFF
