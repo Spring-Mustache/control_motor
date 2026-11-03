@@ -82,6 +82,9 @@ jobs:
       - name: Verify S15.2 passive manual angular-relation shadow
         run: python3 tools/verify_m8_s152_manual_relation.py
 
+      - name: Verify RIGHT R_MIN 195 and SOFT 245 geometry/config guard
+        run: python3 tools/verify_m8_right_min_geometry.py
+
       - name: Verify S15.3 RIGHT-only opt-in bounded owner and C HOST regression
         run: python3 tools/verify_m8_s153_right_only.py
 

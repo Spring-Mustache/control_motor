@@ -1828,23 +1828,22 @@ static uint8_t Steering_ManualDirectionNeutral(void)
  * one of the two sensors is polled per bounded service interval, without
  * requiring debug_as5600_poll_enable or the heavyweight debug probe.
  */
-/* M7-S16 post-reassembly endpoint measurements:
- * LEFT  MIN 2297, CENTER 1873, MAX 1374 (RAW decreases to MAX).
- * RIGHT MIN **166** at physically asserted R_MIN NC (new user observation
- * after SELECT failure, 2026-10-27), CENTER 662.
- * M8-S01 user mechanical adjustment 2026-10-28: RIGHT MAX RAW 1029
- * replaces prior 982. Confirm physical NC/coasting clearance on stand.
- * Old R_MIN=191 caused a whole-vehicle hard-angle trip below 183,
- * followed by START sensor/envelope rejection 9 despite a healthy magnet.
- * Update the MEASURED geometry, NOT the fixed 8-RAW hard safety margin.
- * MIN/MAX are RAM defaults at boot and change ONLY after a complete,
- * geometrically valid SELECT scan. CENTER stays fixed in code.
- * The physical NC switch MUST still independently cut the RIGHT PWM.
- * One reported contact RAW does not establish safe coasting distance.
+/* M7-S16 and M8 mechanical endpoint history:
+ * LEFT MIN2297, CENTER1886, MAX1374 (RAW decreases to MAX).
+ * RIGHT R_MIN NC latest operator readings (2026-11-03) vary 195..197:
+ * choose the lower observed 195 RAW as one deterministic BOOT default.
+ * This supersedes older 166 measured on 2026-10-27. CENTER RIGHT662;
+ * RIGHT MAX1029 after adjustment 2026-10-28.
+ * The 8-RAW hard-angle guard is NOT changed. MIN/MAX are RAM defaults
+ * until a complete geometrically valid SELECT contact scan; CENTER stays
+ * fixed in code. Physical NC remains the independent PWM cutoff.
+ * D-pad/RX SOFT margin stays 50 RAW -> R_MIN SOFT=245 at boot.
+ * This is configuration correction, not proof of motor/NC/coast safety
+ * or cause of earlier S15.3 no-request logs.
  */
 volatile uint16_t steer_cal_left_min_runtime = 2297U;
 volatile uint16_t steer_cal_left_max_runtime = 1374U;
-volatile uint16_t steer_cal_right_min_runtime = 166U;
+volatile uint16_t steer_cal_right_min_runtime = 195U;
 volatile uint16_t steer_cal_right_max_runtime = 1029U;
 /* M8: R2 is the physical MIN endstop command, NOT a pre-NC parking
  * position. In-place L1/L2 pivot rotation requires BOTH own MIN NC
@@ -1852,16 +1851,17 @@ volatile uint16_t steer_cal_right_max_runtime = 1029U;
  * AS5600 position as an R2 success.
  *
  * These RAW values are bounded approach/NO-NC-fault references, not
- * the definition of MIN. Left MIN was observed at ~2274 RAW; after a
- * mechanical adjustment RIGHT MIN contact was observed at ~193 RAW.
- * Keep separately calibrated hard envelopes (L_MIN=2297, R_MIN=166)
- * unchanged until an actual completed SELECT scan. Each NC EXTI
- * independently cuts its own PWM as soon as the physical limit opens.
+ * the definition of MIN. Left MIN was observed at ~2274 RAW; RIGHT
+ * MIN contact has now been observed between 195 and 197 RAW.
+ * Both R2 reference and RIGHT geometry boot at 195 (L_MIN=2297).
+ * A complete SELECT scan may recalibrate the geometry at runtime.
+ * Each NC EXTI independently cuts its own PWM as soon as the
+ * physical limit opens.
  * R2 without the expected NC must fault by the bounded RAW/timeout
  * limits, never hunt or reverse beyond the known envelope.
  */
 volatile uint16_t steer_pos_left_r2_target_raw = 2297U;
-volatile uint16_t steer_pos_right_r2_target_raw = 166U;
+volatile uint16_t steer_pos_right_r2_target_raw = 195U;
 #define STEER_POS_LEFT_MIN_RAW       (steer_cal_left_min_runtime)
 #define STEER_POS_LEFT_CENTER_RAW     1886U
 #define STEER_POS_LEFT_MAX_RAW       (steer_cal_left_max_runtime)
@@ -5460,11 +5460,12 @@ volatile uint16_t steer_manual_left_soft_margin_raw = 72U;
 /* LEFT MAX is independently adjustable: reduce its threshold by 20 RAW
  * in the direction toward the measured 1374 MAX endpoint. */
 volatile uint16_t steer_manual_left_max_soft_margin_raw = 80U;
-/* RIGHT MIN NC is now measured at RAW 166 instead of old 191.
- * Preserve a 50-RAW safety clearance from the actual physical NC:
- * 166+50=216, a conservative 5-RAW approach relative to old 221.
- * DO NOT retain 30 with a shifted measured NC: that would silently
- * move D-pad 25 RAW nearer to an unverified switch/coasting region.
+/* RIGHT R_MIN physical NC now varies RAW195..197 on operator reading.
+ * Boot geometry=195 and SOFT margin=50 => SOFT=245 RAW.
+ * For NC observed at197 this gives 48RAW pre-NC; at195 it gives50.
+ * This restores the correct geometric reference without changing the
+ * terminal 50CCR taper. SELECT full calibration can override runtime
+ * R_MIN geometry; check M8S00_CAL_RUNTIME and M8S00_STEER in each log.
  */
 volatile uint16_t steer_manual_right_soft_margin_raw = 50U;
 /* M8-S01 RIGHT MAX: user-requested 30-RAW trial, after 40-RAW.
