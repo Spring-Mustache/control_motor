@@ -27,7 +27,7 @@ assert all(soft - nc >= 48 for nc in (195, 196, 197))
 required = (
     "#define STEER_POS_RIGHT_MIN_RAW      (steer_cal_right_min_runtime)",
     "#define STEER_MANUAL_RIGHT_SOFT_MIN (STEER_POS_RIGHT_MIN_RAW + STEER_MANUAL_RIGHT_SOFT_MARGIN_RAW)",
-    "if ((left == 0U) && (direction < 0) && (raw <= goal))",
+    "((left == 0U) && (direction < 0) && (raw <= goal))",
     "(Steering_TestRawLimitMask()==0U)",
     "steer_manual_right_rx_min_pwm = 50U;",
     "steer_s153_right_only_enable=1U;",

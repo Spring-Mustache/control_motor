@@ -1034,3 +1034,5 @@ Faf628b 50CCR source logged S15.3 OFF all 4 runs. D-pad LEFT RIGHT did not reach
 ## 2026-11-03 — Update RIGHT R_MIN boot default 166→195 per operator (observed NC 195..197)
 
 Operator confirms new RIGHT R_MIN physical contact RAW ranges195..197, chooses deterministic 195. Update main.c `steer_cal_right_min_runtime=195U` and R2 bounded approach `steer_pos_right_r2_target_raw=195U`; RIGHT D-pad/RX R_MIN margin50 unchanged yields SOFT=245 instead of216, early PWM zero by29RAW, 48..50RAW separation from observed NC. RIGHT CENTER662/MAX1029, LEFT CENTER1886 and all LEFT/R_MAX unchanged; 50CCR taper, S15.3 R_MIN-only ON, NC/STOP/SOFT and R2 NC-only completion unchanged. SELECT complete scan may override runtime min. New HOST CI geometry verifier; require actual CubeIDE Build/Flash and inspect M8S00_CAL_RUNTIME minR195 r2R195 plus M8S00_STEER softR245, then compare four-run arrival and M8S153 request/applied. Prior lag not proven solely due to old endpoint error.
+
+2026-11-03 verifier follow-up: static right-RMIN guard needle corrected to actual C OR-subclause; this changes no firmware logic. RMIN boot195, R2 ref195, soft245 remain unchanged.
