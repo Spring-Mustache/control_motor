@@ -5503,6 +5503,7 @@ volatile uint16_t steer_manual_right_max_soft_margin_raw = 30U;
 #define STEER_MANUAL_RESULT_STALL   13U
 #define STEER_MANUAL_RUN_MAX_MS       5000U
 #define STEER_MANUAL_ESCAPE_MAX_MS    1000U
+#define STEER_MANUAL_ESCAPE_RELEASE_QUIET_MS 120U
 #define STEER_MANUAL_STALL_MS          650U
 /* Neutral-to-new-command start guard: PWM=0 until each AS5600 has
  * stopped moving. Prevents a coast toward R_MAX being mistaken for
@@ -5533,6 +5534,8 @@ typedef struct
   uint16_t best_distance;
   uint32_t progress_ms;
   uint32_t escape_start_ms;
+  uint32_t escape_release_since_ms;
+  uint8_t escape_release_pending;
   uint32_t settle_begin_ms;
   uint32_t settle_quiet_since_ms;
   uint16_t settle_quiet_raw;
@@ -7382,41 +7385,58 @@ static void Steering_ManualAxisFault(uint8_t left, uint8_t reason)
   }
 }
 
-/* After a bounded departure from an already-pressed opposite limit,
- * cut PWM on the first observed NC release and let the held command
- * continue ONLY after a new quiet/settling interval. This preserves the
- * single LEFT/RIGHT D-pad stroke without forcing another button press.
+/* During bounded manual ESCAPE, only an IRQ from the NC being left
+ * may be a contact bounce. ISR already cut own PWM; keep CCR0 for the
+ * whole pass. Any target, dual or unrelated limit IRQ remains a fault.
  */
-static void Steering_ManualEscapeReleased(uint8_t left, uint16_t raw,
-                                          uint32_t now)
+static uint8_t Steering_ManualOwnEscapeIrq(uint8_t left,
+                                          uint8_t bits, int8_t direction)
 {
-  SteeringManualAxis_t *axis = left ? &steer_manual_left_axis :
-                                      &steer_manual_right_axis;
-  if (left != 0U)
+  uint8_t mi=left?STEER_LIMIT_L_MIN_MASK:STEER_LIMIT_R_MIN_MASK;
+  uint8_t ma=left?STEER_LIMIT_L_MAX_MASK:STEER_LIMIT_R_MAX_MASK;
+  uint8_t origin=(direction<0)?ma:mi;
+  uint8_t own=(uint8_t)(bits&(mi|ma));
+  uint8_t state=left?steer_manual_left_state:steer_manual_right_state;
+  SteeringManualAxis_t *axis=left?&steer_manual_left_axis:&steer_manual_right_axis;
+  if(steer_manual_active==0U||state!=STEER_MANUAL_ESCAPE||own!=origin)
+    return 0U;
+  axis->escape_release_pending=0U;
+  if(left!=0U)Steering_ManualLeftOff();
+  else Steering_ManualRightOff();
+  return 1U;
+}
+
+/* Keep original bounded AWAY PWM while checking origin NC is released
+ * continuously for 120ms. Transition same held D-pad/RX command straight
+ * to MOVING; no artificial SETTLING pause, no second press.
+ */
+static void Steering_ManualEscapeReleased(uint8_t left,uint16_t raw,uint32_t now)
+{
+  SteeringManualAxis_t *axis=left?&steer_manual_left_axis:&steer_manual_right_axis;
+  if(axis->escape_release_pending==0U)
   {
-    Steering_ManualLeftOff();
-    steer_manual_left_state = STEER_MANUAL_SETTLING;
-    steer_manual_left_settle_raw = raw;
+    axis->escape_release_pending=1U;
+    axis->escape_release_since_ms=now;
   }
-  else
-  {
-    Steering_ManualRightOff();
-    steer_manual_right_state = STEER_MANUAL_SETTLING;
-    steer_manual_right_settle_raw = raw;
-  }
-  axis->previous_raw = raw;
-  axis->settle_begin_ms = now;
-  axis->settle_quiet_since_ms = now;
-  axis->settle_quiet_raw = raw;
-  axis->progress_ms = now;
-  axis->best_distance = 32767U;
-  axis->speed_valid = 0U;
-  axis->speed_filtered_raw_s = 0U;
+  if((uint32_t)(now-axis->escape_release_since_ms)<
+      STEER_MANUAL_ESCAPE_RELEASE_QUIET_MS)return;
+  axis->escape_release_pending=0U;
+  axis->previous_raw=raw;
+  axis->progress_ms=now;
+  axis->best_distance=32767U;
+  axis->phase_start_raw=raw;
+  axis->phase_start_valid=1U;
+  axis->speed_valid=0U;
+  axis->speed_filtered_raw_s=0U;
+  axis->speed_sample_ms=left?steer_pos_left_last_sample_ms:
+                                steer_pos_right_last_sample_ms;
+  if(left!=0U)steer_manual_left_state=STEER_MANUAL_MOVING;
+  else steer_manual_right_state=STEER_MANUAL_MOVING;
 }
 
 /* Execute one side independently. Direction is toward MIN (-1) or MAX (+1).
  * Own expected endstop is an arrival; the partner motor is independent.
- * Escaping the opposite endstop is bounded to <=1s, then re-settles.
+ * Opposite NC departure is bounded to <=1s, then held AWAY command continues.
  */
 static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
                                       uint8_t limits, uint32_t now,
@@ -7616,16 +7636,15 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
 
   if (state == STEER_MANUAL_ESCAPE)
   {
-    if ((limits & opposite) == 0U)
-    {
-      Steering_ManualEscapeReleased(left, raw, now);
-      return;
-    }
     if ((uint32_t)(now - axis->escape_start_ms) >= STEER_MANUAL_ESCAPE_MAX_MS)
     {
       Steering_ManualAxisFault(left, 5U);
       return;
     }
+    if ((limits & opposite) == 0U)
+      Steering_ManualEscapeReleased(left, raw, now);
+    else
+      axis->escape_release_pending = 0U;
     if ((delta >= (int16_t)STEER_MANUAL_PROGRESS_DELTA) ||
         (delta <= -(int16_t)STEER_MANUAL_PROGRESS_DELTA))
       axis->progress_ms = now;
@@ -8130,6 +8149,7 @@ static void Steering_ManualUpdate(void)
   uint16_t lpwm, rpwm, la = 0U, ra = 0U;
   uint16_t magnitude = 0U;
   uint8_t lstate, rstate, mask, pending;
+  uint8_t left_escape_irq_hold=0U, right_escape_irq_hold=0U;
   uint32_t now = HAL_GetTick();
   uint32_t primask;
 
@@ -8378,6 +8398,8 @@ static void Steering_ManualUpdate(void)
     steer_manual_right_axis.progress_ms = now;
     steer_manual_left_axis.best_distance = 32767U;
     steer_manual_right_axis.best_distance = 32767U;
+    steer_manual_left_axis.escape_release_pending = 0U;
+    steer_manual_right_axis.escape_release_pending = 0U;
     steer_manual_start_count++;
     steer_manual_block_reason = 0U;
 
@@ -8505,7 +8527,9 @@ static void Steering_ManualUpdate(void)
   {
     uint8_t expect = (left_direction < 0) ? STEER_LIMIT_L_MIN_MASK :
                       STEER_LIMIT_L_MAX_MASK;
-    if ((pending & expect) != 0U &&
+    if(Steering_ManualOwnEscapeIrq(1U,pending,left_direction)!=0U)
+      left_escape_irq_hold=1U;
+    else if ((pending & expect) != 0U &&
         (pending & (uint8_t)~expect &
          (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) == 0U)
       Steering_ManualAxisDone(1U, 3U);
@@ -8516,7 +8540,9 @@ static void Steering_ManualUpdate(void)
   {
     uint8_t expect = (right_direction < 0) ? STEER_LIMIT_R_MIN_MASK :
                       STEER_LIMIT_R_MAX_MASK;
-    if ((pending & expect) != 0U &&
+    if(Steering_ManualOwnEscapeIrq(0U,pending,right_direction)!=0U)
+      right_escape_irq_hold=1U;
+    else if ((pending & expect) != 0U &&
         (pending & (uint8_t)~expect &
          (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) == 0U)
       Steering_ManualAxisDone(0U, 3U);
@@ -8689,9 +8715,17 @@ static void Steering_ManualUpdate(void)
   pending = steer_manual_irq_pending_mask;
   steer_manual_irq_pending_mask = 0U;
   if ((pending & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U)
-    Steering_ManualAxisFault(1U, 9U);
+  {
+    if(Steering_ManualOwnEscapeIrq(1U,pending,left_direction)!=0U)
+      left_escape_irq_hold=1U;
+    else Steering_ManualAxisFault(1U,9U);
+  }
   if ((pending & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
-    Steering_ManualAxisFault(0U, 9U);
+  {
+    if(Steering_ManualOwnEscapeIrq(0U,pending,right_direction)!=0U)
+      right_escape_irq_hold=1U;
+    else Steering_ManualAxisFault(0U,9U);
+  }
   lstate = steer_manual_left_state;
   rstate = steer_manual_right_state;
 
@@ -8714,7 +8748,6 @@ static void Steering_ManualUpdate(void)
       if (own == 0U)
       {
         Steering_ManualEscapeReleased(1U, debug_as5600_left_raw, now);
-        la = 0U;
       }
       else if (own != opposite) Steering_ManualAxisFault(1U, 9U);
     }
@@ -8738,7 +8771,6 @@ static void Steering_ManualUpdate(void)
       if (own == 0U)
       {
         Steering_ManualEscapeReleased(0U, debug_as5600_right_raw, now);
-        ra = 0U;
       }
       else if (own != opposite) Steering_ManualAxisFault(0U, 9U);
     }
@@ -8749,6 +8781,9 @@ static void Steering_ManualUpdate(void)
     }
   }
 
+  /* Origin NC rising EXTI is a full-pass PWM cut even if GPIO clears. */
+  if(left_escape_irq_hold!=0U)la=0U;
+  if(right_escape_irq_hold!=0U)ra=0U;
   if ((steer_manual_left_state == STEER_MANUAL_MOVING) ||
       (steer_manual_left_state == STEER_MANUAL_ESCAPE))
   {

@@ -22,6 +22,8 @@
 
 **HIỆN HÀNH 2026-11-03 S15.3D (CHƯA PASS):** A/B f790f48 cùng RMIN195 SOFT245: OFF DpadLEFT RIGHT+385ms, RXLEFT RIGHT+660ms nhưng RXRIGHT LEFT STALL13 sát SOFT; ON DpadLEFT RIGHT STALL13 ở RAW257 cách SOFT245 12RAW, RXLEFT dừng stopCode5 trước SOFT dù ETA đã bù 31/38 lần. Bản firmware tiếp theo S15.3 boot OFF; chỉ thêm chẩn đoán thụ động M8S153_FAULT hai trục và M8S153_STOP5 trước khi xóa owner/cắt CCR, UART sau DISARM. Giữ LEFT, S14.2, floor50, RMIN195/SOFT245, NC/STOP/STALL650; chưa có MCU Clean Build/Flash hoặc xác minh điện/cơ thực tế của commit mới. HOST CI, firmware được Flash, và an toàn thực là ba cổng tách biệt. Luôn gửi lệnh cập nhật firmware và lệnh ghi log từ thư mục chính cho người dùng.
 
+**HIỆN HÀNH 2026-11-03 NC manual:** User D-pad/RX needs second press leaving NC, R1 normal. Source patch manual ESCAPE→MOVING after 120ms release without SETTLING; own origin NC edge holds PWM0 full pass. No CubeIDE/Flash/hardware PASS. S15.3D STALL remains BLOCKED. Details docs/M8_MANUAL_NC_DIRECTIONAL_RELEASE_2026_11_03.md.
+
 ## 0. Thông tin hồ sơ và phạm vi bao phủ
 
 ### Hai lớp nội dung — KHÔNG gộp lịch sử vào trạng thái hiện tại
@@ -1195,4 +1197,24 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [0] S15.3 NOT PASS, diagnostic firmware S15.3 defaults OFF; [1] operator requested implementing next version and updating GitHub MD progress; [2] f790f48 A/B OFF19:59: DpadLEFT +385ms RXLEFT +660ms RXRIGHT LEFT STALL13; ON20:01 DpadLEFT RIGHT STALL13 RAW257 vs SOFT245, RXLEFT stopCode5 incomplete, ETA boosts31/38; [3] STALL13 last best-distance progress >650ms, stopCode5 neutral-required or reversal; [4] S15.3 diagnostics before next three-mode isolation, S15.4 then VC02 only after acceptance; [5] main.c+new pure helper/test+static CI verifier+roadmap/stage/handoff; [6] GitHub HOST check is not CubeIDE Build/Flash or powered motor evidence; [7] latest S15.3 stage doc and M8_S15_MILESTONE_PLAN current addendum; [8] PowerShell 4-run capture on COM4 after full DISARM via USER button, user works only project main folder; [9] S14.2/LEFT unchanged, ETA opt-in code remains but OFF at boot; [10] middle ETA bounded +12CCR when enabled deliberately, terminal floor50 and RMIN195/SOFT245 remain; [11] STOP/NC/SOFT/atomic, STALL650 unchanged and independent; [12] OFF also stalled on LEFT, do not assert ETA is sole cause or classify early stopCode5 as STALL; [13] always send update command together with capture command; [14] new M8S153_FAULT axis L/R one-shot progressAge/sampleAge/encoder/CCR/NC and M8S153_STOP5 path 1=neutral 2=direct reverse; [15] private raw logs kept out of GitHub, previous history and full 17 sections preserved; [16] target Clean Build/Flash, physical current/coast/NC/STOP power cutoff and new diagnostic capture not yet independently validated.
 
 [2026-11-03 S15.3D UART empty-event safety correction] M8S00 USER dump requires first STOP/FAULT, calibration or joint-steering event since boot/clear; boot+USER alone can return status3 and no frame. Do not intentionally stall/energize motors just to create a diagnostic frame. After hardware safety inspection and a legitimate safe manual command, only then DISARM and USER. Capture PowerShell script requires 4 real events. HOST/CI cannot replace hardware cutoff/coast tests.
+
+## 2026-11-03 — Manual NC two-press regression: 17-section crosscheck
+[0] Source-stage M8 branch; historical snapshots preserved; new HEAD/CI to verify.
+[1] User confirms D-pad/RX two press while leaving NC, R1 normal.
+[2] Source old release forced SETTLING and origin IRQ can fault9; exact hardware edge path not independently logged.
+[3] Rule NC blocks INTO for own axis, permits valid AWAY same held command; neutral direct reversal gate stays.
+[4] NC manual fix higher priority; S15.3D still BLOCKED, S15.4/VC-02 not PASS.
+[5] ESCAPE release clean 120ms→MOVING, origin NC IRQ one-pass CCR0, static+C HOST verifier.
+[6] Source stage vs CI vs CubeIDE/Flash/hardware are separate.
+[7] main.c, tools/verify_m8_manual_nc_escape.py, workflow, docs/M8_MANUAL_NC_DIRECTIONAL_RELEASE_2026_11_03.md, handoff, milestones.
+[8] R1 one press CENTER previously fixed, user says works; R1 unchanged.
+[9] Source suspects bounce and forced settle; NC0 in S15.3D STALL separate.
+[10] Existing ISR local CCR0, final atomic NC/DIR, hard/soft AS5600, STOP, timeout1000, STALL650 maintained.
+[11] Exact SHA CI then motor supply isolated CubeIDE; check 4 NC/dir/cutoff/mechanics before limited outward-only bench test.
+[12] Need physical NC evidence and current/coast clearance; no motor acceptance.
+[13] 2026-11-03 after S15.3D log, user reported D-pad/RX regression, R1 explicitly excluded.
+[14] Pass requires one held outward D-pad/RX press through release to opposite SOFT with no INTO PWM, false FAULT9 or second press; R1 unaffected.
+[15] Continue from branch SHA/CI, PowerShell-only logs, private logs not committed.
+[16] All 17 sections preserved, original 386-line spec untouched, no HOST=hardware conflation.
+
 END OF CONTEXT HANDOFF

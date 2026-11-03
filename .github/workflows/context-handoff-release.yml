@@ -85,6 +85,9 @@ jobs:
       - name: Verify RIGHT R_MIN 195 and SOFT 245 geometry/config guard
         run: python3 tools/verify_m8_right_min_geometry.py
 
+      - name: Verify D-pad/RX NC outward held-command HOST regression
+        run: python3 tools/verify_m8_manual_nc_escape.py
+
       - name: Verify passive S15.3D STALL/STOP5 snapshot and portable C regression
         run: python3 tools/verify_m8_s153_stall_diag.py
 
