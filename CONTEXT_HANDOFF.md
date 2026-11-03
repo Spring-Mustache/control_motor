@@ -10,6 +10,8 @@
 
 **2026-11-03 LATEST:** Trial theo yêu cầu RIGHT R_MIN last100RAW tăng floor PWM50->60, chỉ opt-in boot OFF và latch new manual stroke; không đổi STOP/NC/SOFT, R1/R2/S15.3 vẫn OFF. M8S15_TAIL60 chỉ ghi candidate, actual PWM M8S152_B. Chưa cho phép thử cấp nguồn khi NC margin ~3mm, chưa có coast/current/cutoff. Xem cuối tài liệu.
 
+**LATEST CORRECTION 2026-11-03:** Theo yêu cầu người vận hành, RIGHT R_MIN last100RAW floor60 giờ **default ON (enable=1U)** trên bản nguồn mới, thay cho OFF ở commit 9418d4a. S15.3 vẫn OFF và STOP/NC/SOFT/R1/R2/LEFT giữ nguyên. Không chạy full-stroke điện vì chưa đo coast/current và có cảnh báo khoảng hở NC ~3mm. Xem phần bổ sung cuối hồ sơ.
+
 ## 0. Thông tin hồ sơ và phạm vi bao phủ
 
 ### Hai lớp nội dung — KHÔNG gộp lịch sử vào trạng thái hiện tại
@@ -1161,4 +1163,7 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 
 [2026-11-03 RIGHT terminal 50-to-60 diagnostic, crosscheck 0-16]
 [0] Opt-in only 50->60 RIGHT R_MIN floor last100RAW; [1] user observed right lag near SOFT, suspected 50CCR; [2] a85438e baseline lag D-pad LEFT396ms, RX LEFT517ms; [3] boot OFF, S15.3 boot OFF, no default motion changes; [4] S15.2 data -> opt-in evidence gate -> S15.3 -> S15.4 -> VC02; [5] firmware source, static verifier, docs, CI exact SHA, target build pending; [6] no new powered on-trial evidence; [7] M8_S153_RIGHT_ONLY_STAGE_2026_11_02.md; [8] post-disarm native PowerShell log retained; [9] manual floor50 in steer_manual_right_rx_min_pwm, not R1/R2; [10] STOP/NC/SOFT/motor limits and late atomic control unchanged; [11] current, temp, powered-off coast/NC safety gate needed before enable; [12] 50CCR suspected but unproven root; [13] user explicitly requested increase to evaluate; [14] M8S15_TAIL60 candidateFrames PRE-atomic and M8S152_B real PWM; [15] no user logs published; [16] no hardware PASS/Flash/ON result, ~3mm physical clearance risk.
+
+[2026-11-03 correction of operator 60CCR requirement — current crosswalk 0–16]
+[0] Trial is now DEFAULT ON, not OFF; [1] operator expressly objected to previous 9418d4a boot-OFF candidate; [2] baseline a85438e RIGHT lags 396ms D-pad LEFT / 517ms RX LEFT; [3] scope RIGHT-to-R_MIN in last100RAW taper only, S15.3 default OFF; [4] after S15.2 data, 60-CCR trial gated by current/coast/NC safety before S15.3; [5] source main=1U, static verifier updated, docs; CI target Build distinct; [6] no powered/flash proof currently; [7] appended latest M8_S153_RIGHT_ONLY_STAGE_2026_11_02.md; [8] native PowerShell log unchanged; [9] last100 RAW taper floor50->60 not constant-duty flat60 or R1/R2; [10] STOP/NC/soft/final CCR0 and left unchanged; [11] physical margin ~3mm and unmeasured current/coast do not authorize powered full stroke; [12] terminal 50 cause hypothesized, not proven; [13] user explicitly insists boot-ON 60 candidate; [14] stopped-only M8S15_TAIL60 status and M8S152_B actual CCR; [15] original raw TXT remains private; [16] GitHub HOST PASS must not be presented as physical motor safety PASS.
 END OF CONTEXT HANDOFF

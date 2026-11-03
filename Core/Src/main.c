@@ -1746,10 +1746,11 @@ volatile uint16_t steer_manual_right_dpad_pwm = 100U;
 volatile uint16_t steer_manual_left_rx_min_pwm = 175U;
 volatile uint16_t steer_manual_right_rx_min_pwm = 50U;
 /* Experimental M8-S15 RIGHT-to-R_MIN last-100RAW taper floor 50->60 CCR.
- * OFF on boot, latched only at the next manual stroke, no R1/R2 change.
- * NEVER enable without measured cutoff/current/coast/clearance to RIGHT NC.
+ * ON on boot for operator-requested 50->60 CCR comparison, but latched
+ * ONLY on a NEW right-to-R_MIN manual stroke. No R1/R2 change.
+ * Powered testing requires measured cutoff/current/coast/clearance to NC.
  */
-volatile uint8_t steer_right_min_tail60_trial_enable = 0U;
+volatile uint8_t steer_right_min_tail60_trial_enable = 1U;
 static uint8_t steer_right_min_tail60_trial_latched = 0U;
 volatile uint8_t steer_right_min_tail60_trial_last = 0U;
 volatile uint32_t steer_right_min_tail60_candidate_frames = 0U;

@@ -18,8 +18,8 @@ checks={
   s.index('static void Steering_S153RightApply(') and
   s.index('static void Steering_S153RightApply(')<
   s.index('static void Steering_ManualUpdate(void)'),
- 'RIGHT R_MIN 50-to-60 terminal trial boot OFF; fresh command latched':
-  'steer_right_min_tail60_trial_enable = 0U;' in s and
+ 'Operator-selected RIGHT R_MIN 50-to-60 terminal trial boot ON; fresh command latched':
+  'steer_right_min_tail60_trial_enable = 1U;' in s and
   'steer_right_min_tail60_trial_latched=0U;' in reset and
   'steer_right_min_tail60_trial_latched =' in manual and
   '(right_direction < 0)' in manual and
