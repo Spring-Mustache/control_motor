@@ -411,6 +411,13 @@ static uint8_t as5600_right_probe_enabled = 0U;
 
 volatile uint16_t debug_as5600_left_raw = 0U;
 volatile uint16_t debug_as5600_right_raw = 0U;
+/* Read-only 32-bit RAW mirrors: CubeIDE Live Expressions has shown apparent
+ * one-byte-offset reads of neighboring uint16_t values (e.g. 85 -> 0x5500).
+ * The original uint16_t variables remain the sole motor-controller inputs.
+ * 32-bit words are naturally word-aligned, and used only for observation.
+ */
+volatile uint32_t debug_as5600_left_raw_word = 0U;
+volatile uint32_t debug_as5600_right_raw_word = 0U;
 volatile float debug_as5600_left_deg = 0.0f;
 volatile float debug_as5600_right_deg = 0.0f;
 
@@ -1045,6 +1052,7 @@ static void AS5600_DebugUpdate(void)
     if (read_result == HAL_OK)
     {
       debug_as5600_left_raw = raw;
+      debug_as5600_left_raw_word = (uint32_t)raw;
       debug_as5600_left_deg = AS5600_RawToDegrees(raw);
       debug_as5600_left_status = status;
       debug_as5600_left_comm_ok = 1U;
@@ -1095,6 +1103,7 @@ static void AS5600_DebugUpdate(void)
     if (read_result == HAL_OK)
     {
       debug_as5600_right_raw = raw;
+      debug_as5600_right_raw_word = (uint32_t)raw;
       debug_as5600_right_deg = AS5600_RawToDegrees(raw);
       debug_as5600_right_status = status;
       debug_as5600_right_comm_ok = 1U;
@@ -1854,7 +1863,7 @@ volatile uint16_t steer_cal_right_max_runtime = 1029U;
 volatile uint16_t steer_pos_left_r2_target_raw = 2297U;
 volatile uint16_t steer_pos_right_r2_target_raw = 166U;
 #define STEER_POS_LEFT_MIN_RAW       (steer_cal_left_min_runtime)
-#define STEER_POS_LEFT_CENTER_RAW     1873U
+#define STEER_POS_LEFT_CENTER_RAW     1886U
 #define STEER_POS_LEFT_MAX_RAW       (steer_cal_left_max_runtime)
 #define STEER_POS_RIGHT_MIN_RAW      (steer_cal_right_min_runtime)
 #define STEER_POS_RIGHT_CENTER_RAW     662U
@@ -3972,6 +3981,7 @@ static uint8_t Steering_PositionReadOne(uint8_t left, uint16_t *raw)
     if (result == HAL_OK)
     {
       debug_as5600_left_raw = value;
+      debug_as5600_left_raw_word = (uint32_t)value;
       debug_as5600_left_deg = AS5600_RawToDegrees(value);
       debug_as5600_left_status = status;
       debug_as5600_left_magnet_detected =
@@ -3997,6 +4007,7 @@ static uint8_t Steering_PositionReadOne(uint8_t left, uint16_t *raw)
     if (result == HAL_OK)
     {
       debug_as5600_right_raw = value;
+      debug_as5600_right_raw_word = (uint32_t)value;
       debug_as5600_right_deg = AS5600_RawToDegrees(value);
       debug_as5600_right_status = status;
       debug_as5600_right_magnet_detected =
@@ -6840,6 +6851,32 @@ static uint8_t M8S00_DumpFirmwareId(void)
   return M8S00_UartLine(line,n);
 }
 
+/* Passive RAW crosscheck: only inside the existing fully-disarmed M8S00
+ * UART dump gate. No I2C transaction or actuator writes.
+ */
+static uint8_t M8S00_DumpAS5600Crosscheck(void)
+{
+  char line[176];
+  uint16_t left = debug_as5600_left_raw;
+  uint16_t right = debug_as5600_right_raw;
+  uint32_t wl = debug_as5600_left_raw_word;
+  uint32_t wr = debug_as5600_right_raw_word;
+  uint8_t valid = (uint8_t)((left <= 4095U) && (right <= 4095U) &&
+                            (wl == (uint32_t)left) &&
+                            (wr == (uint32_t)right));
+  int n = snprintf(line, sizeof(line),
+      "M8S00_AS5600,rawL=%u,rawR=%u,wordL=%lu,wordR=%lu,"
+      "match12=%u,commL=%u,commR=%u,centerL=%u,centerR=%u\r\n",
+      (unsigned)left, (unsigned)right,
+      (unsigned long)wl, (unsigned long)wr,
+      (unsigned)valid,
+      (unsigned)debug_as5600_left_comm_ok,
+      (unsigned)debug_as5600_right_comm_ok,
+      (unsigned)STEER_POS_LEFT_CENTER_RAW,
+      (unsigned)STEER_POS_RIGHT_CENTER_RAW);
+  return M8S00_UartLine(line, n);
+}
+
 static void M8S00_DumpUpdate(void)
 {
   static const char begin[] = "#M8S00_BEGIN,1\r\n";
@@ -6891,6 +6928,7 @@ static void M8S00_DumpUpdate(void)
   if ((HAL_UART_Transmit(&huart3, (uint8_t *)begin,
                          (uint16_t)(sizeof(begin)-1U), 1000U) != HAL_OK) ||
       (M8S00_DumpFirmwareId() == 0U) ||
+      (M8S00_DumpAS5600Crosscheck() == 0U) ||
       (M8S00_DumpOne("STOP", &m8_s00_first_stop) == 0U) ||
       (M8S00_DumpOne("FAULT", &m8_s00_first_fault) == 0U) ||
       (M8S00_DumpEscapeCounters() == 0U) ||

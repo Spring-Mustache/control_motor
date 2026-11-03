@@ -47,6 +47,24 @@ checks={
   '[string]$VersionLabel' in cap and
   'CAPTURE_LABEL,source=operator_unverified' in cap and
   '# CubeIDE .prefs may be dirty; preserve frame and continue.' in cap,
+ 'AS5600 controller RAW preserved and two 32-bit debug mirrors written':
+  'volatile uint16_t debug_as5600_left_raw = 0U;' in main and
+  'volatile uint16_t debug_as5600_right_raw = 0U;' in main and
+  'volatile uint32_t debug_as5600_left_raw_word = 0U;' in main and
+  'volatile uint32_t debug_as5600_right_raw_word = 0U;' in main and
+  main.count('debug_as5600_left_raw_word = (uint32_t)') == 2 and
+  main.count('debug_as5600_right_raw_word = (uint32_t)') == 2,
+ 'Disarmed read-only AS5600 UART crosscheck uses unchanged safety gate':
+  'static uint8_t M8S00_DumpAS5600Crosscheck(void)' in main and
+  'M8S00_AS5600,rawL=%u,rawR=%u,wordL=%lu,wordR=%lu,' in main and
+  'match12=%u,commL=%u,commR=%u,centerL=%u,centerR=%u' in main and
+  main.index('if ((steer_safety_motion_permit != 0U)', main.index('static void M8S00_DumpUpdate(void)')) <
+  main.index('(M8S00_DumpAS5600Crosscheck() == 0U)') and
+  not any(bad in main[main.index('static uint8_t M8S00_DumpAS5600Crosscheck(void)'):main.index('static void M8S00_DumpUpdate(void)\n{')]
+              for bad in ('HAL_I2C','__HAL_TIM_SET_COMPARE','HAL_GPIO_WritePin')),
+ 'Operator requested LEFT center 1886 with RIGHT 662 unchanged':
+  '#define STEER_POS_LEFT_CENTER_RAW     1886U' in main and
+  '#define STEER_POS_RIGHT_CENTER_RAW     662U' in main,
  'No asynchronous UART/M8S11 or motor writes added to identity path':
   all(x not in main[main.index('static uint8_t M8S00_DumpFirmwareId(void)'):
     main.index('static void M8S00_DumpUpdate(void)')] for x in
