@@ -7,7 +7,17 @@ import os,shutil,subprocess,tempfile
 root=Path(__file__).resolve().parents[1]
 s=(root/"Core/Src/main.c").read_text(encoding="utf-8")
 h=(root/"Core/Inc/steer_s153_stall_diag.h").read_text(encoding="utf-8")
-fault=s[s.index("static void Steering_ManualAxisFault("):s.index("/* After a bounded departure",s.index("static void Steering_ManualAxisFault("))]
+def c_function(name):
+ start=s.index("static void "+name+"(")
+ opening=s.index("{",start)
+ depth=0
+ for i in range(opening,len(s)):
+  if s[i]=="{":depth+=1
+  elif s[i]=="}":
+   depth-=1
+   if depth==0:return s[start:i+1]
+ raise AssertionError("unbalanced function "+name)
+fault=c_function("Steering_ManualAxisFault")
 capture=s[s.index("static void M8S153_CaptureManualFault("):s.index("static void Steering_ManualAxisDone(",s.index("static void M8S153_CaptureManualFault("))]
 stop=s[s.index("static void Steering_ManualStop(void)"):s.index("/* Every endstop",s.index("static void Steering_ManualStop(void)"))]
 capstop=s[s.index("static void M8S153_CaptureStop5("):s.index("static void Steering_ManualStop(void)",s.index("static void M8S153_CaptureStop5("))]

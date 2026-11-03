@@ -1217,4 +1217,6 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] Continue from branch SHA/CI, PowerShell-only logs, private logs not committed.
 [16] All 17 sections preserved, original 386-line spec untouched, no HOST=hardware conflation.
 
+
+[CI follow-up 2026-11-03] cc82185 manual D-pad/RX source C HOST PASS; total Actions FAILED only because old S15.3D verifier sliced fault by deleted comment marker. Changed verifier to balanced C function slicing, no motor source/CCR/NC changes. Verify new SHA CI; CubeIDE and real motor remain PENDING.
 END OF CONTEXT HANDOFF

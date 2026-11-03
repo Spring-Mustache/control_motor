@@ -1055,3 +1055,6 @@ New S15.3D diagnostic source changes **boot S15.3 default to OFF** while preserv
 [USER] D-pad and RX need second press after first NC release; R1 is normal.
 [SOURCE] Source-staged manual-only change: ESCAPE maintains original bounded AWAY PWM until 120ms clean NC release then MOVING without SETTLING. Own-origin EXTI edge in ESCAPE retains local CCR0 for entire pass, resets release timer; target, dual, wrong NC still fault. 1s escape, STALL650, STOP/hard/soft/atomic checks, R1/R2/SELECT, S14.2/S15.3 and RIGHT RMIN195/SOFT245 unchanged.
 [TEST] tools/verify_m8_manual_nc_escape.py static+actual C host test, Actions job. Exact SHA CI, CubeIDE Clean Build/Flash, physical 4 NC + independent cutoff and one-press outward bench observation all pending separately. S15.3D blocked by different STALL; do not advance S15.4/VC-02.
+
+
+[2026-11-03 NC repair verification follow-up] At cc82185 own manual NC HOST extracted C PASS, but verify-handoff overall failed solely because S15.3D source verifier depended on the removed comment marker 'After a bounded departure'. Correct S15.3D verifier to extract Steering_ManualAxisFault by balanced C braces, not prose. Firmware unchanged; exact next SHA CI required. Target Build/Flash/physical acceptance still not proven.
