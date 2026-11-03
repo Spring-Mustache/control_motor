@@ -18,6 +18,23 @@ checks={
   s.index('static void Steering_S153RightApply(') and
   s.index('static void Steering_S153RightApply(')<
   s.index('static void Steering_ManualUpdate(void)'),
+ 'RIGHT R_MIN 50-to-60 terminal trial boot OFF; fresh command latched':
+  'steer_right_min_tail60_trial_enable = 0U;' in s and
+  'steer_right_min_tail60_trial_latched=0U;' in reset and
+  'steer_right_min_tail60_trial_latched =' in manual and
+  '(right_direction < 0)' in manual and
+  '(steer_s153_latched == 0U)' in manual and
+  '(steer_s147_latched == 0U)' in manual,
+ 'Tail trial leaves original production taper and all position PWM alone':
+  'uint16_t prior = pwm;' in s and
+  'if (pwm > floor_pwm)' in s and
+  '(prior > 60U)' in s and
+  'uint16_t trial_pwm = (uint16_t)(60U +' in s and
+  'if (trial_pwm > pwm)' in s and
+  'Steering_TestRawLimitMask() == 0U' in s and
+  'steer_manual_right_rx_min_pwm = 50U;' in s and
+  'steer_pos_right_pwm_min = 50U;' in s and
+  '(M8S00_DumpRightTailTrial() == 0U)' in s,
  'S15.3 boot OFF and Level2/Fast Start unchanged':
   'steer_s153_right_only_enable=0U;' in s and
   'steer_s142_trial_level = 2U;' in s and
