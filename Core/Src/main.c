@@ -1745,15 +1745,6 @@ volatile uint16_t steer_manual_left_dpad_pwm = 300U;
 volatile uint16_t steer_manual_right_dpad_pwm = 100U;
 volatile uint16_t steer_manual_left_rx_min_pwm = 175U;
 volatile uint16_t steer_manual_right_rx_min_pwm = 50U;
-/* Experimental M8-S15 RIGHT-to-R_MIN last-100RAW taper floor 50->60 CCR.
- * ON on boot for operator-requested 50->60 CCR comparison, but latched
- * ONLY on a NEW right-to-R_MIN manual stroke. No R1/R2 change.
- * Powered testing requires measured cutoff/current/coast/clearance to NC.
- */
-volatile uint8_t steer_right_min_tail60_trial_enable = 1U;
-static uint8_t steer_right_min_tail60_trial_latched = 0U;
-volatile uint8_t steer_right_min_tail60_trial_last = 0U;
-volatile uint32_t steer_right_min_tail60_candidate_frames = 0U;
 volatile uint16_t steer_manual_left_rx_max_pwm = 300U;
 volatile uint16_t steer_manual_right_rx_max_pwm = 100U;
 /* Live Expressions: -1 toward own MIN, +1 toward own MAX, 0 idle.
@@ -3103,6 +3094,9 @@ static M8S152State_t steer_s153_obs={0};
 static uint32_t steer_s153_run=0U;
 static uint32_t steer_s153_frames=0U,steer_s153_skipped=0U;
 static uint32_t steer_s153_requested=0U,steer_s153_applied=0U;
+/* Pre-atomic diagnostics: never part of PWM or safety decision. */
+static uint32_t steer_s153_early_frames=0U;
+static uint32_t steer_s153_avoided_reduction_r_frames=0U;
 static uint16_t steer_s153_last_owner_r=0U;
 static uint16_t steer_s153_last_candidate_r=0U;
 static uint16_t steer_s153_last_applied_r=0U;
@@ -3176,7 +3170,6 @@ static void Steering_S14ManualReset(void)
   steer_s149_latched = 0U;
   steer_s15_latched = 0U;
   steer_s153_latched=0U;
-  steer_right_min_tail60_trial_latched=0U;
   steer_s153_obs=(M8S152State_t){0};
   steer_s15_session = (M8S15Session_t){0};
   steer_s147_pi_l = (M8S147AxisState_t){0};
@@ -6833,7 +6826,7 @@ static uint8_t M8S153_Dump(void)
   char line[256];int n=snprintf(line,sizeof(line),
      "M8S153,enable=%u,last=%u,run=%lu,frames=%lu,skip=%lu,"
      "requestFrames=%lu,appliedFrames=%lu,peakExtra=%u,"
-     "ownerR=%u,candidateR=%u,appliedR=%u\r\n",
+     "ownerR=%u,candidateR=%u,appliedR=%u,earlyFrames=%lu,avoidedReductionR=%lu\r\n",
      (unsigned)steer_s153_right_only_enable,(unsigned)steer_s153_last,
      (unsigned long)steer_s153_run,(unsigned long)steer_s153_frames,
      (unsigned long)steer_s153_skipped,
@@ -6842,7 +6835,9 @@ static uint8_t M8S153_Dump(void)
      (unsigned)steer_s153_peak_extra,
      (unsigned)steer_s153_last_owner_r,
      (unsigned)steer_s153_last_candidate_r,
-     (unsigned)steer_s153_last_applied_r);
+     (unsigned)steer_s153_last_applied_r,
+     (unsigned long)steer_s153_early_frames,
+     (unsigned long)steer_s153_avoided_reduction_r_frames);
   return M8S00_UartLine(line,n);
 }
 
@@ -6884,21 +6879,6 @@ static uint8_t M8S00_DumpAS5600Crosscheck(void)
       (unsigned)debug_as5600_right_comm_ok,
       (unsigned)STEER_POS_LEFT_CENTER_RAW,
       (unsigned)STEER_POS_RIGHT_CENTER_RAW);
-  return M8S00_UartLine(line, n);
-}
-
-/* Tail-floor trial status is exported ONLY via fully-disarmed M8S00.
- * candidateFrames is pre-atomic; actual CCR remains in M8S152_B.
- */
-static uint8_t M8S00_DumpRightTailTrial(void)
-{
-  char line[170];
-  int n = snprintf(line, sizeof(line),
-      "M8S15_TAIL60,enable=%u,last=%u,candidateFrames=%lu,"
-      "floorBase=50,floorTrial=60,windowRaw=100,dirR=-1\r\n",
-      (unsigned)steer_right_min_tail60_trial_enable,
-      (unsigned)steer_right_min_tail60_trial_last,
-      (unsigned long)steer_right_min_tail60_candidate_frames);
   return M8S00_UartLine(line, n);
 }
 
@@ -6954,7 +6934,6 @@ static void M8S00_DumpUpdate(void)
                          (uint16_t)(sizeof(begin)-1U), 1000U) != HAL_OK) ||
       (M8S00_DumpFirmwareId() == 0U) ||
       (M8S00_DumpAS5600Crosscheck() == 0U) ||
-      (M8S00_DumpRightTailTrial() == 0U) ||
       (M8S00_DumpOne("STOP", &m8_s00_first_stop) == 0U) ||
       (M8S00_DumpOne("FAULT", &m8_s00_first_fault) == 0U) ||
       (M8S00_DumpEscapeCounters() == 0U) ||
@@ -7630,37 +7609,12 @@ static void Steering_ManualAxisUpdate(uint8_t left, int8_t direction,
   {
     uint16_t floor_pwm = left ? steer_manual_left_rx_min_pwm :
                                  steer_manual_right_rx_min_pwm;
-    uint16_t prior = pwm;
     floor_pwm = Steering_ManualClampPWM(floor_pwm);
-    /* Preserve EXACT original production taper while trial is OFF. */
     if (pwm > floor_pwm)
     {
       pwm = (uint16_t)((uint32_t)floor_pwm +
           ((uint32_t)(pwm - floor_pwm) * distance) /
           STEER_MANUAL_APPROACH_WINDOW_RAW);
-    }
-    /* Trial only RIGHT toward MIN, in normal MOVING (no NC/escape).
-     * Replace 50-CCR floor with 60-CCR floor but never raise an already
-     * low joystick PWM, exceed the pre-taper owner, or override a stop.
-     * Final atomic NC/IRQ/CCR arbitration is still authoritative.
-     */
-    if ((left == 0U) && (direction < 0) &&
-        (steer_right_min_tail60_trial_latched != 0U) &&
-        (steer_s142_latched == 2U) &&
-        (steer_manual_right_state == STEER_MANUAL_MOVING) &&
-        (Steering_TestRawLimitMask() == 0U) &&
-        (prior > 60U))
-    {
-      uint16_t trial_pwm = (uint16_t)(60U +
-          ((uint32_t)(prior - 60U) * distance) /
-          STEER_MANUAL_APPROACH_WINDOW_RAW);
-      if (trial_pwm > pwm)
-      {
-        pwm = trial_pwm;
-        /* This is a PRE-atomic candidate count, not actual applied CCR. */
-        if (steer_right_min_tail60_candidate_frames != 0xffffffffUL)
-          steer_right_min_tail60_candidate_frames++;
-      }
     }
   }
   *apply = pwm;
@@ -8004,14 +7958,17 @@ static void Steering_S153RightApply(uint16_t start_l,uint16_t goal_l,
       steer_pos_left_last_sample_ms,steer_pos_right_last_sample_ms,
       now,direction_l,geometry_ok,1U);
   steer_s153_last_owner_r=*pwm_r;
-  p=M8S153_PlanRight(*pwm_l,*pwm_r,cap_r,remain_l,remain_r,
+  p=M8S153_PlanRightMid(*pwm_l,*pwm_r,cap_r,remain_l,remain_r,
       moved_l,moved_r,
       (uint8_t)((steer_manual_left_state==STEER_MANUAL_MOVING)&&
                 (steer_manual_right_state==STEER_MANUAL_MOVING)&&
                 (steer_safety_motion_permit==1U)&&
                 (steer_safety_trip_latched==0U)&&
                 (control_stop_latched==0U)),
-      (uint8_t)(Steering_TestRawLimitMask()==0U),&rel);
+      (uint8_t)(Steering_TestRawLimitMask()==0U),
+       (uint8_t)(direction_l>0),&rel);
+   if(p.early!=0U&&steer_s153_early_frames!=0xffffffffUL)
+     steer_s153_early_frames++;
   if(steer_s153_frames!=0xffffffffUL)steer_s153_frames++;
   if(p.eligible==0U&&steer_s153_skipped!=0xffffffffUL)
     steer_s153_skipped++;
@@ -8206,20 +8163,6 @@ static void Steering_ManualUpdate(void)
     steer_s149_latched=((steer_s147_latched!=0U) &&
         (steer_s149_early_lead_enable==1U))?1U:0U;
     steer_s149_last=steer_s149_latched;
-    /* Latch the independent RIGHT R_MIN 50->60 floor trial ONLY at a
-     * neutral-to-new manual command; no mid-stroke opt-in/competition.
-     */
-    steer_right_min_tail60_trial_latched =
-        ((steer_right_min_tail60_trial_enable == 1U) &&
-         (steer_s142_latched == 2U) &&
-         (right_direction < 0) &&
-         (steer_s15_latched == 0U) &&
-         (steer_s153_latched == 0U) &&
-         (steer_s147_latched == 0U) &&
-         (steer_s149_latched == 0U)) ? 1U : 0U;
-    steer_right_min_tail60_trial_last =
-        steer_right_min_tail60_trial_latched;
-    steer_right_min_tail60_candidate_frames = 0U;
     /* S14/S14.1 never claim ownership in a high-ceiling stroke. */
     steer_s14_manual_latched =
         ((steer_s142_latched == 0U) &&
@@ -8244,6 +8187,7 @@ static void Steering_ManualUpdate(void)
     steer_s153_run=m8_s00_arrival.run_id;
     steer_s153_frames=0U;steer_s153_skipped=0U;
     steer_s153_requested=0U;steer_s153_applied=0U;
+    steer_s153_early_frames=0U;steer_s153_avoided_reduction_r_frames=0U;
     steer_s153_last_owner_r=0U;steer_s153_last_candidate_r=0U;
     steer_s153_last_applied_r=0U;steer_s153_peak_extra=0U;
     m8s152_kind=m8_s05_manual_kind;
@@ -8538,6 +8482,12 @@ static void Steering_ManualUpdate(void)
           Steering_ManualClampPWM(steer_manual_right_rx_min_pwm),
           &la,&legacy_r);
       if(la<baseline_l)la=baseline_l;
+      /* Legacy S14.2 RIGHT planner below the independent RIGHT owner:
+       * discarded here; pre-atomic diagnostic only, not real CCR proof.
+       */
+      if((legacy_r<ra)&&
+         (steer_s153_avoided_reduction_r_frames!=0xffffffffUL))
+        steer_s153_avoided_reduction_r_frames++;
       Steering_S153RightApply(
           steer_manual_left_axis.phase_start_raw,
           steer_manual_left_soft_target, debug_as5600_left_raw,

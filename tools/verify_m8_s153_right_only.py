@@ -18,23 +18,6 @@ checks={
   s.index('static void Steering_S153RightApply(') and
   s.index('static void Steering_S153RightApply(')<
   s.index('static void Steering_ManualUpdate(void)'),
- 'Operator-selected RIGHT R_MIN 50-to-60 terminal trial boot ON; fresh command latched':
-  'steer_right_min_tail60_trial_enable = 1U;' in s and
-  'steer_right_min_tail60_trial_latched=0U;' in reset and
-  'steer_right_min_tail60_trial_latched =' in manual and
-  '(right_direction < 0)' in manual and
-  '(steer_s153_latched == 0U)' in manual and
-  '(steer_s147_latched == 0U)' in manual,
- 'Tail trial leaves original production taper and all position PWM alone':
-  'uint16_t prior = pwm;' in s and
-  'if (pwm > floor_pwm)' in s and
-  '(prior > 60U)' in s and
-  'uint16_t trial_pwm = (uint16_t)(60U +' in s and
-  'if (trial_pwm > pwm)' in s and
-  'Steering_TestRawLimitMask() == 0U' in s and
-  'steer_manual_right_rx_min_pwm = 50U;' in s and
-  'steer_pos_right_pwm_min = 50U;' in s and
-  '(M8S00_DumpRightTailTrial() == 0U)' in s,
  'S15.3 boot OFF and Level2/Fast Start unchanged':
   'steer_s153_right_only_enable=0U;' in s and
   'steer_s142_trial_level = 2U;' in s and
@@ -71,6 +54,25 @@ checks={
   'Steering_PositionRawInRange(1U,raw_l)' in active and
   'Steering_PositionRawInRange(0U,raw_r)' in active and
   'Steering_TestRawLimitMask()==0U' in active,
+ 'All terminal PWM60 trial source removed; baseline 50CCR retained':
+  'steer_manual_right_rx_min_pwm = 50U;' in s and
+  not any(x in s for x in ('steer_right_min_tail60',
+      'M8S15_TAIL60','floorTrial=60','trial_pwm = (uint16_t)(60U')),
+ 'S15.3 right-R_MIN-only early mid proposal, no boost near SOFT':
+  'M8S153_PlanRightMid(' in active and
+  '(uint8_t)(direction_l>0)' in active and
+  'M8S153_RMIN_MID_MIN_RAW 320U' in h and
+  'M8S153_RMIN_MID_MAX_RAW 650U' in h and
+  'M8S153_RMIN_MID_BIAS_PM 80L' in h and
+  'right_to_min!=1U' in h and
+  'remain_l<=M8S153_RMIN_MID_MIN_RAW' in h and
+  'remain_r<=M8S153_RMIN_MID_MIN_RAW' in h and
+  'candidate.boost_ccr>base.boost_ccr' in h,
+ 'Pre-atomic S14.2 RIGHT reduction instrumentation, LEFT unchanged':
+  'if((legacy_r<ra)&&' in manual[a:b] and
+  'steer_s153_avoided_reduction_r_frames++' in manual[a:b] and
+  'earlyFrames=%lu,avoidedReductionR=%lu' in s and
+  'steer_s153_early_frames=0U;' in s,
  'S15.3 pure C only capped RIGHT and far from both terminal regions':
   all(t in h for t in ('M8S153_RIGHT_MAX_EXTRA_CCR 12U',
    'remain_l<=M8S153_TERMINAL_RAW','remain_r<=M8S153_TERMINAL_RAW',
