@@ -36,44 +36,71 @@ int main(void) {
      if(cap>a)assert(x.right_pwm<=cap);
    }
  }
- /* D-pad LEFT 50CCR: in mid-stroke predicted q error may be -40pm. */
+ /* Regression replay of RMIN195/SOFT245 at 19:33. ePred is
+  * intentionally very negative: velocity and remaining ETA decide.
+  */
  {
-  M8S152Plan_t mid={0};mid.angle_valid=1U;mid.pred_valid=1U;mid.predicted=-40;
-  p=M8S153_PlanRightMid(405,175,200,450,450,100,100,1,1,1,&mid);
-  assert(p.right_pwm==185&&p.boost_ccr==10&&p.early==1U);
-  p=M8S153_PlanRightMid(405,175,200,450,450,100,100,1,1,0,&mid);
+  M8S152Plan_t mid={0};mid.angle_valid=1U;mid.pred_valid=1U;
+  mid.predicted=-322;mid.velL=1463;mid.velR=1726;
+  p=M8S153_PlanRightMid(450,175,200,582,444,192,317,1,1,1,&mid);
+  assert(p.eta_valid==1U&&p.eta_lag_ms==94);
+  assert(p.right_pwm==177&&p.boost_ccr==2&&p.early==1U);
+  mid.predicted=-138;mid.velL=1573;mid.velR=1689;
+  p=M8S153_PlanRightMid(450,175,200,490,423,282,336,1,1,1,&mid);
+  assert(p.eta_valid==1U&&p.eta_lag_ms==271);
+  assert(p.right_pwm==187&&p.boost_ccr==12&&p.early==1U);
+  p=M8S153_PlanRightMid(450,175,200,490,423,282,336,1,1,0,&mid);
   assert(p.right_pwm==175&&p.early==0U);
-  p=M8S153_PlanRightMid(405,175,200,320,450,100,100,1,1,1,&mid);
+  mid.predicted=400; /* even lagging RIGHT has no boost near endpoint */
+  p=M8S153_PlanRightMid(450,175,200,320,423,452,336,1,1,1,&mid);
   assert(p.right_pwm==175&&p.early==0U);
-  p=M8S153_PlanRightMid(405,175,200,450,320,100,100,1,1,1,&mid);
+  p=M8S153_PlanRightMid(450,175,200,490,320,282,439,1,1,1,&mid);
   assert(p.right_pwm==175&&p.early==0U);
-  p=M8S153_PlanRightMid(405,175,200,651,450,100,100,1,1,1,&mid);
+  p=M8S153_PlanRightMid(450,175,200,180,180,590,580,1,1,1,&mid);
   assert(p.right_pwm==175&&p.early==0U);
-  mid.predicted=-81;
-  p=M8S153_PlanRightMid(405,175,200,450,450,100,100,1,1,1,&mid);
+  p=M8S153_PlanRightMid(450,175,200,651,423,121,336,1,1,1,&mid);
   assert(p.right_pwm==175&&p.early==0U);
-  mid.predicted=-40;
-  p=M8S153_PlanRightMid(405,175,200,450,450,100,100,0,1,1,&mid);
+  p=M8S153_PlanRightMid(450,175,200,490,651,282,108,1,1,1,&mid);
   assert(p.right_pwm==175&&p.early==0U);
-  p=M8S153_PlanRightMid(405,175,200,450,450,100,100,1,0,1,&mid);
+  p=M8S153_PlanRightMid(450,175,200,490,423,282,336,0,1,1,&mid);
   assert(p.right_pwm==175&&p.early==0U);
-  p=M8S153_PlanRightMid(405,198,200,450,450,100,100,1,1,1,&mid);
+  p=M8S153_PlanRightMid(450,175,200,490,423,282,336,1,0,1,&mid);
+  assert(p.right_pwm==175&&p.early==0U);
+  p=M8S153_PlanRightMid(0,175,200,490,423,282,336,1,1,1,&mid);
+  assert(p.right_pwm==175&&p.early==0U);
+  p=M8S153_PlanRightMid(450,0,200,490,423,282,336,1,1,1,&mid);
+  assert(p.right_pwm==0&&p.early==0U);
+  p=M8S153_PlanRightMid(450,201,200,490,423,282,336,1,1,1,&mid);
+  assert(p.right_pwm==201&&p.early==0U);
+  p=M8S153_PlanRightMid(450,198,200,490,423,282,336,1,1,1,&mid);
   assert(p.right_pwm==200&&p.boost_ccr==2);
-  p=M8S153_PlanRightMid(405,0,200,450,450,100,100,1,1,1,&mid);
-  assert(p.right_pwm==0&&p.boost_ccr==0);
   mid.pred_valid=0U;
-  p=M8S153_PlanRightMid(405,175,200,450,450,100,100,1,1,1,&mid);
+  p=M8S153_PlanRightMid(450,175,200,490,423,282,336,1,1,1,&mid);
   assert(p.right_pwm==175&&p.early==0U);
-  mid.pred_valid=1U;
-  for(unsigned owner=1;owner<=201;owner+=4)
+  mid.pred_valid=1U;mid.angle_valid=0U;
+  p=M8S153_PlanRightMid(450,175,200,490,423,282,336,1,1,1,&mid);
+  assert(p.right_pwm==175&&p.early==0U);
+  mid.angle_valid=1U;mid.velL=-10;mid.velR=1689;
+  p=M8S153_PlanRightMid(450,175,200,490,423,282,336,1,1,1,&mid);
+  assert(p.right_pwm==175&&p.early==0U);
+  mid.velL=1573;mid.velR=249;
+  p=M8S153_PlanRightMid(450,175,200,490,423,282,336,1,1,1,&mid);
+  assert(p.right_pwm==175&&p.early==0U);
+  mid.velR=1689;
+  p=M8S153_PlanRightMid(450,175,200,490,423,30,40,1,1,1,&mid);
+  assert(p.right_pwm==175&&p.early==0U);
+  p=M8S153_PlanRightMid(450,175,200,490,423,750,740,1,1,1,&mid);
+  assert(p.right_pwm==175&&p.early==0U);
+  for(unsigned owner=0;owner<=220;owner+=4)
    for(unsigned cap=100;cap<=200;cap+=10)
-    for(int pred=-100;pred<=200;pred+=20){
+    for(int pred=-400;pred<=400;pred+=40){
      mid.predicted=(int16_t)pred;
-     M8S153Plan_t x=M8S153_PlanRightMid(405,(uint16_t)owner,
-         (uint16_t)cap,450,450,100,100,1,1,1,&mid);
+     M8S153Plan_t x=M8S153_PlanRightMid(450,(uint16_t)owner,
+         (uint16_t)cap,490,423,282,336,1,1,1,&mid);
      assert(x.right_pwm>=owner);
-     assert(x.right_pwm-owner<=12);
+     assert(x.right_pwm-owner<=M8S153_RIGHT_MAX_EXTRA_CCR);
      if(cap>owner)assert(x.right_pwm<=cap);
+     assert(x.early==(x.boost_ccr>0U));
     }
  }
  puts("M8-S15.3 RIGHT-only pure HOST PASS");return 0;

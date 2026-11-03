@@ -59,20 +59,34 @@ checks={
   'steer_manual_right_rx_min_pwm = 50U;' in s and
   not any(x in s for x in ('steer_right_min_tail60',
       'M8S15_TAIL60','floorTrial=60','trial_pwm = (uint16_t)(60U')),
- 'S15.3 right-R_MIN-only early mid proposal, no boost near SOFT':
+ 'S15.3 bounded ETA of q/s -> RAW/s, no increase near either SOFT':
   'M8S153_PlanRightMid(' in active and
   '(uint8_t)(direction_l>0)' in active and
   'M8S153_RMIN_MID_MIN_RAW 320U' in h and
   'M8S153_RMIN_MID_MAX_RAW 650U' in h and
-  'M8S153_RMIN_MID_BIAS_PM 80L' in h and
+  'M8S153_ETA_TAIL_LEFT_MS 484U' in h and
+  'M8S153_ETA_TAIL_RIGHT_MS 886U' in h and
+  'M8S153_ETA_MIN_SPAN_RAW 700U' in h and
+  'M8S153_ETA_MIN_Q_SPEED 250' in h and
+  'M8S153_ETA_DEADBAND_MS 60L' in h and
   'right_to_min!=1U' in h and
   'remain_l<=M8S153_RMIN_MID_MIN_RAW' in h and
   'remain_r<=M8S153_RMIN_MID_MIN_RAW' in h and
-  'candidate.boost_ccr>base.boost_ccr' in h,
+  'obs->velL<M8S153_ETA_MIN_Q_SPEED' in h and
+  'obs->velR<M8S153_ETA_MIN_Q_SPEED' in h and
+  'obs->angle_valid==0U||obs->pred_valid==0U' in h and
+  '(uint32_t)obs->velL*span_l)/2000U' in h and
+  '(uint32_t)obs->velR*span_r)/2000U' in h and
+  'if(want==0U)return p;' in h and
+  'M8S153_RMIN_MID_BIAS_PM' not in h,
  'Pre-atomic S14.2 RIGHT reduction instrumentation, LEFT unchanged':
   'if((legacy_r<ra)&&' in manual[a:b] and
   'steer_s153_avoided_reduction_r_frames++' in manual[a:b] and
   'earlyFrames=%lu,avoidedReductionR=%lu' in s and
+  'etaFrames=%lu,peakEtaLagMs=%u' in s and
+  'steer_s153_eta_frames=0U;' in s and
+  'steer_s153_peak_eta_lag_ms=0U;' in s and
+  'if(p.eta_valid!=0U&&steer_s153_eta_frames!=0xffffffffUL)' in active and
   'steer_s153_early_frames=0U;' in s,
  'S15.3 pure C only capped RIGHT and far from both terminal regions':
   all(t in h for t in ('M8S153_RIGHT_MAX_EXTRA_CCR 12U',

@@ -3096,6 +3096,8 @@ static uint32_t steer_s153_frames=0U,steer_s153_skipped=0U;
 static uint32_t steer_s153_requested=0U,steer_s153_applied=0U;
 /* Pre-atomic diagnostics: never part of PWM or safety decision. */
 static uint32_t steer_s153_early_frames=0U;
+static uint32_t steer_s153_eta_frames=0U;
+static uint16_t steer_s153_peak_eta_lag_ms=0U;
 static uint32_t steer_s153_avoided_reduction_r_frames=0U;
 static uint16_t steer_s153_last_owner_r=0U;
 static uint16_t steer_s153_last_candidate_r=0U;
@@ -6827,7 +6829,8 @@ static uint8_t M8S153_Dump(void)
   char line[256];int n=snprintf(line,sizeof(line),
      "M8S153,enable=%u,last=%u,run=%lu,frames=%lu,skip=%lu,"
      "requestFrames=%lu,appliedFrames=%lu,peakExtra=%u,"
-     "ownerR=%u,candidateR=%u,appliedR=%u,earlyFrames=%lu,avoidedReductionR=%lu\r\n",
+     "ownerR=%u,candidateR=%u,appliedR=%u,earlyFrames=%lu,avoidedReductionR=%lu,"
+     "etaFrames=%lu,peakEtaLagMs=%u\r\n",
      (unsigned)steer_s153_right_only_enable,(unsigned)steer_s153_last,
      (unsigned long)steer_s153_run,(unsigned long)steer_s153_frames,
      (unsigned long)steer_s153_skipped,
@@ -6838,7 +6841,9 @@ static uint8_t M8S153_Dump(void)
      (unsigned)steer_s153_last_candidate_r,
      (unsigned)steer_s153_last_applied_r,
      (unsigned long)steer_s153_early_frames,
-     (unsigned long)steer_s153_avoided_reduction_r_frames);
+     (unsigned long)steer_s153_avoided_reduction_r_frames,
+     (unsigned long)steer_s153_eta_frames,
+     (unsigned)steer_s153_peak_eta_lag_ms);
   return M8S00_UartLine(line,n);
 }
 
@@ -7968,6 +7973,11 @@ static void Steering_S153RightApply(uint16_t start_l,uint16_t goal_l,
                 (control_stop_latched==0U)),
       (uint8_t)(Steering_TestRawLimitMask()==0U),
        (uint8_t)(direction_l>0),&rel);
+   if(p.eta_valid!=0U&&steer_s153_eta_frames!=0xffffffffUL)
+     steer_s153_eta_frames++;
+   if(p.eta_lag_ms>0 &&
+      (uint16_t)p.eta_lag_ms>steer_s153_peak_eta_lag_ms)
+     steer_s153_peak_eta_lag_ms=(uint16_t)p.eta_lag_ms;
    if(p.early!=0U&&steer_s153_early_frames!=0xffffffffUL)
      steer_s153_early_frames++;
   if(steer_s153_frames!=0xffffffffUL)steer_s153_frames++;
@@ -8189,7 +8199,9 @@ static void Steering_ManualUpdate(void)
     steer_s153_run=m8_s00_arrival.run_id;
     steer_s153_frames=0U;steer_s153_skipped=0U;
     steer_s153_requested=0U;steer_s153_applied=0U;
-    steer_s153_early_frames=0U;steer_s153_avoided_reduction_r_frames=0U;
+    steer_s153_early_frames=0U;steer_s153_eta_frames=0U;
+    steer_s153_peak_eta_lag_ms=0U;
+    steer_s153_avoided_reduction_r_frames=0U;
     steer_s153_last_owner_r=0U;steer_s153_last_candidate_r=0U;
     steer_s153_last_applied_r=0U;steer_s153_peak_extra=0U;
     m8s152_kind=m8_s05_manual_kind;
