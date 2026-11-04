@@ -54,6 +54,7 @@ static volatile uint8_t voice_pos_request=0,voice_pos_owned=0;
 static volatile uint8_t voice_command_complete=0,voice_rotate_stage=0;
 static volatile int8_t voice_rotate_direction=0;
 static volatile uint8_t steer_pos_active=0,steer_manual_active=0,steer_cal_active=0;
+static volatile uint8_t steer_test_running=0;
 static volatile VoiceBuildResult_t voice_last_build_result=VOICE_BUILD_RESULT_NONE;
 static volatile int16_t voice_execution_pwm=0;
 static volatile uint32_t voice_cancel_by_ps2_count=0;
