@@ -19,6 +19,7 @@ def extract(sig):
 sigs=[
 "static void VC02_M1_RecordEvent(",
 "static void Voice_ResetPendingCommand(",
+"static void Voice_PendingExpire(",
 "static void Voice_SetMovement(",
 "static void Voice_SetTurn(",
 "static void Voice_SetAngle(",
@@ -51,6 +52,8 @@ typedef struct {
  VoiceMovement_t movement;VoiceTurn_t turn;uint8_t angle_deg;
  uint8_t movement_valid,turn_valid,angle_valid;
  uint8_t movement_conflict,steering_conflict;
+ uint8_t duration_valid,duration_sec;
+ uint32_t wheel_pending_last_ms,steer_pending_last_ms;
 } VoicePendingCommand_t;
 typedef struct {
  VoiceMovement_t movement;VoiceTurn_t turn;
@@ -61,6 +64,11 @@ static VoiceVehicleCommand_t voice_completed_command={0};
 static volatile uint8_t voice_command_complete=0, voice_command_ready=0;
 static volatile uint8_t voice_execution_active=0;
 static volatile uint8_t voice_speed_mode=3;
+#define VOICE_PENDING_TIMEOUT_MS 20000U
+static volatile uint32_t fake_tick=0;
+static uint32_t HAL_GetTick(void){return fake_tick;}
+static volatile uint32_t voice_wheel_partial_replace_count=0,voice_steer_partial_replace_count=0;
+static volatile uint32_t voice_wheel_pending_expire_count=0,voice_steer_pending_expire_count=0;
 static volatile uint8_t voice_angle_mapping_enable=1;
 static volatile uint8_t voice_pos_request=0,voice_pos_owned=0,voice_rotate_stage=0;
 static volatile uint8_t voice_pos_rejected=0,voice_pos_last_result=0;
@@ -101,6 +109,7 @@ static void neutral(void) {
  Voice_ResetPendingCommand();voice_command_ready=0;voice_command_complete=0;
  voice_execution_active=0;voice_pos_request=0;voice_pos_owned=0;
  voice_rotate_stage=0;voice_speed_mode=VC02_SPEED_MEDIUM;
+ fake_tick=0;
  voice_last_build_result=VOICE_BUILD_RESULT_NONE;
  control_stop_latched=0;control_mode=CONTROL_MODE_IDLE;
  ps2_cancel_hold=0;ps2_spin_rf_latched=0;
@@ -145,7 +154,9 @@ int main(void) {
         voice_completed_command.duration_sec==20);
  neutral();
  send(VC02_EVENT_ANGLE,45);
- assert(!voice_pos_request&&voice_invalid_count);
+ assert(!voice_pos_request&&voice_pending_command.angle_valid);
+ send(VC02_EVENT_TURN_LEFT,0);
+ assert(voice_pos_request==4&&voice_pos_last_angle_deg==45);
  neutral();
  send(VC02_EVENT_FORWARD,0);
  send(VC02_EVENT_CLEAR,0);
@@ -157,21 +168,69 @@ int main(void) {
  assert(control_stop_latched&&voice_command_ready==0&&
         voice_pos_request==0&&voice_execution_active==0);
  neutral();
+ /* Latest directional input overwrites the unfinished previous one. */
  send(VC02_EVENT_TURN_LEFT,0);
  send(VC02_EVENT_TURN_RIGHT,0);
  send(VC02_EVENT_ANGLE,15);
- assert(voice_pending_command.steering_conflict&&
-        voice_last_build_result==VOICE_BUILD_ERROR_STEERING_INCOMPLETE&&
-        voice_pos_request==0);
+ assert(voice_pos_request==4&&voice_pos_last_turn==1&&
+        voice_steer_partial_replace_count>=1);
  neutral();
  send(VC02_EVENT_FORWARD,0);send(VC02_EVENT_BACKWARD,0);
  send(VC02_EVENT_DURATION,10);
- assert(voice_last_build_result==VOICE_BUILD_ERROR_MOVEMENT_CONFLICT&&
-        voice_command_ready==0);
+ assert(voice_last_build_result==VOICE_BUILD_RESULT_OK&&
+        voice_completed_command.movement==VOICE_MOVE_BACKWARD&&
+        voice_command_ready==1&&voice_wheel_partial_replace_count>=1);
+ neutral();
+ send(VC02_EVENT_ROTATE_IN_PLACE,0);send(VC02_EVENT_ROTATE_RIGHT,0);
+ send(VC02_EVENT_DURATION,5);
+ assert(voice_command_ready&&
+        voice_completed_command.movement==VOICE_MOVE_ROTATE_RIGHT);
+ neutral();
+ /* Either input order is accepted, never motion after one component. */
+ send(VC02_EVENT_DURATION,5);
+ assert(!voice_command_ready&&voice_pending_command.duration_valid);
+ send(VC02_EVENT_FORWARD,0);
+ assert(voice_command_ready&&
+        voice_completed_command.movement==VOICE_MOVE_FORWARD&&
+        voice_completed_command.duration_sec==5);
+ neutral();
+ /* Two pending owner registers can overlap without stealing each other. */
+ send(VC02_EVENT_FORWARD,0);
+ send(VC02_EVENT_TURN_LEFT,0);
+ send(VC02_EVENT_ANGLE,30);
+ assert(voice_pos_request==4&&voice_pending_command.movement_valid);
+ send(VC02_EVENT_DURATION,10);
+ assert(voice_command_ready&&
+        voice_completed_command.movement==VOICE_MOVE_FORWARD);
+ neutral();
+ /* Incomplete phrases expire independently and cannot replay later. */
+ send(VC02_EVENT_TURN_LEFT,0);
+ fake_tick=20001;send(VC02_EVENT_ANGLE,30);
+ assert(!voice_pos_request&&voice_pending_command.angle_valid&&
+        !voice_pending_command.turn_valid&&voice_steer_pending_expire_count>0);
+ neutral();
+ send(VC02_EVENT_FORWARD,0);
+ fake_tick=20001;send(VC02_EVENT_DURATION,5);
+ assert(!voice_command_ready&&voice_pending_command.duration_valid&&
+        !voice_pending_command.movement_valid&&voice_wheel_pending_expire_count>0);
+ neutral();
+ /* CLEAR only discards uncommitted registers, never accepted owners. */
+ send(VC02_EVENT_TURN_LEFT,0);send(VC02_EVENT_CLEAR,0);
+ assert(!voice_pending_command.turn_valid&&!voice_pos_request);
+ neutral();
+ send(VC02_EVENT_TURN_LEFT,0);send(VC02_EVENT_ANGLE,5);
+ assert(voice_pos_request==4);
+ send(VC02_EVENT_CLEAR,0);
+ assert(voice_pos_request==4&&!voice_pending_command.turn_valid);
+ neutral();
+ send(VC02_EVENT_FORWARD,0);send(VC02_EVENT_DURATION,5);
+ assert(voice_command_ready==1);
+ send(VC02_EVENT_CLEAR,0);
+ assert(voice_command_ready==1);
  neutral();
  send(VC02_EVENT_FORWARD,0);send(VC02_EVENT_DURATION,0);
  assert(!voice_command_ready&&voice_invalid_count);
- puts("PASS actual firmware VC02-I1 event functions: wheel TIME, independent steering ANGLE, center, speed, left/right rotate, STOP, clear/conflict/invalid");
+ puts("PASS actual firmware VC02 PLC command C: latest-wins, time/angle first, independent owners, partial expiry, F0 pending-only, FF STOP");
 }
 """
 CC=shutil.which("gcc") or shutil.which("cc")
