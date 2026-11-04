@@ -45,7 +45,20 @@ checks={
    body(MAIN,"static uint8_t Voice_FinalizeCommand(") and
   "voice_pending_command.movement_valid==0U" in
    body(MAIN,"static uint8_t Voice_FinalizeCommand(") and
-  "voice_pending_command.duration_valid!=0U" in
+  "voice_command_ready=1U;" in
+   body(MAIN,"static uint8_t Voice_FinalizeCommand("),
+ "Missing TIME/ANGLE is discarded, never saved for a future primary":
+  "voice_orphan_duration_discard_count++;" in
+   body(MAIN,"static uint8_t Voice_FinalizeCommand(") and
+  "voice_orphan_angle_discard_count++;" in
+   body(MAIN,"static void Voice_S154StageSteerAngle(") and
+  "voice_pending_command.duration_valid=0U;" in
+   body(MAIN,"static void Voice_SetMovement(") and
+  "voice_pending_command.angle_valid=0U;" in
+   body(MAIN,"static void Voice_SetTurn(") and
+  "Voice_FinalizeCommand(voice_pending_command.duration_sec)" not in
+   body(MAIN,"static void VC02_M2_ProcessEvent(") and
+  "Voice_S154StageSteerAngle(voice_pending_command.angle_deg)" not in
    body(MAIN,"static void VC02_M2_ProcessEvent("),
  "Latest partial wins without movement/steering conflict":
   "voice_pending_command.movement_conflict = 0U;" in
