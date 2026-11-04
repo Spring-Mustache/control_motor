@@ -1096,3 +1096,8 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [SOURCE] Nhánh mới `feature/m8-vc02-plc-latest-command` từ chính `e96ad4f`, giữ các nhánh cũ nguyên trạng. Main: latest-wins MOVEMENT/A5-A6/angle partial, cả 2 thứ tự ghép, thời hạn 20s trên từng vùng; F0 pending-only; STOP/PS2/owner còn nguyên; neutral thêm toàn bộ nút và trục. USART6 thô có các counter độc lập decoded event.
 - [SOURCE] Sau yêu cầu triển khai thực tế của USER, ba cờ Voice route được bật ở nhánh thí nghiệm để dùng chức năng; `steer_safety_motion_permit` vẫn boot 0 và PS2 START arm với NC/AS5600/neutral mới cấp quyền. Không sửa S15.3 active gains, không tự kết luận an toàn vật lý từ CI.
 - [TEST/PENDING] HOST exact-source test builder/decoder/executor yêu cầu exact-SHA CI PASS. STM32CubeIDE Clean Build, flash đúng SHA, đo UART/NC/STOP và powered arrival đều CHƯA THỰC HIỆN. S15.4 common-T chưa code.
+
+## 2026-11-04 — Continuous expiry of incomplete VC-02 PLC registers
+
+- [SOURCE] Main loop now calls Voice_PendingExpire() even with no incoming UART event; stale partial wheel/steer state clears independently at 20s, with no effect on committed or active motor owners. No PWM/safety bypass.
+- [CI] Requires exact-SHA handoff/milestone update in same checked range; initial main-only incremental commit 9ec079c failed context policy correctly (not a C compiler failure). Verification to be rerun after this documentation fix.
