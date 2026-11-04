@@ -91,6 +91,12 @@ jobs:
       - name: Verify PS2 16-key layout and passive 32-bit packet mirrors (actual C HOST)
         run: python3 tools/verify_ps2_button_layout.py
 
+      - name: Verify VC-02 I1 UART decoder and independent SOFT/NC route kernels (actual C HOST)
+        run: python3 tools/verify_m8_vc02_i1.py
+
+      - name: Verify VC-02 I1 compiled main.c command builder (actual C HOST)
+        run: python3 tools/verify_m8_vc02_command_core.py
+
       - name: Verify S15.3 far-zone candidate actual C HOST and baseline guards
         run: python3 tools/verify_m8_s153_far_trim.py
 

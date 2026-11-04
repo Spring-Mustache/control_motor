@@ -87,3 +87,9 @@ PS2 đang điều khiển bình thường có thể giữ input để duy trì t
 - Khi lệnh steering A5/A6 đang active, incoming Rotate không được bỏ qua owner arbitration và tự chạy R2; khi Rotate chiếm steering, lệnh Turn+Angle khác không thể ghi đè target trong giai đoạn spin.
 
 **Trạng thái:** Đây chỉ là hợp đồng/kế hoạch để tích hợp STM32 S15.4, chưa có firmware điều khiển mới, target build hay bằng chứng motor thực tế. Giữ nguyên `f2137556` code, STOP/NC/atomic và quyền PS2.
+
+## 2026-11-04 — Firmware VC02-I1 source staged BEFORE S15.4 synchronization
+
+User yêu cầu **viết firmware nhận đủ lệnh và kiểm tra đúng trước**, sau đó mới bắt đầu đồng bộ tốc độ hai motor lái S15.4. Theo đúng thứ tự, code bổ sung A7 decoder, hai luồng Voice wheel-TIME và steering-angle, B0 CENTRE độc lập, speed C1..C5 độc lập, STOP/PS2 neutral latch, Rotate R2 → physical MIN NC → L2/L1. Steering angle chạy owner vị trí độc lập (command4) với hai target SOFT RAW suy từ hành trình chuẩn hóa; **chưa có common-T hay dynamic velocity synchronization** và chưa được coi đó là góc bánh xe vật lý được hiệu chuẩn.
+
+Các đường motor VC02 steering/rotate mới đều boot disabled: voice_pos_enable=0, voice_angle_mapping_enable=0, voice_pivot_enable=0. A2/A3 tiếp tục khả năng wheel Voice trước đây. Giao thức/host tests không chứng minh bảo đảm điện hoặc cắt nguồn; ghi nguồn bộ cắt độc lập, NC, dòng driver, Coast và target MCU Build/Flash đang chờ. Chi tiết implementation và test đúng SHA ở docs/M8_VC02_I1_IMPLEMENTATION_2026_11_04.md.
