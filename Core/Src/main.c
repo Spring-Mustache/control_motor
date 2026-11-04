@@ -528,15 +528,16 @@ volatile uint32_t vc02_dropped_events = 0U;
 /* ============================================================
  * VC-02 - M2 COMMAND BUILDER
  *
- * Quy tắc đã chốt:
- * - Movement / Turn / Angle có thể nói theo bất kỳ thứ tự nào.
- * - TIME phải là lệnh chốt cuối chuỗi.
- * - Speed là mode độc lập, mặc định Medium và được giữ lại.
- * - Clear command xóa pending nhưng không xóa speed mode.
- * - Zero degrees xóa riêng phần steering pending về thẳng 0 độ.
- * - Lệnh mâu thuẫn không tự ghi đè; cần Clear command
- *   (riêng Zero degrees được phép xóa phần steering).
- * - M4' hiện cho Voice chạy tiến/lùi open-loop qua tầng ramp.
+ * Strict ordered phrases (2026-11-04 user correction):
+ * - WHEEL: new A2/A3/A4/A7 starts a fresh wheel phrase; only its
+ *   subsequent D0 TIME may complete it. Orphan TIME is discarded.
+ * - STEER: new A5/A6 starts a fresh steering phrase; only its
+ *   subsequent B1..B9 ANGLE may complete it. Orphan angle discarded.
+ * - B0 remains a standalone CENTER command.
+ * - Every new primary command clears ALL incomplete fields of THAT
+ *   group, even on a repeated primary command. The independent other
+ *   owner and any already accepted/active command are not canceled.
+ * - C1..C5 speed remains independent; F0 only clears incomplete data.
  * ============================================================
  */
 static VoicePendingCommand_t voice_pending_command;
@@ -545,6 +546,9 @@ volatile uint32_t voice_wheel_partial_replace_count = 0U;
 volatile uint32_t voice_steer_partial_replace_count = 0U;
 volatile uint32_t voice_wheel_pending_expire_count = 0U;
 volatile uint32_t voice_steer_pending_expire_count = 0U;
+/* VC02 orphan parameters must never be replayed by a later primary word. */
+volatile uint32_t voice_orphan_duration_discard_count = 0U;
+volatile uint32_t voice_orphan_angle_discard_count = 0U;
 
 volatile VoiceVehicleCommand_t voice_completed_command;
 
@@ -11286,15 +11290,20 @@ static void Voice_PendingExpire(void)
  * Movement khác với movement đã có -> đánh dấu mâu thuẫn,
  * không tự ghi đè. Muốn sửa phải dùng Clear command.
  */
-/* PLC latest-wins for a still-incomplete movement. */
+/* New primary wheel word starts a FRESH wheel phrase. Never inherit
+ * the TIME of a previous/missed utterance. Keep steering independent.
+ */
 static void Voice_SetMovement(VoiceMovement_t movement)
 {
-  if ((voice_pending_command.movement_valid != 0U) &&
-      (voice_pending_command.movement != movement))
+  if (voice_pending_command.movement_valid != 0U)
     voice_wheel_partial_replace_count++;
+  voice_pending_command.movement = VOICE_MOVE_NONE;
+  voice_pending_command.movement_valid = 0U;
+  voice_pending_command.duration_sec = 0U;
+  voice_pending_command.duration_valid = 0U;
+  voice_pending_command.movement_conflict = 0U;
   voice_pending_command.movement = movement;
   voice_pending_command.movement_valid = 1U;
-  voice_pending_command.movement_conflict = 0U;
   voice_pending_command.wheel_pending_last_ms = HAL_GetTick();
 }
 
@@ -11304,15 +11313,20 @@ static void Voice_SetMovement(VoiceMovement_t movement)
  * Lặp lại cùng hướng thì bỏ qua.
  * Trái <-> phải mâu thuẫn thì không tự ghi đè.
  */
-/* PLC latest-wins for still-incomplete steering direction. */
+/* New primary steering word starts a FRESH steering phrase. Never
+ * inherit angle from a previous or misheard utterance. Wheel untouched.
+ */
 static void Voice_SetTurn(VoiceTurn_t turn)
 {
-  if ((voice_pending_command.turn_valid != 0U) &&
-      (voice_pending_command.turn != turn))
+  if (voice_pending_command.turn_valid != 0U)
     voice_steer_partial_replace_count++;
+  voice_pending_command.turn = VOICE_TURN_NONE;
+  voice_pending_command.turn_valid = 0U;
+  voice_pending_command.angle_deg = 0U;
+  voice_pending_command.angle_valid = 0U;
+  voice_pending_command.steering_conflict = 0U;
   voice_pending_command.turn = turn;
   voice_pending_command.turn_valid = 1U;
-  voice_pending_command.steering_conflict = 0U;
   voice_pending_command.steer_pending_last_ms = HAL_GetTick();
 }
 
@@ -11359,8 +11373,8 @@ static void Voice_SetStraight(void)
  * B0 alone = R1 CENTER; A5/A6+B1..B9 = 2 independent RAW targets.
  * Mapping is a normalized shaft proxy, not a measured wheel angle.
  */
-/* Steering completes independently as soon as A5/A6 and B1..B9 exist.
- * Bn before direction is remembered; B0 independently centers both axes.
+/* Steering completes only for A5/A6 followed by B1..B9.
+ * Bn without a preceding direction is ignored; B0 independently centers.
  */
 static void Voice_S154StageSteerAngle(uint8_t angle)
 {
@@ -11379,13 +11393,16 @@ static void Voice_S154StageSteerAngle(uint8_t angle)
   if(angle==0U)Voice_SetStraight();
   else
   {
-    Voice_SetAngle(angle);
     if(dir==0)
     {
-      /* A valid incomplete angle is NOT an error. Wait for TURN. */
+      /* The direction was not received. Do NOT remember this angle
+       * for a later A5/A6. This prevents unintended steering motion.
+       */
+      voice_orphan_angle_discard_count++;
       voice_last_build_result=VOICE_BUILD_RESULT_NONE;
       return;
     }
+    Voice_SetAngle(angle);
   }
   if(angle!=0U)
   {
@@ -11429,8 +11446,9 @@ static void Voice_S154StageSteerAngle(uint8_t angle)
   voice_last_build_result=VOICE_BUILD_RESULT_OK;
 }
 
-/* TIME finalizes wheel movement only. Steering requires no TIME. */
-/* D0 XX can precede or follow movement; no wheel motor until BOTH. */
+/* TIME finalizes wheel movement only. Steering requires no TIME.
+ * A TIME without a preceding movement is discarded, never buffered.
+ */
 static uint8_t Voice_FinalizeCommand(uint8_t duration_sec)
 {
   if(VoiceS154_DurationValid(duration_sec)==0U)
@@ -11442,14 +11460,20 @@ static uint8_t Voice_FinalizeCommand(uint8_t duration_sec)
   {
     voice_ignored_during_execution_count++;return 0U;
   }
-  voice_pending_command.duration_sec=duration_sec;
-  voice_pending_command.duration_valid=1U;
-  voice_pending_command.wheel_pending_last_ms=HAL_GetTick();
   if(voice_pending_command.movement_valid==0U)
   {
+    /* Ignore orphan D0 XX. A later A2/A3/A4/A7 must wait for its
+     * own new D0 XX; never start motion using leftover time.
+     */
+    voice_pending_command.duration_sec=0U;
+    voice_pending_command.duration_valid=0U;
+    voice_orphan_duration_discard_count++;
     voice_last_build_result=VOICE_BUILD_RESULT_NONE;
     return 0U;
   }
+  voice_pending_command.duration_sec=duration_sec;
+  voice_pending_command.duration_valid=1U;
+  voice_pending_command.wheel_pending_last_ms=HAL_GetTick();
   voice_completed_command.movement=voice_pending_command.movement;
   voice_completed_command.turn=VOICE_TURN_NONE;
   voice_completed_command.angle_deg=0U;
@@ -12929,10 +12953,10 @@ static void Control_Arbitrate(void)
  * VC-02 M2 - nhận event và gom command không phụ thuộc thứ tự.
  * ============================================================
  */
-/* VC02-I1: event parsing is independent from actuation.
- * Wheel movement needs D0 TIME. Steering A5/A6+angle is immediate.
+/* VC02: strict primary-then-parameter phrases. Orphan TIME/ANGLE drops.
+ * Wheel movement needs a NEW D0 TIME after A2/A3/A4/A7; steering needs
+ * a NEW B1..B9 after A5/A6. Independent motor owners remain unchanged.
  */
-/* Latest unfinished input wins; one completed owner never steals the other. */
 static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
 {
   if(event==NULL)return;
@@ -12984,8 +13008,9 @@ static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
       else if(event->type==VC02_EVENT_ROTATE_IN_PLACE)
         Voice_SetMovement(VOICE_MOVE_ROTATE);
       else Voice_SetMovement(VOICE_MOVE_ROTATE_RIGHT);
-      if(voice_pending_command.duration_valid!=0U)
-        (void)Voice_FinalizeCommand(voice_pending_command.duration_sec);
+      /* No TIME-before-direction pairing: this event only starts a
+       * fresh wheel phrase. Its own subsequent D0 must be heard.
+       */
       break;
     case VC02_EVENT_TURN_LEFT:
     case VC02_EVENT_TURN_RIGHT:
@@ -12996,8 +13021,7 @@ static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
       }
       Voice_SetTurn((event->type==VC02_EVENT_TURN_LEFT)?
           VOICE_TURN_LEFT:VOICE_TURN_RIGHT);
-      if(voice_pending_command.angle_valid!=0U)
-        Voice_S154StageSteerAngle(voice_pending_command.angle_deg);
+      /* Never re-use a previously heard B angle. Wait for NEW Bn. */
       break;
     case VC02_EVENT_ANGLE:
       if((event->value<=45U)&&((event->value%5U)==0U))
