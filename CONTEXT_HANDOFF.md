@@ -1289,4 +1289,12 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] 17-section project handoff and 386-line original spec remain untouched.
 [16] No user confirmation required to remove unauthorized functionality; new changes to control strategy must follow approved constraints.
 
+
+## 2026-11-04 — Chốt 49 command words/HEX VC-02 từ 4 ảnh USER (S15.4)
+[USER SOURCE/DECISION] 4 ảnh bảng Control details xác nhận 49 hàng UART1_TX Send it; user nói sẽ tạo firmware rồi nạp VC-02, CHƯA thông báo đã nạp. Toàn bộ 49 hàng, byte và nhị phân lưu ở docs/VC02_OPERATOR_COMMAND_MAP_2026_11_04.md. Đây là quyết định giao thức VOICE được chốt, không phải kết quả runtime UART.
+[KEY] A4 Rotate left (thay A4 rotate không hướng); A7 Rotate right (mã mới, KHÔNG A8); A5/A6 Turn left/right; B0 Zero degrees và alias center, B1..B9 góc 5..45°; C1..C5 speed; D0 XX duration 5..120s bước 5; F0 clear; FF STOP; A1 wake, A2/A3 forward/back. Wake phrase ảnh hơi mờ, chưa khẳng định chữ tuyệt đối.
+[CRITICAL CODE] Core/Src/vc02.c tại baseline f2137556/7095aca chưa decode A7; A4 đang là undirected ROTATE; B0 Voice_SetStraight chỉ xóa pending TURN/ANGLE, KHÔNG đưa vật lý về CENTER. Voice executor chỉ forward/backward straight; TURN/ANGLE/ROTATE chưa vận hành. Không tuyên bố đã hỗ trợ góc chỉ vì VC02 UI có B0..B9.
+[S15.4] Người vận hành yêu cầu test S15.4 qua các lệnh góc VC-02. Giữ điều khiển vị trí đã có (R1/R2), STOP>PS2>Voice, NC/atomic và giới hạn an toàn; không tự đổi PWM manual/S15.3, không Ackermann tùy ý khi chưa biết mô hình cơ cấu. Handoff cần dẫn tới bảng mapping ở file mới.
+[ACTUAL ACTION] Commit này chỉ thêm tài liệu và cập nhật handoff/milestone/plan, không sửa Core/Src, Core/Inc, GPIO, UART decoder hay PWM. VC-02 flash/hardware PASS đều chưa có.
+
 END OF CONTEXT HANDOFF
