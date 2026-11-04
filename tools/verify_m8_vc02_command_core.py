@@ -140,6 +140,14 @@ int main(void) {
  neutral();
  send(VC02_EVENT_SPEED,5);
  assert(voice_speed_mode==5&&!voice_command_ready&&!voice_pos_request);
+ /* Live speed input is accepted even with an active wheel owner;
+  * the executor consumes the new setting on its next pass.
+  */
+ voice_execution_active=1;
+ send(VC02_EVENT_SPEED,1);
+ assert(voice_speed_mode==1&&voice_execution_active==1&&
+        !voice_command_ready&&!voice_pos_request);
+ neutral();
  send(VC02_EVENT_ROTATE_IN_PLACE,0);
  assert(voice_pending_command.movement==VOICE_MOVE_ROTATE&&
         !voice_command_ready&&!voice_pos_request);

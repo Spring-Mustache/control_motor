@@ -1349,4 +1349,18 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [1] Wheel/steer partial input memory expires after 20s independently, active/committed owners unaffected.
 [2] This is a precision fix after source tests passed at 8e72c740, preserving source safety, electrical gates and all prior 17 original handoff sections.
 [3] Existing exact-SHA CI policy requires same checked range update to CONTEXT_HANDOFF and PROJECT_MILESTONES whenever source changes.
+
+
+## 2026-11-04 — C1..C5 immediate live speed regulation during wheel Voice command
+[0] User observation: independent Cn speed command stored successfully but old snapshot affected only NEXT wheel command, not current movement; user requires immediate update during active Go forward/backward/Rotate.
+[1] Updated existing feature/m8-vc02-plc-latest-command branch based on cd20a016; not main/older branches.
+[2] Voice_ExecuteMotorControl re-reads voice_speed_mode while active each cycle, changes active_command.speed_level only when valid; does not reset duration or direction.
+[3] FORWARD/BACKWARD signed voice_execution_pwm computed from new level then passed to existing WheelControl_SetTargetPWM ramp/PID. No direct CCR writes.
+[4] ROTATE WAIT_R2 updates speed selection but no spin; ROTATE stage2 SetSpinDirection uses updated speed and retains 400-CCR cap plus NC checks.
+[5] Current levels C1 250, C2 400, C3 550, C4 750, C5 999; in Rotate C2..C5 clip at 400, not five distinguishable rotation speeds.
+[6] Existing F0 pending only, FF STOP, first PS2 input cancel + neutral/rearm, independently owned steering unaffected.
+[7] New voice_speed_active_update_count debug counter for applied live changes; host real-C test covers signed wheel outputs, both rotate signs, waiting before R2, time stability, STOP, NC-release cut.
+[8] No target Clean Build/Flash/actual UART/motor physical speed verified; CI host alone insufficient.
+[9] No S15.4 common-T sync changes in this speed fix.
+[10] Keep original operator 386-line spec, 17-section handoff, log provenance, and existing milestones intact; this is an append-only project update.
 END OF CONTEXT HANDOFF

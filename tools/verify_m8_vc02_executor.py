@@ -61,6 +61,8 @@ static volatile VoiceBuildResult_t voice_last_build_result=VOICE_BUILD_RESULT_NO
 static volatile uint8_t voice_command_ready=0,voice_command_complete=0;
 static volatile uint8_t voice_execution_active=0;
 static volatile int16_t voice_execution_pwm=0;
+static volatile uint8_t voice_speed_mode=VC02_SPEED_MEDIUM;
+static volatile uint32_t voice_speed_active_update_count=0;
 static volatile uint32_t voice_execution_start_tick=0;
 static volatile uint32_t voice_execution_duration_ms=0;
 static volatile uint32_t voice_execution_elapsed_ms=0;
@@ -115,11 +117,13 @@ static void reset(void) {
  steer_pos_right_result=0;voice_execution_pwm=0;fake_ms=1000;
  fake_nc=0;fake_wheels_stopped=1;fake_wheel_pwm=0;
  fake_spin_active=0;fake_spin_dir=0;fake_spin_duty=0;
- voice_pos_enable=0;voice_pivot_enable=0;Voice_ResetPendingCommand();
+ voice_pos_enable=0;voice_pivot_enable=0;
+ voice_speed_mode=VC02_SPEED_MEDIUM;Voice_ResetPendingCommand();
 }
 static void request(VoiceMovement_t move,uint8_t speed,uint8_t duration){
  voice_completed_command.movement=move;voice_completed_command.turn=VOICE_TURN_NONE;
  voice_completed_command.angle_deg=0;voice_completed_command.speed_level=speed;
+ voice_speed_mode=speed;
  voice_completed_command.duration_sec=duration;voice_command_ready=1;
  Voice_StartExecution();
 }
@@ -184,7 +188,69 @@ int main(void){
  reset();request(VOICE_MOVE_BACKWARD,2,5);
  fake_ms+=100;Voice_ExecuteMotorControl();
  assert(fake_wheel_pwm==-400);
- puts("PASS real VC02 Voice_StartExecution/Voice_ExecuteMotorControl: boot-off, R2-before-spin, physical NC, L2/L1, 400CCR cap, 5/10s completion, STOP, independent wheel+steer");
+ /* Live C1..C5 updates a running forward wheel command. No TIME restart. */
+ reset();request(VOICE_MOVE_FORWARD,3,10);
+ uint32_t start_tick=voice_execution_start_tick;
+ uint32_t duration=voice_execution_duration_ms;
+ fake_ms+=50;Voice_ExecuteMotorControl();assert(fake_wheel_pwm==550);
+ voice_speed_mode=VC02_SPEED_VERY_SLOW;
+ fake_ms+=50;Voice_ExecuteMotorControl();
+ assert(fake_wheel_pwm==250&&voice_execution_pwm==250&&
+        voice_active_command.speed_level==1&&
+        voice_execution_start_tick==start_tick&&
+        voice_execution_duration_ms==duration&&
+        voice_speed_active_update_count>0);
+ voice_speed_mode=VC02_SPEED_FULL;
+ fake_ms+=50;Voice_ExecuteMotorControl();
+ assert(fake_wheel_pwm==999&&voice_execution_pwm==999&&
+        voice_execution_start_tick==start_tick);
+ /* Invalid speed cannot turn an active wheel command off or up. */
+ voice_speed_mode=0;
+ fake_ms+=50;Voice_ExecuteMotorControl();
+ assert(fake_wheel_pwm==999&&voice_active_command.speed_level==5);
+ /* Live change preserves the negative sign of BACKWARD. */
+ reset();request(VOICE_MOVE_BACKWARD,2,10);
+ fake_ms+=50;Voice_ExecuteMotorControl();assert(fake_wheel_pwm==-400);
+ uint32_t reverse_start=voice_execution_start_tick;
+ voice_speed_mode=VC02_SPEED_FAST;
+ fake_ms+=50;Voice_ExecuteMotorControl();
+ assert(fake_wheel_pwm==-750&&voice_execution_pwm==-750&&
+        voice_execution_start_tick==reverse_start);
+ /* Both pivot directions use the new speed live while retaining NC and
+    the immutable <=400CCR spin ceiling. Waiting for R2 NEVER spins. */
+ reset();voice_pos_enable=1;voice_pivot_enable=1;
+ request(VOICE_MOVE_ROTATE,5,10);
+ voice_speed_mode=VC02_SPEED_VERY_SLOW;
+ fake_ms+=50;Voice_ExecuteMotorControl();
+ assert(voice_rotate_stage==1&&voice_active_command.speed_level==1&&
+        !fake_spin_active&&!fake_wheel_pwm);
+ voice_pos_request=0;voice_pos_owned=0;steer_pos_result=2;
+ steer_pos_left_result=3;steer_pos_right_result=3;fake_nc=0x06;
+ fake_ms+=20;Voice_ExecuteMotorControl();assert(voice_rotate_stage==2);
+ fake_ms+=20;Voice_ExecuteMotorControl();
+ assert(fake_spin_active&&fake_spin_dir==-1&&fake_spin_duty==250);
+ uint32_t spin_start=voice_execution_start_tick;
+ voice_speed_mode=VC02_SPEED_FULL;
+ fake_ms+=20;Voice_ExecuteMotorControl();
+ assert(fake_spin_active&&fake_spin_dir==-1&&fake_spin_duty==400&&
+        voice_execution_start_tick==spin_start);
+ /* NC release remains an immediate emergency stop after speed change. */
+ fake_nc=0x02;fake_ms+=20;Voice_ExecuteMotorControl();
+ assert(!voice_execution_active&&!fake_spin_active&&fake_emergency>0);
+ reset();voice_pos_enable=1;voice_pivot_enable=1;
+ request(VOICE_MOVE_ROTATE_RIGHT,5,10);
+ voice_pos_request=0;steer_pos_result=2;
+ steer_pos_left_result=3;steer_pos_right_result=3;fake_nc=0x06;
+ Voice_ExecuteMotorControl();assert(voice_rotate_stage==2);
+ fake_ms+=20;Voice_ExecuteMotorControl();assert(fake_spin_dir==1&&fake_spin_duty==400);
+ voice_speed_mode=VC02_SPEED_VERY_SLOW;
+ fake_ms+=20;Voice_ExecuteMotorControl();
+ assert(fake_spin_dir==1&&fake_spin_duty==250&&voice_rotate_stage==2);
+ /* No active Voice => speed configuration alone cannot start wheels. */
+ Voice_S154CancelAll();fake_wheel_pwm=0;
+ voice_speed_mode=VC02_SPEED_FULL;fake_ms+=20;Voice_ExecuteMotorControl();
+ assert(fake_wheel_pwm==0&&!voice_execution_active);
+ puts("PASS real VC02 Voice executor: LIVE C1..C5 updates forward/backward/left+right spin targets without TIME reset; R2/NC/STOP and cap preserved");
 }
 """
 CC=shutil.which("gcc") or shutil.which("cc")

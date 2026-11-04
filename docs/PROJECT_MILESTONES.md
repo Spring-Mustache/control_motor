@@ -1101,3 +1101,11 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 - [SOURCE] Main loop now calls Voice_PendingExpire() even with no incoming UART event; stale partial wheel/steer state clears independently at 20s, with no effect on committed or active motor owners. No PWM/safety bypass.
 - [CI] Requires exact-SHA handoff/milestone update in same checked range; initial main-only incremental commit 9ec079c failed context policy correctly (not a C compiler failure). Verification to be rerun after this documentation fix.
+
+
+## 2026-11-04 — VC02 live wheel speed while current movement active
+
+- [USER] SPEED C1..C5 must change active four-wheel speed **during** the existing Go forward/backward/Rotate+TIME, not only the next command. No requirement to reset TIME or alter direction/steering speed.
+- [SOURCE] `Voice_ExecuteMotorControl` now reads updated `voice_speed_mode` for active wheel each cycle, recomputes signed FORWARD/BACKWARD target through existing shaper/PID and uses updated level for protected rotate spin; pre-R2 speed changes never spin early. `voice_speed_active_update_count` exposes application via Live Expressions.
+- [SAFETY] ROTATE still caps speed at 400 CCR; C2..C5 saturate to the same spin target; unchanged NC/R2, STOP, PS2 owner, 20s partial timeout, F0 pending-only, independent steering. No PID/ramp changes or new firmware preflight grants.
+- [TEST] Actual production C executor host regression includes live speed change up/down, signed reverse, BOTH spin directions/physical NC loss, unchanged TIME and inactivity. CI exact new SHA is required. STM32CubeIDE/flash/hardware tests still pending.

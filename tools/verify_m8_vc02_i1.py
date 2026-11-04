@@ -65,6 +65,13 @@ checks={
    body(MAIN,"static void VC02_M2_ProcessEvent(") and
   "Voice_StartExecution" not in
    body(MAIN,"static void VC02_M2_ProcessEvent("),
+ "C1..C5 is applied live in executor without bypassing control owner":
+  "voice_active_command.speed_level=voice_speed_mode;" in
+   body(MAIN,"static void Voice_ExecuteMotorControl(") and
+  "WheelControl_SetTargetPWM(voice_execution_pwm);" in
+   body(MAIN,"static void Voice_ExecuteMotorControl(") and
+  "WheelControl_SetSpinDirection(voice_rotate_direction" in
+   body(MAIN,"static void Voice_ExecuteMotorControl("),
  "New physical steering goes through protected position owner":
   "voice_pos_owned=from_voice;" in
    body(MAIN,"static void Steering_PositionUpdate(") and

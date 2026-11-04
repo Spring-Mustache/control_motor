@@ -597,7 +597,7 @@ volatile uint8_t voice_command_ready = 0U;
 /* Command voice đã giành quyền điều khiển. */
 volatile uint8_t voice_execution_active = 0U;
 
-/* Snapshot command voice đang active. */
+/* Active Voice command: duration/movement stay fixed; C1..C5 may update speed_level live. */
 volatile VoiceVehicleCommand_t voice_active_command;
 
 /* Debug: số lần PS2 đã hủy voice pending/ready/active. */
@@ -615,6 +615,8 @@ volatile uint32_t voice_execution_start_tick = 0U;
 volatile uint32_t voice_execution_duration_ms = 0U;
 volatile uint32_t voice_execution_elapsed_ms = 0U;
 volatile int16_t voice_execution_pwm = 0;
+/* Number of active wheel Voice speed-level changes actually applied by executor. */
+volatile uint32_t voice_speed_active_update_count = 0U;
 volatile uint32_t voice_execution_finish_count = 0U;
 volatile uint32_t voice_unsupported_command_count = 0U;
 volatile uint32_t voice_ignored_during_execution_count = 0U;
@@ -11674,6 +11676,17 @@ static void Voice_ExecuteMotorControl(void)
   uint32_t now=HAL_GetTick();
   uint8_t nc;
   if(voice_execution_active==0U)return;
+  /* C1..C5 is a persistent setting, but also a LIVE wheel target update.
+   * Re-sample it every execution pass so TIME / direction / steering owner
+   * are unaffected. Does not write CCR, change PID, or bypass STOP/NC.
+   * A corrupted out-of-range debug value is ignored for active motion.
+   */
+  if((voice_active_command.speed_level!=voice_speed_mode)&&
+     (Voice_SpeedLevelToPWM(voice_speed_mode)!=0U))
+  {
+    voice_active_command.speed_level=voice_speed_mode;
+    voice_speed_active_update_count++;
+  }
   if(voice_rotate_stage==1U)
   {
     WheelControl_SetTargetPWM(0);
@@ -11733,7 +11746,9 @@ static void Voice_ExecuteMotorControl(void)
       voice_execution_finish_count++;
       return;
     }
-    /* Do not exceed the previously used PS2 L1/L2 spin PWM. */
+    /* C1..C5 changes the running spin target on this pass too.
+     * Preserve physical NC gating and the existing PS2 400-CCR ceiling.
+     */
     {
       uint16_t speed=Voice_SpeedLevelToPWM(voice_active_command.speed_level);
       if(speed>(uint16_t)MOTOR_DPAD_PWM)speed=(uint16_t)MOTOR_DPAD_PWM;
@@ -11756,6 +11771,18 @@ static void Voice_ExecuteMotorControl(void)
     voice_execution_active=0U;
     voice_execution_finish_count++;
     return;
+  }
+  /* FORWARD/BACKWARD live setpoint: preserve the original direction and
+   * duration, update only the requested magnitude. The existing FIXED
+   * ramp/PID controls physical acceleration and deceleration.
+   */
+  if((voice_active_command.movement==VOICE_MOVE_FORWARD)||
+     (voice_active_command.movement==VOICE_MOVE_BACKWARD))
+  {
+    uint16_t speed=Voice_SpeedLevelToPWM(voice_active_command.speed_level);
+    if(speed!=0U)
+      voice_execution_pwm=(voice_active_command.movement==VOICE_MOVE_BACKWARD)?
+          -(int16_t)speed:(int16_t)speed;
   }
   WheelControl_SetTargetPWM(voice_execution_pwm);
 }
@@ -12956,6 +12983,10 @@ static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
   if(event->type==VC02_EVENT_WAKEUP)return;
   if(event->type==VC02_EVENT_SPEED)
   {
+    /* Standalone speed message, including during an active WHEEL command.
+     * The running executor picks this up before setting its next target;
+     * unlike the old snapshot-only behavior, no new TIME is required.
+     */
     if((event->value>=VC02_SPEED_VERY_SLOW)&&
        (event->value<=VC02_SPEED_FULL))
       voice_speed_mode=event->value;
