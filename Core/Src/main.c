@@ -85,9 +85,12 @@ typedef struct
   uint8_t turn_valid;
   uint8_t angle_valid;
 
-  uint8_t movement_conflict;
+  uint8_t movement_conflict; /* Retained for debug ABI; no new conflicts. */
   uint8_t steering_conflict;
-
+  uint8_t duration_valid;
+  uint8_t duration_sec;
+  uint32_t wheel_pending_last_ms;
+  uint32_t steer_pending_last_ms;
 } VoicePendingCommand_t;
 
 
@@ -537,6 +540,11 @@ volatile uint32_t vc02_dropped_events = 0U;
  * ============================================================
  */
 static VoicePendingCommand_t voice_pending_command;
+#define VOICE_PENDING_TIMEOUT_MS 20000U
+volatile uint32_t voice_wheel_partial_replace_count = 0U;
+volatile uint32_t voice_steer_partial_replace_count = 0U;
+volatile uint32_t voice_wheel_pending_expire_count = 0U;
+volatile uint32_t voice_steer_pending_expire_count = 0U;
 
 volatile VoiceVehicleCommand_t voice_completed_command;
 
@@ -2002,9 +2010,9 @@ volatile uint8_t steer_pos_left_fine_adapt_enable = 1U;
  * position service, not fake PS2 raw buttons. 4 = angle RAW target.
  * Boot OFF until CubeIDE/real electrical and mechanical gates.
  */
-volatile uint8_t voice_pos_enable = 0U;
-volatile uint8_t voice_angle_mapping_enable = 0U;
-volatile uint8_t voice_pivot_enable = 0U;
+volatile uint8_t voice_pos_enable = 1U; /* Voice enabled; master steering permit boots OFF */
+volatile uint8_t voice_angle_mapping_enable = 1U; /* target RAW proxy, not physical degrees */
+volatile uint8_t voice_pivot_enable = 1U; /* guarded R2 + NC + spin */
 volatile uint8_t voice_pos_request = 0U; /* 1 CENTER; 2 R2; 4 angle */
 volatile uint8_t voice_pos_owned = 0U;
 volatile uint8_t voice_pos_rejected = 0U;
@@ -10419,6 +10427,10 @@ static uint8_t Steering_CalInputsNeutral(void)
   int16_t rx = (int16_t)PS2_Pad.RX - 128;
   return (PS2_Pad.Connected == 1U &&
           PS2_Pad.Mode == 0x73U &&
+          PS2_Pad.Select == 0U &&
+          PS2_Pad.L3 == 0U && PS2_Pad.R3 == 0U &&
+          PS2_Pad.Triangle == 0U && PS2_Pad.Circle == 0U &&
+          PS2_Pad.Cross == 0U && PS2_Pad.Square == 0U &&
           PS2_Pad.R1 == 0U && PS2_Pad.R2 == 0U &&
           PS2_Pad.L1 == 0U && PS2_Pad.L2 == 0U &&
           PS2_Pad.Start == 0U &&
@@ -10426,6 +10438,8 @@ static uint8_t Steering_CalInputsNeutral(void)
           PS2_Pad.Left == 0U && PS2_Pad.Right == 0U &&
           PS2_Pad.LY >= PS2_LY_FORWARD_LIMIT &&
           PS2_Pad.LY <= PS2_LY_REVERSE_LIMIT &&
+          PS2_Pad.LX >= 118U && PS2_Pad.LX <= 138U &&
+          PS2_Pad.RY >= 118U && PS2_Pad.RY <= 138U &&
           rx >= -10 && rx <= 10) ? 1U : 0U;
 }
 
@@ -11218,13 +11232,49 @@ static void Voice_ResetPendingCommand(void)
   voice_pending_command.movement = VOICE_MOVE_NONE;
   voice_pending_command.turn = VOICE_TURN_NONE;
   voice_pending_command.angle_deg = 0U;
-
+  voice_pending_command.duration_sec = 0U;
   voice_pending_command.movement_valid = 0U;
   voice_pending_command.turn_valid = 0U;
   voice_pending_command.angle_valid = 0U;
-
+  voice_pending_command.duration_valid = 0U;
   voice_pending_command.movement_conflict = 0U;
   voice_pending_command.steering_conflict = 0U;
+  voice_pending_command.wheel_pending_last_ms = 0U;
+  voice_pending_command.steer_pending_last_ms = 0U;
+}
+
+/* Each group has independent expiry. A stale incomplete phrase cannot
+ * accidentally combine with a new utterance. No effect on active owners.
+ */
+static void Voice_PendingExpire(void)
+{
+  uint32_t now = HAL_GetTick();
+  if ((voice_pending_command.movement_valid != 0U ||
+       voice_pending_command.duration_valid != 0U) &&
+      ((uint32_t)(now - voice_pending_command.wheel_pending_last_ms) >=
+       VOICE_PENDING_TIMEOUT_MS))
+  {
+    voice_pending_command.movement = VOICE_MOVE_NONE;
+    voice_pending_command.movement_valid = 0U;
+    voice_pending_command.duration_sec = 0U;
+    voice_pending_command.duration_valid = 0U;
+    voice_pending_command.movement_conflict = 0U;
+    voice_pending_command.wheel_pending_last_ms = 0U;
+    voice_wheel_pending_expire_count++;
+  }
+  if ((voice_pending_command.turn_valid != 0U ||
+       voice_pending_command.angle_valid != 0U) &&
+      ((uint32_t)(now - voice_pending_command.steer_pending_last_ms) >=
+       VOICE_PENDING_TIMEOUT_MS))
+  {
+    voice_pending_command.turn = VOICE_TURN_NONE;
+    voice_pending_command.angle_deg = 0U;
+    voice_pending_command.turn_valid = 0U;
+    voice_pending_command.angle_valid = 0U;
+    voice_pending_command.steering_conflict = 0U;
+    voice_pending_command.steer_pending_last_ms = 0U;
+    voice_steer_pending_expire_count++;
+  }
 }
 
 
@@ -11234,19 +11284,16 @@ static void Voice_ResetPendingCommand(void)
  * Movement khác với movement đã có -> đánh dấu mâu thuẫn,
  * không tự ghi đè. Muốn sửa phải dùng Clear command.
  */
+/* PLC latest-wins for a still-incomplete movement. */
 static void Voice_SetMovement(VoiceMovement_t movement)
 {
-  if (voice_pending_command.movement_valid == 0U)
-  {
-    voice_pending_command.movement = movement;
-    voice_pending_command.movement_valid = 1U;
-    return;
-  }
-
-  if (voice_pending_command.movement != movement)
-  {
-    voice_pending_command.movement_conflict = 1U;
-  }
+  if ((voice_pending_command.movement_valid != 0U) &&
+      (voice_pending_command.movement != movement))
+    voice_wheel_partial_replace_count++;
+  voice_pending_command.movement = movement;
+  voice_pending_command.movement_valid = 1U;
+  voice_pending_command.movement_conflict = 0U;
+  voice_pending_command.wheel_pending_last_ms = HAL_GetTick();
 }
 
 
@@ -11255,19 +11302,16 @@ static void Voice_SetMovement(VoiceMovement_t movement)
  * Lặp lại cùng hướng thì bỏ qua.
  * Trái <-> phải mâu thuẫn thì không tự ghi đè.
  */
+/* PLC latest-wins for still-incomplete steering direction. */
 static void Voice_SetTurn(VoiceTurn_t turn)
 {
-  if (voice_pending_command.turn_valid == 0U)
-  {
-    voice_pending_command.turn = turn;
-    voice_pending_command.turn_valid = 1U;
-    return;
-  }
-
-  if (voice_pending_command.turn != turn)
-  {
-    voice_pending_command.steering_conflict = 1U;
-  }
+  if ((voice_pending_command.turn_valid != 0U) &&
+      (voice_pending_command.turn != turn))
+    voice_steer_partial_replace_count++;
+  voice_pending_command.turn = turn;
+  voice_pending_command.turn_valid = 1U;
+  voice_pending_command.steering_conflict = 0U;
+  voice_pending_command.steer_pending_last_ms = HAL_GetTick();
 }
 
 
@@ -11275,19 +11319,16 @@ static void Voice_SetTurn(VoiceTurn_t turn)
  * Angle > 0 có thể đến trước hoặc sau Turn/Movement.
  * Hai góc khác nhau trong cùng chuỗi được coi là mâu thuẫn.
  */
+/* Newest partial angle wins; B0 is independent CENTER. */
 static void Voice_SetAngle(uint8_t angle_deg)
 {
-  if (voice_pending_command.angle_valid == 0U)
-  {
-    voice_pending_command.angle_deg = angle_deg;
-    voice_pending_command.angle_valid = 1U;
-    return;
-  }
-
-  if (voice_pending_command.angle_deg != angle_deg)
-  {
-    voice_pending_command.steering_conflict = 1U;
-  }
+  if ((voice_pending_command.angle_valid != 0U) &&
+      (voice_pending_command.angle_deg != angle_deg))
+    voice_steer_partial_replace_count++;
+  voice_pending_command.angle_deg = angle_deg;
+  voice_pending_command.angle_valid = 1U;
+  voice_pending_command.steering_conflict = 0U;
+  voice_pending_command.steer_pending_last_ms = HAL_GetTick();
 }
 
 
@@ -11300,11 +11341,10 @@ static void Voice_SetStraight(void)
 {
   voice_pending_command.turn = VOICE_TURN_NONE;
   voice_pending_command.angle_deg = 0U;
-
   voice_pending_command.turn_valid = 0U;
   voice_pending_command.angle_valid = 0U;
-
   voice_pending_command.steering_conflict = 0U;
+  voice_pending_command.steer_pending_last_ms = 0U;
 }
 
 
@@ -11316,6 +11356,9 @@ static void Voice_SetStraight(void)
 /* VC-02 steering command is a separate owner from wheel TIME.
  * B0 alone = R1 CENTER; A5/A6+B1..B9 = 2 independent RAW targets.
  * Mapping is a normalized shaft proxy, not a measured wheel angle.
+ */
+/* Steering completes independently as soon as A5/A6 and B1..B9 exist.
+ * Bn before direction is remembered; B0 independently centers both axes.
  */
 static void Voice_S154StageSteerAngle(uint8_t angle)
 {
@@ -11332,11 +11375,19 @@ static void Voice_S154StageSteerAngle(uint8_t angle)
     voice_ignored_during_execution_count++;return;
   }
   if(angle==0U)Voice_SetStraight();
-  else Voice_SetAngle(angle);
+  else
+  {
+    Voice_SetAngle(angle);
+    if(dir==0)
+    {
+      /* A valid incomplete angle is NOT an error. Wait for TURN. */
+      voice_last_build_result=VOICE_BUILD_RESULT_NONE;
+      return;
+    }
+  }
   if(angle!=0U)
   {
-    if((dir==0)||(voice_pending_command.steering_conflict!=0U)||
-       (voice_angle_mapping_enable!=1U))
+    if(voice_angle_mapping_enable!=1U)
     {
       voice_invalid_count++;
       voice_last_build_result=VOICE_BUILD_ERROR_STEERING_INCOMPLETE;
@@ -11370,28 +11421,32 @@ static void Voice_S154StageSteerAngle(uint8_t angle)
   voice_pending_command.turn_valid=0U;
   voice_pending_command.angle_valid=0U;
   voice_pending_command.steering_conflict=0U;
-  voice_command_complete=1U; /* REQUEST accepted, not motor arrived */
+  voice_pending_command.steer_pending_last_ms=0U;
+  voice_command_complete=1U; /* Request accepted, NOT motor arrived. */
   voice_completed_count++;
   voice_last_build_result=VOICE_BUILD_RESULT_OK;
 }
 
 /* TIME finalizes wheel movement only. Steering requires no TIME. */
+/* D0 XX can precede or follow movement; no wheel motor until BOTH. */
 static uint8_t Voice_FinalizeCommand(uint8_t duration_sec)
 {
-  if((VoiceS154_DurationValid(duration_sec)==0U)||
-     (voice_pending_command.movement_valid==0U))
+  if(VoiceS154_DurationValid(duration_sec)==0U)
   {
     voice_last_build_result=VOICE_BUILD_ERROR_NO_MOVEMENT;
-    voice_invalid_count++;return 0U;
-  }
-  if(voice_pending_command.movement_conflict!=0U)
-  {
-    voice_last_build_result=VOICE_BUILD_ERROR_MOVEMENT_CONFLICT;
     voice_invalid_count++;return 0U;
   }
   if((voice_command_ready!=0U)||(voice_execution_active!=0U))
   {
     voice_ignored_during_execution_count++;return 0U;
+  }
+  voice_pending_command.duration_sec=duration_sec;
+  voice_pending_command.duration_valid=1U;
+  voice_pending_command.wheel_pending_last_ms=HAL_GetTick();
+  if(voice_pending_command.movement_valid==0U)
+  {
+    voice_last_build_result=VOICE_BUILD_RESULT_NONE;
+    return 0U;
   }
   voice_completed_command.movement=voice_pending_command.movement;
   voice_completed_command.turn=VOICE_TURN_NONE;
@@ -11402,10 +11457,12 @@ static uint8_t Voice_FinalizeCommand(uint8_t duration_sec)
   voice_command_ready=1U;
   voice_completed_count++;
   voice_last_build_result=VOICE_BUILD_RESULT_OK;
-  /* Preserve separately pending steering direction for B1..B9. */
   voice_pending_command.movement=VOICE_MOVE_NONE;
   voice_pending_command.movement_valid=0U;
   voice_pending_command.movement_conflict=0U;
+  voice_pending_command.duration_valid=0U;
+  voice_pending_command.duration_sec=0U;
+  voice_pending_command.wheel_pending_last_ms=0U;
   return 1U;
 }
 
@@ -11417,6 +11474,7 @@ static uint8_t Voice_FinalizeCommand(uint8_t duration_sec)
 static uint8_t Voice_HasPendingData(void)
 {
   if ((voice_pending_command.movement_valid != 0U) ||
+      (voice_pending_command.duration_valid != 0U) ||
       (voice_pending_command.turn_valid != 0U) ||
       (voice_pending_command.angle_valid != 0U) ||
       (voice_pending_command.movement_conflict != 0U) ||
@@ -12584,6 +12642,12 @@ static uint8_t PS2_IsManualControlActive(void)
       (steer_manual_active != 0U) ||
       (steer_cal_active != 0U) ||
       (PS2_Pad.Select != 0U) ||
+      (PS2_Pad.Start != 0U) ||
+      (PS2_Pad.L3 != 0U) || (PS2_Pad.R3 != 0U) ||
+      (PS2_Pad.Triangle != 0U) || (PS2_Pad.Circle != 0U) ||
+      (PS2_Pad.Cross != 0U) || (PS2_Pad.Square != 0U) ||
+      (PS2_Pad.LX < 118U) || (PS2_Pad.LX > 138U) ||
+      (PS2_Pad.RY < 118U) || (PS2_Pad.RY > 138U) ||
       (Steering_ManualRequestDirection() != 0) ||
       ((WheelControl_SpinIsActive() != 0U) &&
        (voice_rotate_stage != 2U)))
@@ -12879,10 +12943,12 @@ static void Control_Arbitrate(void)
 /* VC02-I1: event parsing is independent from actuation.
  * Wheel movement needs D0 TIME. Steering A5/A6+angle is immediate.
  */
+/* Latest unfinished input wins; one completed owner never steals the other. */
 static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
 {
   if(event==NULL)return;
   VC02_M1_RecordEvent(event);
+  Voice_PendingExpire();
   if(event->type==VC02_EVENT_STOP)
   {
     Control_RequestStop();voice_stop_count++;return;
@@ -12897,9 +12963,8 @@ static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
   }
   if(event->type==VC02_EVENT_CLEAR)
   {
+    /* F0 only clears incomplete data, NOT committed/active commands. */
     Voice_ResetPendingCommand();
-    if((voice_pos_owned==0U)&&(voice_pos_request!=2U))
-      voice_pos_request=0U;
     voice_clear_count++;return;
   }
   if((control_stop_latched!=0U)||(ps2_cancel_hold!=0U)||
@@ -12926,6 +12991,8 @@ static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
       else if(event->type==VC02_EVENT_ROTATE_IN_PLACE)
         Voice_SetMovement(VOICE_MOVE_ROTATE);
       else Voice_SetMovement(VOICE_MOVE_ROTATE_RIGHT);
+      if(voice_pending_command.duration_valid!=0U)
+        (void)Voice_FinalizeCommand(voice_pending_command.duration_sec);
       break;
     case VC02_EVENT_TURN_LEFT:
     case VC02_EVENT_TURN_RIGHT:
@@ -12936,6 +13003,8 @@ static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
       }
       Voice_SetTurn((event->type==VC02_EVENT_TURN_LEFT)?
           VOICE_TURN_LEFT:VOICE_TURN_RIGHT);
+      if(voice_pending_command.angle_valid!=0U)
+        Voice_S154StageSteerAngle(voice_pending_command.angle_deg);
       break;
     case VC02_EVENT_ANGLE:
       if((event->value<=45U)&&((event->value%5U)==0U))
