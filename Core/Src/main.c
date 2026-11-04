@@ -11525,20 +11525,14 @@ static void Voice_CancelByPS2(void)
   if(had_voice!=0U)voice_cancel_by_ps2_count++;
 }
 
-/*
- * STOP ưu tiên cao nhất.
- * Dừng motor ngay, hủy pending/ready/active voice.
- *
- * Ở M3 chưa có điều khiển vị trí steering bằng AS5600 nên
- * chỉ dừng motor đánh lái. Lệnh home 0 độ sẽ được bổ sung
- * ở M7/M9 khi vòng điều khiển góc đã tồn tại.
+/* Voice FF: clear Voice owners, keep existing M6 ramp-to-zero for wheels.
+ * Physical NC/fault and PS2 takeover still use immediate emergency stop.
  */
 static void Control_RequestStop(void)
 {
   Voice_S154CancelAll();
   control_stop_latched=1U;
   control_stop_count++;
-  Wheel_EmergencyStop();
 }
 
 
@@ -12805,23 +12799,35 @@ static void Control_Arbitrate(void)
 {
   ps2_manual_active = PS2_IsManualControlActive();
 
-  /*
-   * 1) STOP cao nhất.
-   *
-   * STOP vẫn là dừng khẩn cấp: bỏ qua ramp và cắt PWM ngay.
-   * Nếu PS2 đang bị giữ lệch/nhấn, latch giữ STOP cho tới khi
-   * người dùng nhả tay về neutral.
+  /* Voice FF soft stop: request zero through existing M6 ramp until the
+   * measured wheels are stopped. Never run a new Voice/PS2 command while
+   * the soft stop is underway. PS2 takeover still emergency-cuts.
    */
   if (control_stop_latched != 0U)
   {
     control_mode = CONTROL_MODE_STOP;
-    Wheel_EmergencyStop();
-
-    if (ps2_manual_active == 0U)
+    if (ps2_manual_active != 0U)
     {
+      Wheel_EmergencyStop();
       control_stop_latched = 0U;
+      ps2_cancel_hold = 1U;
+      ps2_cancel_stop_count++;
+      return;
     }
-
+    /* Preserve pre-existing RF loss hard-stop for a braking wheel spin. */
+    if (((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U)) &&
+        (WheelControl_SpinIsActive() != 0U))
+    {
+      ps2_spin_rf_latched = 1U;
+      Wheel_EmergencyStop();
+      control_stop_latched = 0U;
+      return;
+    }
+    WheelControl_SetSpinDirection(0,0);
+    WheelControl_SetTargetPWM(0);
+    Turn_Motors_Stop();
+    if (Steering_PositionWheelsStopped() != 0U)
+      control_stop_latched = 0U;
     return;
   }
 
@@ -12858,7 +12864,7 @@ static void Control_Arbitrate(void)
    * Giữ trạng thái này cho tới khi toàn bộ input PS2 trở về neutral.
    * Sau khi đã neutral, một thao tác PS2 MỚI mới được quyền điều khiển.
    *
-   * Dừng ở đây là dừng bình thường qua ramp để tránh giật cơ khí.
+   * First PS2 input already emergency-cut wheel PWM before this hold.
    */
   if (ps2_cancel_hold != 0U)
   {
@@ -12883,7 +12889,7 @@ static void Control_Arbitrate(void)
   {
     /*
      * Nếu Voice đang pending / ready / active thì thao tác PS2
-     * đầu tiên CHỈ hủy Voice và yêu cầu xe giảm tốc về 0.
+     * đầu tiên CHỈ hủy Voice và dừng khẩn cấp lập tức.
      *
      * Không gọi PS2_ApplyManualControl() trong nhánh này.
      */
@@ -12897,10 +12903,10 @@ static void Control_Arbitrate(void)
       ps2_cancel_hold = 1U;
       ps2_cancel_stop_count++;
 
-      control_mode = CONTROL_MODE_IDLE;
+      control_mode = CONTROL_MODE_STOP;
 
-      WheelControl_SetTargetPWM(0);
-      Turn_Motors_Stop();
+      /* Preserve PS2 cancel/rearm protocol, but cut wheel PWM now. */
+      Wheel_EmergencyStop();
 
       return;
     }
