@@ -18,7 +18,7 @@
 #define M8S153_PACE_MS_PER_CCR              5L
 #define M8S153_PACE_MIN_SPAN_RAW         700U
 #define M8S153_PACE_MAX_SPAN_RAW        1000U
-#define M8S153_PACE_MIN_Q_SPEED          600L
+#define M8S153_PACE_MIN_Q_SPEED         1100L
 #define M8S153_PACE_MIN_RAW_SPEED        150U
 #define M8S153_PACE_MAX_LAG_MS          1500L
 /* Tail duration from four 2026-11-04 f2137556 curves at 180RAW.

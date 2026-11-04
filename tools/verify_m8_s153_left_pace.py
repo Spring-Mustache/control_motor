@@ -48,6 +48,7 @@ checks={
  "only reduce LEFT outside both 320RAW, up to72CCR and >=owner floor":
   "M8S153_PACE_RELEASE_RAW           320U" in hd and
   "M8S153_PACE_MAX_REDUCTION_CCR      72U" in hd and
+  "M8S153_PACE_MIN_Q_SPEED         1100L" in hd and
   "remain_l<=M8S153_PACE_RELEASE_RAW" in hd and
   "remain_r<=M8S153_PACE_RELEASE_RAW" in hd and
   "room=(uint16_t)(owner_l-floor_l);" in hd and
@@ -114,10 +115,13 @@ int main(void) {
  s=speed(-1455,-1672,1);
  p=M8S153_LeftPacePlan(450,175,300,617,536,779,761,1,1,1,&s);
  assert(p.reduction_ccr==0&&!p.eligible);
+ s=speed(1099,1672,1);
+ p=M8S153_LeftPacePlan(450,175,300,617,536,779,761,1,1,1,&s);
+ assert(p.reduction_ccr==0&&!p.eligible);
  s=speed(1455,1672,0);
  p=M8S153_LeftPacePlan(450,175,300,617,536,779,761,1,1,1,&s);
  assert(p.reduction_ccr==0&&!p.eligible);
- s=speed(1000,2000,1);
+ s=speed(1455,1672,1);
  for(unsigned rl=0;rl<=1000;rl+=10)
   for(unsigned rr=0;rr<=1000;rr+=10)
    for(unsigned duty=0;duty<=450;duty+=10) {

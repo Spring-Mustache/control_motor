@@ -1295,4 +1295,7 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 
 [2026-11-04 CI legacy right-only verifier follow-up] Static source slice for Steering_S153RightApply previously included adjacent S153FarTrim and S153LeftPace helpers, falsely flagged LEFT assignments in RIGHT-only pilot. Test-only brace-bound extraction fixes isolation; original RIGHT ETA and new LEFT-PACE sources untouched, milestone updated. Full CI still required.
 
+
+[2026-11-04 ETA source refinement] Replay showed early false predicted ETA from 600..1000q/s, so both S15.3 LEFT-PACE q rates now require >=1100/s. Real C property test uses valid 1455/1672q/s and rejects 1099. No applied PWM at boot. Re-evaluate on real controller log; do not claim accurate ETA yet. Milestones and stage documentation updated; preserve all 17 sections and footer.
+
 END OF CONTEXT HANDOFF
