@@ -11380,30 +11380,37 @@ static uint8_t Voice_HasPendingData(void)
  * Hủy voice do PS2 giành quyền.
  * Không reset voice_speed_mode.
  */
-static void Voice_CancelByPS2(void)
+/* A single STOP or PS2 takeover cancels BOTH independently owned Voice
+ * streams. Existing steering owner is disarmed by its own finish path.
+ */
+static void Voice_S154CancelAll(void)
 {
-  uint8_t had_voice = 0U;
-
-  if ((Voice_HasPendingData() != 0U) ||
-      (voice_command_ready != 0U) ||
-      (voice_execution_active != 0U))
-  {
-    had_voice = 1U;
-  }
-
   Voice_ResetPendingCommand();
-
-  voice_command_complete = 0U;
-  voice_command_ready = 0U;
-  voice_execution_active = 0U;
-  voice_last_build_result = VOICE_BUILD_RESULT_NONE;
-
-  if (had_voice != 0U)
-  {
-    voice_cancel_by_ps2_count++;
-  }
+  voice_command_complete=0U;
+  voice_command_ready=0U;
+  voice_execution_active=0U;
+  voice_last_build_result=VOICE_BUILD_RESULT_NONE;
+  voice_rotate_stage=0U;
+  voice_rotate_direction=0;
+  voice_pos_request=0U;
+  if((voice_pos_owned!=0U)&&(steer_pos_active!=0U))
+    Steering_PositionFinish(9U);
+  voice_pos_owned=0U;
+  voice_execution_pwm=0;
+  WheelControl_SetSpinDirection(0,0);
+  WheelControl_SetTargetPWM(0);
+  Turn_Motors_Stop();
 }
 
+static void Voice_CancelByPS2(void)
+{
+  uint8_t had_voice=(uint8_t)((Voice_HasPendingData()!=0U)||
+      (voice_command_ready!=0U)||(voice_execution_active!=0U)||
+      (voice_pos_request!=0U)||(voice_pos_owned!=0U)||
+      (voice_rotate_stage!=0U));
+  Voice_S154CancelAll();
+  if(had_voice!=0U)voice_cancel_by_ps2_count++;
+}
 
 /*
  * STOP ưu tiên cao nhất.
@@ -11415,18 +11422,9 @@ static void Voice_CancelByPS2(void)
  */
 static void Control_RequestStop(void)
 {
-  Voice_ResetPendingCommand();
-
-  voice_command_complete = 0U;
-  voice_command_ready = 0U;
-  voice_execution_active = 0U;
-  voice_last_build_result = VOICE_BUILD_RESULT_NONE;
-
-  control_stop_latched = 1U;
+  Voice_S154CancelAll();
+  control_stop_latched=1U;
   control_stop_count++;
-
-  voice_execution_pwm = 0;
-
   Wheel_EmergencyStop();
 }
 
@@ -11498,82 +11496,154 @@ static uint8_t Voice_IsOpenLoopCommandSupported(
  * Nhận command đã TIME chốt vào vùng execution và bắt đầu timer.
  * Không dùng HAL_Delay(duration), vì STOP/PS2 vẫn phải phản hồi ngay.
  */
+/* S15.4 I1: commands are decoded first and then executed by the
+ * original wheel owner and R1/R2 position owner. New powered steering/
+ * pivot options are boot OFF, not granted by receiving UART alone.
+ */
 static void Voice_StartExecution(void)
 {
-  uint16_t pwm_magnitude;
-
-  voice_active_command.movement = voice_completed_command.movement;
-  voice_active_command.turn = voice_completed_command.turn;
-  voice_active_command.angle_deg = voice_completed_command.angle_deg;
-  voice_active_command.speed_level = voice_completed_command.speed_level;
-  voice_active_command.duration_sec = voice_completed_command.duration_sec;
-
-  voice_command_ready = 0U;
-
-  if (Voice_IsOpenLoopCommandSupported(
-          &voice_active_command) == 0U)
+  uint16_t magnitude;
+  VoiceMovement_t kind;
+  if(voice_command_ready==0U)return;
+  voice_active_command.movement=voice_completed_command.movement;
+  voice_active_command.turn=voice_completed_command.turn;
+  voice_active_command.angle_deg=voice_completed_command.angle_deg;
+  voice_active_command.speed_level=voice_completed_command.speed_level;
+  voice_active_command.duration_sec=voice_completed_command.duration_sec;
+  voice_command_ready=0U;
+  kind=voice_active_command.movement;
+  magnitude=Voice_SpeedLevelToPWM(voice_active_command.speed_level);
+  if((VoiceS154_DurationValid(voice_active_command.duration_sec)==0U)||
+     (magnitude==0U))
   {
-    voice_execution_active = 0U;
-    voice_unsupported_command_count++;
+    voice_unsupported_command_count++;return;
+  }
+  if((kind==VOICE_MOVE_ROTATE)||(kind==VOICE_MOVE_ROTATE_RIGHT))
+  {
+    if((voice_pivot_enable!=1U)||(voice_pos_enable!=1U)||
+       (voice_pos_request!=0U)||(voice_pos_owned!=0U)||
+       (steer_pos_active!=0U)||(steer_manual_active!=0U)||
+       (steer_cal_active!=0U)||
+       (Steering_PositionWheelsStopped()==0U)||
+       (control_stop_latched!=0U)||(steer_safety_trip_latched!=0U))
+    {
+      voice_rotate_reject_count++;
+      voice_unsupported_command_count++;return;
+    }
+    voice_rotate_direction=(kind==VOICE_MOVE_ROTATE)?-1:1;
+    voice_rotate_stage=1U; /* WAIT_R2, no wheel motion */
+    voice_rotate_wait_start_ms=HAL_GetTick();
+    voice_execution_active=1U;
+    voice_pos_request=2U; /* position owner equivalent to R2 */
+    voice_pos_rejected=0U;
+    voice_pos_last_result=0U;
+    voice_pos_request_count++;
+    voice_execution_pwm=0;
+    voice_execution_duration_ms=
+        (uint32_t)voice_active_command.duration_sec*1000U;
+    WheelControl_SetTargetPWM(0);
     return;
   }
-
-  /* Voice hiện là lệnh tốc độ rời rạc; dùng cùng profile FIXED với autonomous. */
+  if(Voice_IsOpenLoopCommandSupported(&voice_active_command)==0U)
+  {
+    voice_unsupported_command_count++;return;
+  }
   WheelControl_SetCommandProfile(WHEEL_COMMAND_PROFILE_FIXED);
-
-  pwm_magnitude = Voice_SpeedLevelToPWM(voice_active_command.speed_level);
-
-  if (voice_active_command.movement == VOICE_MOVE_BACKWARD)
-  {
-    voice_execution_pwm = -(int16_t)pwm_magnitude;
-  }
-  else
-  {
-    voice_execution_pwm = (int16_t)pwm_magnitude;
-  }
-
-  voice_execution_start_tick = HAL_GetTick();
-  voice_execution_duration_ms =
-      (uint32_t)voice_active_command.duration_sec * 1000U;
-  voice_execution_elapsed_ms = 0U;
-
-  voice_execution_active = 1U;
+  voice_execution_pwm=(kind==VOICE_MOVE_BACKWARD)?
+      -(int16_t)magnitude:(int16_t)magnitude;
+  voice_execution_start_tick=HAL_GetTick();
+  voice_execution_duration_ms=
+      (uint32_t)voice_active_command.duration_sec*1000U;
+  voice_execution_elapsed_ms=0U;
+  voice_execution_active=1U;
 }
 
-
-/*
- * Phát command truyền động 4 bánh, không blocking.
- * wheel_control quyết định open-loop hay closed-loop theo wheel_pid_enable.
- */
 static void Voice_ExecuteMotorControl(void)
 {
-  uint32_t now;
-
-  if (voice_execution_active == 0U)
+  uint32_t now=HAL_GetTick();
+  uint8_t nc;
+  if(voice_execution_active==0U)return;
+  if(voice_rotate_stage==1U)
   {
+    WheelControl_SetTargetPWM(0);
+    if((voice_pos_rejected!=0U)||(steer_safety_trip_latched!=0U)||
+       (steer_safety_motion_permit!=1U)||
+       (control_stop_latched!=0U)||
+       ((uint32_t)(now-voice_rotate_wait_start_ms)>
+          VOICE_ROTATE_R2_WAIT_LIMIT_MS))
+    {
+      Voice_S154CancelAll();
+      voice_rotate_reject_count++;
+      return;
+    }
+    if((voice_pos_request==0U)&&(voice_pos_owned==0U))
+    {
+      nc=Steering_TestRawLimitMask();
+      if((steer_pos_result==2U)&&(steer_pos_left_result==3U)&&
+         (steer_pos_right_result==3U)&&
+         (VoiceS154_PivotNcReady(nc,STEER_LIMIT_L_MIN_MASK,
+           STEER_LIMIT_R_MIN_MASK,STEER_LIMIT_L_MAX_MASK,
+           STEER_LIMIT_R_MAX_MASK)!=0U))
+      {
+        voice_rotate_stage=2U;
+        voice_execution_start_tick=now; /* duration starts after R2 */
+        voice_execution_elapsed_ms=0U;
+        WheelControl_SetCommandProfile(WHEEL_COMMAND_PROFILE_FIXED);
+      }
+      else if(steer_pos_result!=1U)
+      {
+        Voice_S154CancelAll();
+        voice_rotate_reject_count++;
+      }
+    }
     return;
   }
-
-  now = HAL_GetTick();
-  voice_execution_elapsed_ms =
-      (uint32_t)(now - voice_execution_start_tick);
-
-  if (voice_execution_elapsed_ms >= voice_execution_duration_ms)
+  voice_execution_elapsed_ms=(uint32_t)(now-voice_execution_start_tick);
+  if(voice_rotate_stage==2U)
   {
-    /* Hết TIME là dừng bình thường -> giảm tốc bằng ramp. */
+    nc=Steering_TestRawLimitMask();
+    if((steer_safety_trip_latched!=0U)||(control_stop_latched!=0U)||
+       (VoiceS154_PivotNcReady(nc,STEER_LIMIT_L_MIN_MASK,
+          STEER_LIMIT_R_MIN_MASK,STEER_LIMIT_L_MAX_MASK,
+          STEER_LIMIT_R_MAX_MASK)==0U))
+    {
+      Wheel_EmergencyStop(); /* NC release during spin is immediate */
+      voice_rotate_nc_cut_count++;
+      voice_execution_active=0U;
+      voice_rotate_stage=0U;
+      return;
+    }
+    if(voice_execution_elapsed_ms>=voice_execution_duration_ms)
+    {
+      WheelControl_SetSpinDirection(0,0);
+      WheelControl_SetTargetPWM(0);
+      voice_execution_active=0U;
+      voice_rotate_stage=0U;
+      voice_execution_finish_count++;
+      return;
+    }
+    WheelControl_SetSpinDirection(voice_rotate_direction,
+        (int16_t)Voice_SpeedLevelToPWM(voice_active_command.speed_level));
+    if(WheelControl_SpinIsActive()==0U)
+    {
+      /* Wheel spin owner refused startup, never claim execution. */
+      WheelControl_SetTargetPWM(0);
+      voice_execution_active=0U;
+      voice_rotate_stage=0U;
+      voice_rotate_reject_count++;
+    }
+    return;
+  }
+  if(voice_execution_elapsed_ms>=voice_execution_duration_ms)
+  {
     WheelControl_SetTargetPWM(0);
-    Turn_Motors_Stop();
-
-    voice_execution_pwm = 0;
-    voice_execution_active = 0U;
+    voice_execution_pwm=0;
+    voice_execution_active=0U;
     voice_execution_finish_count++;
     return;
   }
-
   WheelControl_SetTargetPWM(voice_execution_pwm);
-  Turn_Motors_Stop();
 }
-
 
 
 /*
@@ -12453,7 +12523,7 @@ static uint8_t PS2_IsManualControlActive(void)
       (PS2_Pad.L2 != 0U) ||
       (PS2_Pad.R1 != 0U) ||
       (PS2_Pad.R2 != 0U) ||
-      (steer_pos_active != 0U) ||
+      ((steer_pos_active != 0U) && (voice_pos_owned == 0U)) ||
       (steer_manual_active != 0U) ||
       (steer_cal_active != 0U) ||
       (PS2_Pad.Select != 0U) ||
@@ -12646,7 +12716,8 @@ static void Control_Arbitrate(void)
     WheelControl_SetTargetPWM(0);
     Turn_Motors_Stop();
 
-    if (ps2_manual_active == 0U)
+    if ((ps2_manual_active == 0U) &&
+        (Steering_CalInputsNeutral() != 0U))
     {
       ps2_cancel_hold = 0U;
     }
@@ -12667,6 +12738,7 @@ static void Control_Arbitrate(void)
      */
     if ((voice_execution_active != 0U) ||
         (voice_command_ready != 0U) ||
+        (voice_pos_request != 0U) || (voice_pos_owned != 0U) ||
         (Voice_HasPendingData() != 0U))
     {
       Voice_CancelByPS2();
@@ -12702,7 +12774,8 @@ static void Control_Arbitrate(void)
   }
 
   if ((voice_execution_active != 0U) ||
-      (voice_command_ready != 0U))
+      (voice_command_ready != 0U) ||
+      (voice_pos_request != 0U) || (voice_pos_owned != 0U))
   {
     control_mode = CONTROL_MODE_VOICE;
 
@@ -12711,11 +12784,10 @@ static void Control_Arbitrate(void)
     /*
      * Hàm trên có thể vừa kết thúc command vì hết TIME.
      */
-    if (voice_execution_active == 0U)
+    if ((voice_execution_active == 0U) &&
+        (voice_pos_request == 0U) && (voice_pos_owned == 0U))
     {
       control_mode = CONTROL_MODE_IDLE;
-
-      /* Dừng bình thường: ramp về 0 thay vì cắt PWM đột ngột. */
       WheelControl_SetTargetPWM(0);
       Turn_Motors_Stop();
     }
