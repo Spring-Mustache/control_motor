@@ -1088,3 +1088,11 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 [2026-11-04 VC02-I1 expanded HOST coverage] Third verifier tools/verify_m8_vc02_executor.py compiles source Voice_StartExecution/Voice_ExecuteMotorControl/Voice_S154CancelAll with HAL and sensor-owner stubs. Checks no physical motion when Voice boot enable=0, R2/physical NC before spin, right/left L1/L2 sign, 400CCR spin limit, R2-only waiting before timer, missing NC/timeout fail closed, STOP cancels steering and wheel, and forward/back independent of steering. Actual C state simulation is not target CubeIDE/flash or real hardware, NC electrical timing and motor cutoff remain pending. Implementation doc docs/M8_VC02_I1_IMPLEMENTATION_2026_11_04.md remains scope source.
 
 [2026-11-04 VC02-I1 host test-only repair] First 8ca3d8c run failed in the newly added mock executor-C verifier: mock variable voice_last_build_result undeclared plus vacuous unsigned >=0 assertion. Updated only tools/verify_m8_vc02_executor.py with missing mock and meaningful test; firmware motor source unchanged, rerun exact SHA Actions. This is not a CubeIDE/physical outcome.
+
+
+## 2026-11-04 — USER yêu cầu bật thử VC-02 Turn + góc (sau e96ad4f)
+
+- [USER] Cho phép kích hoạt riêng Voice angle/center để thử, vì bộ kiểm thử chỉ đọc lệnh đã đủ. Không đồng nhất cho phép thử với việc xác minh motor an toàn hay cấp quyền bỏ qua NC/STOP.
+- [SOURCE] Core/Src/main.c đổi boot `voice_pos_enable=1U`, `voice_angle_mapping_enable=1U`; `voice_pivot_enable=0U` giữ Rotate khóa. `steer_safety_motion_permit=0U` ở boot vẫn cần PS2 START arming hợp lệ qua hai AS5600, limit, neutral, bánh đứng yên; STOP/NC/EXTI/SOFT/fault/stall/CCR atomic không đổi. Không sửa manual S15.3 hay thuật toán S15.4.
+- [CI] Cập nhật static verifier để đòi chốt START/permit OFF ở boot thay vì đòi Voice angle boot OFF. Các bài C parser/executor hiện hữu vẫn cần chạy trên SHA mới.
+- [PENDING] CubeIDE Clean Build, nạp ELF đúng SHA, VC-02 UART `A5 B1`/`A6 B1` thực, target/owner và sự kiện lỗi, ngắt nguồn động lực độc lập, NC, dòng, quãng trôi, thử giá treo và mặt đất riêng. Chưa có hardware PASS.

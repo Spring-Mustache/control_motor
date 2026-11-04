@@ -2002,8 +2002,8 @@ volatile uint8_t steer_pos_left_fine_adapt_enable = 1U;
  * position service, not fake PS2 raw buttons. 4 = angle RAW target.
  * Boot OFF until CubeIDE/real electrical and mechanical gates.
  */
-volatile uint8_t voice_pos_enable = 0U;
-volatile uint8_t voice_angle_mapping_enable = 0U;
+volatile uint8_t voice_pos_enable = 1U; /* user opt-in voice angle pilot; master START arm remains required */
+volatile uint8_t voice_angle_mapping_enable = 1U; /* normalized RAW target pilot, not physical degrees */
 volatile uint8_t voice_pivot_enable = 0U;
 volatile uint8_t voice_pos_request = 0U; /* 1 CENTER; 2 R2; 4 angle */
 volatile uint8_t voice_pos_owned = 0U;

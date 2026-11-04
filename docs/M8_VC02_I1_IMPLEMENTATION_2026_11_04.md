@@ -11,16 +11,18 @@
 - Steering_PositionUpdate: hỗ trợ voice pos request qua **owner** mới chứ không sửa PS2_Pad, dùng chính hàm Steering_PositionAxisUpdate, AS5600, NC, timeout, atomic CCR và fine CENTER đã có. Command4 dành cho angle để không xung đột bitmask3 của PS2 R1+R2. Hai target khác nhau trong SOFT, mỗi trục tự đến target, chưa có bộ sync common-T S15.4.
 - Control_Arbitrate: STOP>PS2>Voice; đầu tiên PS2 khi có bất kỳ Voice pending/ready/active chỉ CANCEL + ngắt/yêu cầu dừng, chốt ps2_cancel_hold tới lúc tất cả input điều khiển về neutral (LY/RX & nút) trên PS2 Analog hợp lệ. Chỉ input mới sau release được chạy, không tự resume. STOP FF xóa pending và active ở cả hai nhóm. Không biến Voice-owned R2/Spin thành PS2 input hoặc nhầm RF loss do Voice-owned actuator.
 
-## Các biến boot OFF / phạm vi cho phép
+## Chế độ thử nghiệm góc theo yêu cầu vận hành (boot) / phạm vi cho phép
 
 | Biến | Boot | Vai trò |
 |---|---:|---|
-| voice_pos_enable | 0 | Chốt vật lý cho Voice CENTER/R2/ANGLE qua existing position owner |
-| voice_angle_mapping_enable | 0 | Chấp nhận ánh xạ B1..B9 normalized-shaft RAW (chưa hiệu chuẩn góc bánh) |
+| voice_pos_enable | **1** | Cho phép Voice CENTER/ANGLE tới owner vị trí, vẫn cần PS2 START arm và các guard |
+| voice_angle_mapping_enable | **1** | Cho phép B1..B9 normalized-shaft RAW để thử nghiệm (KHÔNG phải góc bánh thực) |
 | voice_pivot_enable | 0 | Chốt cho Rotate A4/A7 phát lệnh R2 rồi spin (vẫn cần voice_pos_enable) |
 | voice_speed_mode | C3 | Mode tốc độ độc lập cho lệnh bánh, không thay tốc độ servo lái |
 
-Các biến trên chỉ được cân nhắc thay đổi khi đã có CubeIDE Build/Flash đúng SHA, UART đúng lệnh, STOP/NC/nguồn cắt độc lập, đo dòng/quãng trôi và chassis treo an toàn. **Không khuyên bật cả ba hoặc chạy đột ngột trên nền chưa chứng nhận.** Theo mặc định lệnh bánh A2/A3 giữ hành vi baseline; Voice steering/pivot nhận lệnh nhưng không được tự tăng PWM ở boot.
+**Cập nhật theo yêu cầu người vận hành 2026-11-04:** hai cờ Voice cho thử CENTER/ANGLE được đặt boot=1, còn `voice_pivot_enable=0` nên A4/A7 vẫn không được phép R2→spin. Đây là chấp thuận thử đường lệnh, KHÔNG tự chứng nhận nguồn/cơ khí hay góc bánh vật lý. `steer_safety_motion_permit=0` lúc boot; chỉ PS2 START arm có kiểm tra cảm biến, NC, neutral, trạng thái bánh mới cấp permit=1. Mọi NC/STOP/SOFT/fault/timeout/atomic CCR vẫn có thẩm quyền từ chối. Không tự đặt permit=1 bằng debugger để vượt arming.
+
+Bản source phải qua CubeIDE Clean Build/Flash đúng SHA trước khi có hiệu lực trên bo. Chỉ thử cấp nguồn động lực khi có ngắt nguồn độc lập và đã kiểm tra các điều kiện dòng/quãng trôi/khoảng hở NC tương ứng; CI HOST không đủ để xác nhận an toàn motor. A2/A3 Voice giữ đường wheel baseline, và **không bật thử Rotate trong thay đổi này**.
 
 ## Xác minh & cổng nghiệm thu
 
@@ -33,3 +35,10 @@ Các biến trên chỉ được cân nhắc thay đổi khi đã có CubeIDE Bu
 ## Ghi chú về version và tính xác thực
 
 Branch feature/m8-s15-dual-target-common-time tiếp nối nền f2137556 và tài liệu chốt 49 câu VC-02 tại docs/VC02_OPERATOR_COMMAND_MAP_2026_11_04.md. Người dùng đã chụp UniOne COM3 báo Download Complete cho VC-02, nhưng không có log UART so với STM32/SHA firmware đang nạp ở board. Nếu command fail, đọc trạng thái flags, event và owner trước khi thay PWM.
+
+
+## 2026-11-04 — Quyết định bật riêng thử nghiệm Voice ANGLE
+
+- User yêu cầu kích hoạt Turn left/right + góc cho kiểm thử thực tế sau khi firmware trước mặc định khóa. Đã đặt `voice_pos_enable=1U`, `voice_angle_mapping_enable=1U` trong source. Giữ `voice_pivot_enable=0U`, không thay START arming `steer_safety_motion_permit=0U` lúc boot; không đổi STOP/NC/SOFT, dừng cuối, PID, S15.3, giới hạn CCR hoặc pin.
+- `A5 B1` và `A6 B1` là các chuỗi thử nhỏ có thể theo dõi `vc02_last_raw0/event_type/value` rồi `voice_pos_request/owned/result`. Phải có PS2 START arm hợp lệ trước khi request di chuyển. Nếu giọng nói không phát đúng byte, enabling flags không sửa được VC-02.
+- Chưa có CubeIDE Clean Build, flashed SHA, chứng cứ motor/cắt nguồn độc lập/dòng/coast sau thay đổi. Không coi HOST PASS là powered PASS.

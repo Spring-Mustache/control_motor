@@ -30,9 +30,14 @@ checks={
   "VC02_EVENT_ROTATE_IN_PLACE" in DEC and "case 0xA7U" in DEC and
   "VC02_EVENT_ROTATE_RIGHT" in DEC and
   H.index("VC02_EVENT_STOP") < H.index("VC02_EVENT_ROTATE_RIGHT"),
- "No new firmware Voice motor actuation at boot":
-  all(x in MAIN for x in ("voice_pos_enable = 0U;",
-      "voice_angle_mapping_enable = 0U;","voice_pivot_enable = 0U;")),
+ "Voice angle pilot ON, pivot OFF; master STOP/START safety arm stays boot OFF":
+  all(x in MAIN for x in ("voice_pos_enable = 1U;",
+      "voice_angle_mapping_enable = 1U;", "voice_pivot_enable = 0U;",
+      "steer_safety_motion_permit = 0U;")) and
+  "steer_safety_motion_permit = 1U;" in
+   body(MAIN,"static void Steering_PS2ManualArmUpdate(") and
+  "steer_safety_motion_permit==1U" in
+   body(MAIN,"static void Steering_PositionUpdate("),
  "Steering angle route is command 4, not PS2 1|2 == 3 conflict":
   "voice_pos_request=(angle==0U)?1U:4U;" in MAIN and
   "steer_pos_command == 4U" in MAIN and
