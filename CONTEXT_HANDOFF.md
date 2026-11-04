@@ -1292,4 +1292,7 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 
 [CI follow-up 2026-11-04] New LEFT-PACE host C passed; previously existing far-trim static test falsely included the adjacent new LEFT-PACE function when slicing to Steering_ManualUpdate, so it reported a LEFT-write in far-trim. Fix old verifier to balanced-brace-extract only Steering_S153FarTrimObserve. No MCU motor source/NC/CCR change, recheck CI at next SHA.
 
+
+[2026-11-04 CI legacy right-only verifier follow-up] Static source slice for Steering_S153RightApply previously included adjacent S153FarTrim and S153LeftPace helpers, falsely flagged LEFT assignments in RIGHT-only pilot. Test-only brace-bound extraction fixes isolation; original RIGHT ETA and new LEFT-PACE sources untouched, milestone updated. Full CI still required.
+
 END OF CONTEXT HANDOFF
