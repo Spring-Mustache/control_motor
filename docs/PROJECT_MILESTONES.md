@@ -1117,3 +1117,7 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [SOURCE] Spoken FF Voice STOP now cancels Voice and requests existing M6 soft zero-target ramp for wheels. Control arbitration STOP stays latched until existing wheel-stopped guard is true; PS2 takeover while Voice active/pending OR during FF coasting immediately calls the pre-existing emergency wheel/steering stop and requires neutral+fresh PS2 input.
 - [SAFETY] Existing NC/EXTI/safety-trip and RF-loss emergency paths preserved. During RF-loss in a braking spin, hard stop remains. Soft STOP does NOT serve as physical E-stop. No PWM, PID or S15.4 changes.
 - [TEST] `tools/verify_m8_vc02_stop_swap.py` compiles actual affected C, is wired into `.github/workflows/context-handoff-release.yml`. GitHub exact-SHA CI required. STM32CubeIDE Clean Build/Flash/physical brake measurement not yet verified.
+
+## 2026-11-04 — STOP/PS2 HOST test compilation correction
+
+- [TEST] Dedicated actual-C arbitration stub now defines pre-existing `steer_test_running` flag after exact-SHA CI caught its absence. Production firmware remains unchanged. Run the next exact-SHA CI for definitive test result.
