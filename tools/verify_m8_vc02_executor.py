@@ -35,6 +35,8 @@ typedef enum { VOICE_BUILD_RESULT_NONE=0,VOICE_BUILD_RESULT_OK } VoiceBuildResul
 typedef struct {
  VoiceMovement_t movement;VoiceTurn_t turn;uint8_t angle_deg;
  uint8_t movement_valid,turn_valid,angle_valid,movement_conflict,steering_conflict;
+ uint8_t duration_valid,duration_sec;
+ uint32_t wheel_pending_last_ms,steer_pending_last_ms;
 } VoicePendingCommand_t;
 typedef struct {
  VoiceMovement_t movement;VoiceTurn_t turn;uint8_t angle_deg,speed_level,duration_sec;
