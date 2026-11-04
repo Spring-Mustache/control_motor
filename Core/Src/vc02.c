@@ -160,7 +160,7 @@ static uint8_t VC02_DecodeByte(uint8_t data,
 
     /*
      * ========================================================
-     * A1 ... A6
+     * A1 ... A7
      * ========================================================
      */
     switch (data)
@@ -214,6 +214,10 @@ static uint8_t VC02_DecodeByte(uint8_t data,
 
             return 1U;
 
+        case 0xA7U:
+            event->type = VC02_EVENT_ROTATE_RIGHT;
+            event->raw0 = data;
+            return 1U;
 
         default:
 

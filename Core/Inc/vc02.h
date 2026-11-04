@@ -14,9 +14,10 @@ extern "C" {
  * A1       Wake-up
  * A2       Go forward
  * A3       Go backward
- * A4       Rotate in place
+ * A4       Rotate left (first safe R2, then L2 wheel spin)
  * A5       Turn left
  * A6       Turn right
+ * A7       Rotate right (first safe R2, then L1 wheel spin)
  *
  * B0..B9   Steering angle 0..45 degree, step 5 degree
  *
@@ -50,7 +51,9 @@ typedef enum
     VC02_EVENT_DURATION,
 
     VC02_EVENT_CLEAR,
-    VC02_EVENT_STOP
+    VC02_EVENT_STOP,
+    /* Append to preserve existing debug event numeric IDs. */
+    VC02_EVENT_ROTATE_RIGHT
 
 } VC02_EventType_t;
 
