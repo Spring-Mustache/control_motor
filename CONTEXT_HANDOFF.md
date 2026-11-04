@@ -1342,4 +1342,11 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] PS2 neutral and Voice STOP cannot be validated from HOST fake alone; user must observe input and outputs separately.
 [15] Do not alter S15.3 LEFT deliberate slowdown/no-S15.4 physical Ackermann.
 [16] Next handoff should provide exact new branch SHA, CI, target build and safe local pull commands, no claims beyond evidence.
+
+
+## 2026-11-04 — Continuous PLC incomplete-register expiry fix after 8e72c740
+[0] Core/Src/main.c main loop now calls Voice_PendingExpire every pass, not only when an event arrives.
+[1] Wheel/steer partial input memory expires after 20s independently, active/committed owners unaffected.
+[2] This is a precision fix after source tests passed at 8e72c740, preserving source safety, electrical gates and all prior 17 original handoff sections.
+[3] Existing exact-SHA CI policy requires same checked range update to CONTEXT_HANDOFF and PROJECT_MILESTONES whenever source changes.
 END OF CONTEXT HANDOFF
