@@ -1249,4 +1249,24 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [TEST] tools/verify_ps2_button_layout.py compiles/tests ACTUAL C ps2.c 16 buttons + invalid/SPI error; HOST+CI separate from CubeIDE target and real 8-bit RF packet. Doc docs/PS2_BUTTON_LAYOUT_AUDIT_2026_11_04.md.
 [USE] Motor supply disconnected, confirm exact new SHA/ELF; hold one physical key and observe both 32-bit masks: L2=256,R2=512,L1=1024,R1=2048,Triangle=4096. On mismatch pursue raw/controller or Live Expressions cause; no blind swapping of controls. S15.3 status unchanged, not hardware PASS.
 
+
+## 2026-11-04 — S15.3 far-zone phase candidate, fe4c58f functional mode1 baseline
+[0] Feature branch continues from passive PS2 diagnosis 6d343e6; original fe4c58f mode1 RIGHT independent owner is unchanged by default.
+[1] User requests S15.3 improvement and postpones visual PS2 layout; reports mechanical NC spin issue corrected.
+[2] 2026-11-04 12:51 file contains ONE Dpad LEFT fe4c58f dirty1 mode1 stroke: LEFT1741ms RIGHT1994ms +253, both SOFT, faults0, NC0, isolation144 avoided66.
+[3] Mid normalized RIGHT lead reaches -291pm with LEFT already cap450, but near SOFT RIGHT is slower; do not raise terminal floor.
+[4] S15.3 candidate is far-zone shadow ON and actuation OFF; S15.4/VC02 still blocked.
+[5] Pure C M8S153_FarTrim permits only when both remain >420 RAW to own SOFT, valid actual and predicted initial-relative RIGHT lead >120pm, fresh AS5600, both MOVING, NC0, caps reduction16CCR and fades to0 at420.
+[6] Optional actuation latches only at a new eligible Level2 RMIN mode1 stroke; pilot enable defaults0 and fe4c58f applied RIGHT PWM is preserved.
+[7] main.c, new Core/Inc/steer_s153_far_trim.h, host C regression, workflow, stage doc, milestone, handoff updated; PS2 unchanged.
+[8] Post-DISARM M8S153_FAR fields shadowEnable, applyEnable, applyLast, frames, proposed, actuationRequests, peakProposal; proposals are not measured CCR/current.
+[9] Early RIGHT reduction may improve mid-stroke relationship but WORSE +253ms RIGHT arrival, not verified.
+[10] Source/HOST CI, target CubeIDE build/flash, physical 4-stroke and current/coast/cutoff checks are separate.
+[11] STOP/NC/atomic, ESCAPE fix, RIGHT floor50, RMIN195/SOFT245, LEFT cap450 RIGHT cap200, STALL650, R1/R2 preserved.
+[12] Historical ~3mm contact gap and unknown current/coast/cutoff bar automatic powered activation.
+[13] Repository parent contains 6d343e6 read-only 32-bit PS2 diagnostics, not any key remapping; no PS2 changes for this pilot.
+[14] Next post-DISARM log mode1 plus M8S153_FAR shadowEnable1 applyEnable0 applyLast0, compare suggested proposal and S15.2 angle trace.
+[15] Main user folder D:\STM32 task\control_motor, native PowerShell post-DISARM UART, do not overwrite dirty local work.
+[16] Preserve original 386-line specification, all 17 sections and trailing handoff footer; no hardware PASS claim.
+
 END OF CONTEXT HANDOFF
