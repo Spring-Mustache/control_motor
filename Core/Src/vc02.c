@@ -7,6 +7,12 @@
 static UART_HandleTypeDef *s_vc02_uart = NULL;
 
 static uint8_t s_rx_byte = 0U;
+/* Diagnostic only: independent of decoded-event counters in main.c. */
+volatile uint32_t vc02_uart_rx_byte_count = 0U;
+volatile uint32_t vc02_uart_error_count = 0U;
+volatile uint32_t vc02_uart_rearm_error_count = 0U;
+volatile uint8_t vc02_uart_last_byte = 0U;
+volatile uint8_t vc02_uart_begin_status = 0xFFU;
 
 
 /*
@@ -349,11 +355,16 @@ HAL_StatusTypeDef VC02_Begin(UART_HandleTypeDef *huart)
     s_dropped_events = 0U;
 
     s_wait_duration_byte = 0U;
-
-
-    return HAL_UART_Receive_IT(s_vc02_uart,
-                               &s_rx_byte,
-                               1U);
+    vc02_uart_rx_byte_count = 0U;
+    vc02_uart_error_count = 0U;
+    vc02_uart_rearm_error_count = 0U;
+    vc02_uart_last_byte = 0U;
+    {
+        HAL_StatusTypeDef status =
+            HAL_UART_Receive_IT(s_vc02_uart, &s_rx_byte, 1U);
+        vc02_uart_begin_status = (uint8_t)status;
+        return status;
+    }
 }
 
 
@@ -374,6 +385,10 @@ void VC02_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     }
 
 
+    /* Count every UART byte even when it is not a complete event. */
+    vc02_uart_last_byte = s_rx_byte;
+    vc02_uart_rx_byte_count++;
+
     /*
      * Decode byte vừa nhận.
      */
@@ -387,9 +402,10 @@ void VC02_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     /*
      * Arm interrupt để nhận byte tiếp theo.
      */
-    (void)HAL_UART_Receive_IT(s_vc02_uart,
-                              &s_rx_byte,
-                              1U);
+    if (HAL_UART_Receive_IT(s_vc02_uart, &s_rx_byte, 1U) != HAL_OK)
+    {
+        vc02_uart_rearm_error_count++;
+    }
 }
 
 
@@ -406,6 +422,8 @@ void VC02_UART_ErrorCallback(UART_HandleTypeDef *huart)
         return;
     }
 
+
+    vc02_uart_error_count++;
 
     if (__HAL_UART_GET_FLAG(huart,
                             UART_FLAG_ORE) != RESET)
@@ -424,9 +442,10 @@ void VC02_UART_ErrorCallback(UART_HandleTypeDef *huart)
     /*
      * Khởi động lại UART reception.
      */
-    (void)HAL_UART_Receive_IT(s_vc02_uart,
-                              &s_rx_byte,
-                              1U);
+    if (HAL_UART_Receive_IT(s_vc02_uart, &s_rx_byte, 1U) != HAL_OK)
+    {
+        vc02_uart_rearm_error_count++;
+    }
 }
 
 
