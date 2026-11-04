@@ -55,6 +55,7 @@ enum {VC02_SPEED_VERY_SLOW=1,VC02_SPEED_SLOW=2,
 #define VOICE_ROTATE_R2_WAIT_LIMIT_MS 6500U
 static VoicePendingCommand_t voice_pending_command={0};
 static volatile VoiceVehicleCommand_t voice_completed_command={0},voice_active_command={0};
+static volatile VoiceBuildResult_t voice_last_build_result=VOICE_BUILD_RESULT_NONE;
 static volatile uint8_t voice_command_ready=0,voice_command_complete=0;
 static volatile uint8_t voice_execution_active=0;
 static volatile int16_t voice_execution_pwm=0;
@@ -173,7 +174,7 @@ int main(void){
  request(VOICE_MOVE_FORWARD,3,5);
  assert(voice_execution_active);
  fake_ms+=100;Voice_ExecuteMotorControl();
- assert(fake_wheel_pwm==550&&fake_steer_stop>=0);
+ assert(fake_wheel_pwm==550);
  /* STOP cancellation is never just a wheel-only clear */
  Voice_S154CancelAll();
  assert(!voice_execution_active&&!voice_pos_owned&&

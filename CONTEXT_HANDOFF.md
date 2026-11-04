@@ -1320,4 +1320,6 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 
 
 [2026-11-04 VC02-I1 additional source-C HOST] Added tools/verify_m8_vc02_executor.py compiling extracted ACTUAL C Voice_StartExecution and Voice_ExecuteMotorControl plus Voice_S154CancelAll with bounded mock owners. Tests opt-in boot OFF, R2-before-SPIN, physical L/R MIN NC and MAX clear, L2 -1/L1 +1, 400CCR cap, duration only after R2, partial/missing NC abort, WAIT timeout, STOP cancel, independent wheel+steer concurrent. This is simulated flags only; not CubeIDE, real encoder, motor, NC latency or electrical cutoff evidence. No motor source changes.
+
+[2026-11-04 VC02-I1 executor host test harness fix] Exact SHA 8ca3d8c first workflow failed only in newly added host harness: source extraction compiled Voice_S154CancelAll referencing a global that the mock omitted and an unsigned >=0 assertion flagged by -Werror. Firmware Core/Src/main.c, parser, HAL, NC and PWM are NOT modified in the harness fix. Add mock VoiceBuildResult_t voice_last_build_result and remove vacuous assertion, rerun CI exact SHA. No real hardware acceptance.
 END OF CONTEXT HANDOFF
