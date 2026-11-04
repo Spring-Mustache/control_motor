@@ -52,9 +52,9 @@ checks={
    body(MAIN,"static uint8_t Voice_FinalizeCommand(") and
   "voice_orphan_angle_discard_count++;" in
    body(MAIN,"static void Voice_S154StageSteerAngle(") and
-  "voice_pending_command.duration_valid=0U;" in
+  "voice_pending_command.duration_valid = 0U;" in
    body(MAIN,"static void Voice_SetMovement(") and
-  "voice_pending_command.angle_valid=0U;" in
+  "voice_pending_command.angle_valid = 0U;" in
    body(MAIN,"static void Voice_SetTurn(") and
   "Voice_FinalizeCommand(voice_pending_command.duration_sec)" not in
    body(MAIN,"static void VC02_M2_ProcessEvent(") and
