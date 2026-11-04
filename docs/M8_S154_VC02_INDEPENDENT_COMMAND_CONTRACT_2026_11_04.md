@@ -113,3 +113,12 @@ Các đường motor VC02 steering/rotate mới đều boot disabled: voice_pos_
 - **Lưu ý về giới hạn:** các mức hiện hành là C1=250, C2=400, C3=550, C4=750, C5=999 (requested PWM counts before ramp). Trong Rotate, trần spin 400 nên C2..C5 cùng bị clamp còn 400; chúng không phải năm tốc độ xoay phân biệt. Không âm thầm tăng cap hoặc đổi tuning để tạo đủ năm mức khi chưa có kiểm thử cơ cấu.
 - SPEED không làm motor nhảy tức thời tới RPM vật lý: **mới chỉ có target được cập nhật ngay**, ramp/PID cần thời gian đáp ứng. FF STOP, PS2 cancel, NC, current/stall, và owner steering độc lập giữ nguyên. Không thay đổi START-arming flags hay thời gian command.
 - Thêm `voice_speed_active_update_count` (debug) đếm những lần owner active thực sự nhận thay đổi speed từ `voice_speed_mode`. HOST test của code C thực kiểm tra cập nhật giữa FORWARD/BACKWARD, trong WAIT_R2, trong SPIN trái/phải, giữ duration/sign/400 cap và STOP/NC. CubeIDE Clean Build, flash và kiểm thử hardware chưa thực hiện.
+
+
+## 2026-11-04 — USER: hoán đổi chức năng STOP giọng nói / PS2 hủy Voice
+
+- **Yêu cầu mới nhất, thay cho mô tả FF hard STOP cũ:** FF của VC-02 hủy cả lệnh Voice bánh và lái nhưng dùng **giảm tốc mềm M6 đã có** cho 4 bánh: yêu cầu `WheelControl_SetSpinDirection(0,0)`, `WheelControl_SetTargetPWM(0)`, không gọi emergency cut ở FF. Hai motor lái vẫn ngắt PWM theo owner cũ. Voice FF **không phải E-stop vật lý**.
+- **PS2 input đầu tiên khi có Voice pending/ready/active:** hủy Voice và **ngay lập tức** gọi đường hiện hữu `Wheel_EmergencyStop()`, không cho chính input đầu đó điều khiển; `ps2_cancel_hold` giữ đến khi cả nút/trục về neutral hợp lệ và người dùng tạo input mới.
+- **Khi bánh còn đang hãm mềm sau FF:** giữ `control_stop_latched` cho đến khi logic `Steering_PositionWheelsStopped()` xác nhận dừng; PS2 tác động lúc đang hãm mềm sẽ cắt khẩn và vào `ps2_cancel_hold`. Nếu mất RF khi wheel spin đang hãm, giữ đường emergency RF đã có.
+- **Không hoán đổi các đường dừng an toàn:** NC/EXTI, safety trip, lỗi encoder/steer, RF-loss fail-safe và dừng khẩn cấp độc lập không bị đổi thành ramp. Không thay PID, M6 S-curve, PWM, lệnh SPEED, lệnh F0, nhánh PLC latest-wins, R2/NC pivot, hay S15.4.
+- **Điều kiện kiểm chứng:** test trích đúng C của `Voice_S154CancelAll`, `Voice_CancelByPS2`, `Control_RequestStop`, `Control_Arbitrate` dùng HOST stub, không chứng minh PWM/độ trôi thực. Build target STM32CubeIDE, flash và thử trên xe là bước riêng, chưa thực hiện.
