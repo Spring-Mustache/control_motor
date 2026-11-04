@@ -30,18 +30,31 @@ checks={
   "VC02_EVENT_ROTATE_IN_PLACE" in DEC and "case 0xA7U" in DEC and
   "VC02_EVENT_ROTATE_RIGHT" in DEC and
   H.index("VC02_EVENT_STOP") < H.index("VC02_EVENT_ROTATE_RIGHT"),
- "No new firmware Voice motor actuation at boot":
-  all(x in MAIN for x in ("voice_pos_enable = 0U;",
-      "voice_angle_mapping_enable = 0U;","voice_pivot_enable = 0U;")),
+ "Voice command paths enabled, master steering motion permit remains boot OFF":
+  all(x in MAIN for x in ("voice_pos_enable = 1U;",
+      "voice_angle_mapping_enable = 1U;","voice_pivot_enable = 1U;",
+      "steer_safety_motion_permit = 0U;")) and
+  "steer_safety_motion_permit==1U" in
+    body(MAIN,"static void Steering_PositionUpdate("),
  "Steering angle route is command 4, not PS2 1|2 == 3 conflict":
   "voice_pos_request=(angle==0U)?1U:4U;" in MAIN and
   "steer_pos_command == 4U" in MAIN and
   "(steer_pos_command != 4U)" in MAIN,
- "Duration is strictly required for wheel motion":
+ "Duration and movement both required before wheel motion":
   "VoiceS154_DurationValid(duration_sec)" in
    body(MAIN,"static uint8_t Voice_FinalizeCommand(") and
   "voice_pending_command.movement_valid==0U" in
-   body(MAIN,"static uint8_t Voice_FinalizeCommand("),
+   body(MAIN,"static uint8_t Voice_FinalizeCommand(") and
+  "voice_pending_command.duration_valid!=0U" in
+   body(MAIN,"static void VC02_M2_ProcessEvent("),
+ "Latest partial wins without movement/steering conflict":
+  "voice_pending_command.movement_conflict = 0U;" in
+   body(MAIN,"static void Voice_SetMovement(") and
+  "voice_pending_command.steering_conflict = 0U;" in
+   body(MAIN,"static void Voice_SetTurn("),
+ "F0 clears pending only, never accepted Voice steering request":
+  "voice_pos_request=0U;" not in
+   body(MAIN,"static void VC02_M2_ProcessEvent("),
  "A5/A6+B angle is committed independently with no TIME":
   "Voice_S154StageSteerAngle(event->value)" in
    body(MAIN,"static void VC02_M2_ProcessEvent(") and
@@ -163,7 +176,9 @@ int main(void) {
  push(&u,0xD0);assert(!VC02_GetEvent(&e));
  push(&u,0x07);assert(!VC02_GetEvent(&e));
  push(&u,0xA2);pop(VC02_EVENT_FORWARD,0,0xA2);
- VC02_UART_ErrorCallback(&u);
+ assert(vc02_uart_rx_byte_count>=14U&&vc02_uart_last_byte==0xA2);
+ assert(vc02_uart_begin_status==0U&&vc02_uart_rearm_error_count==0U);
+ VC02_UART_ErrorCallback(&u);assert(vc02_uart_error_count==1U);
  for(int sec=5;sec<=120;sec+=5)
    assert(VoiceS154_DurationValid((uint8_t)sec));
  assert(!VoiceS154_DurationValid(0) &&
