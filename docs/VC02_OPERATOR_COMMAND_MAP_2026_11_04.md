@@ -78,3 +78,6 @@ Tất cả hàng có **Control type: UART1_TX**, **Action: Send it**. Cột Para
 - **Đã chốt:** dữ liệu cấu hình 49 mục VC-02 theo ảnh, dùng cho giai đoạn S15.4 và các bài thử lệnh **theo giá trị góc từ VC-02**.
 - **Chưa kiểm chứng:** firmware VC-02 đã tạo/nạp; byte UART sau nạp; STM32 đã build/flash version tích hợp; chuyển động thực của 2 motor lái theo góc.
 - Khi người vận hành báo đã nạp VC-02, trước hết so thực tế UART A4/A7/B0/B9/D0 05/FF qua debug event, giữ nguồn động lực an toàn, sau đó mới thiết kế đường S15.4 dựa trên owner vị trí hiện có. Không tự đồng nhất góc phần mềm B0..B9 với góc bánh thực tế chưa có động học.
+
+## 2026-11-04 — Quy tắc sử dụng command (USER cập nhật sau flash VC-02)
+Theo quyết định người vận hành, 4 lệnh wheel A2/A3/A4/A7 **bắt buộc có D0 XX** để có hiệu lực; A5/A6 + B0..B9 là lệnh hai trục lái hoàn chỉnh **không cần TIME**, B0 độc lập là CENTER. Hai owner Voice wheel/steer có thể chạy song song, FF STOP hủy tất cả, PS2 input đầu tiên hủy toàn bộ Voice và chỉ thao tác MỚI sau khi PS2 valid neutral mới thực thi. Speed C1..C5 dành cho wheel; steering speed suy ra từ 2 target riêng. Xem hợp đồng thiết kế `docs/M8_S154_VC02_INDEPENDENT_COMMAND_CONTRACT_2026_11_04.md`. Đây là **yêu cầu cho firmware STM32 tiếp theo**; parser/executor hiện tại chưa đáp ứng, đừng tuyên bố đã hoàn thành.
