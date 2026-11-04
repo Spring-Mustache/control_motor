@@ -1130,3 +1130,12 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [SAFETY] Latched steer_safety_trip_latched is intentionally NOT cleared; it is still an error even if sensor readings return to normal and blocks automatic ARM. No automatic safety-trip reset; physical NC/fault emergency remains hard-cut. Boot permission remains 0 before preflight; no new hard safety bypass.
 - [LOG TODO — next commit, not done] Repurpose PS2 START for RAM log capture/start-stop; existing RamLogger_ButtonUpdate USER trigger remains exactly as before.
 - [TEST] Added tools/verify_m8_vc02_auto_arm.py (production C functions in HOST) and workflow step, auto-retry after transient failures, fault latch, START not takeover. Exact SHA CI PASS required; CubeIDE Clean Build, flash, powered motor test not done.
+
+
+## 2026-11-04 — Strict VC02 phrase order; discard orphan TIME and ANGLE
+
+- [USER] VC-02 occasionally recognizes only D0 TIME or B1..B9 ANGLE but misses the leading movement/turn command; the parameter must NOT be cached to cause unintended motor motion as soon as the primary command is repeated.
+- [SOURCE] New branch `feature/m8-vc02-strict-ordered-phrases` starts at last exact PASS SHA `9a315915129e5b577845a9e5806d27e86c467f6c`, leaving original auto-ARM and stop-swap branches intact.
+- [SOURCE] Each new PRIMARY A2/A3/A4/A7 clears pending wheel group entirely before setting movement; A5/A6 clears pending steer group entirely before setting turn. Orphan D0 XX or B1..B9 ignored; B0 standalone CENTER remains. D0 and B1..B9 now MUST follow their corresponding PRIMARY in the same live pending phrase. The two groups remain independently executable and unaffected by one another.
+- [SAFETY] All accepted/active owner commands still protected from overwritten pending input; F0 pending-only, FF soft-wheel STOP, PS2 hard takeover, C1..C5 live, R2/NC spin, guarded auto-ARM and physical faults unchanged. No PWM/PID/S15.4 changes.
+- [TEST] Actual-C HOST `tools/verify_m8_vc02_command_core.py` assertions updated: missed primary cannot cause premature motion; new primary clears stale parameter and same-primary resets as well; expiry and independent groups. Integration static checks updated in `tools/verify_m8_vc02_i1.py`. Exact-SHA CI is required; no CubeIDE build/flash/physical tests performed.
