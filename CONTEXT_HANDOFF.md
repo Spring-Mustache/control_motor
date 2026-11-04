@@ -1383,4 +1383,19 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 ## 2026-11-04 — HOST test stub correction for STOP/PS2 swap
 [0] New C compiler test originally missed pre-existing global steer_test_running, referenced in production Control_Arbitrate.
 [1] Test stub now declares this owner flag. No production source or braking policy changed; rerun exact-SHA CI to confirm test outcome.
+
+
+## 2026-11-04 — User-approved guarded auto-ARM and reserved PS2 START logging TODO
+
+[0] New source is on feature/m8-vc02-auto-arm-guarded, from exact 536796e2051d6b43f0fb18532f48b85616e2100f, preserving previous branch and a1396e7d baseline.
+[1] Operator says NO START hold or alternative manual control to arm: after valid restored conditions, steer_safety_motion_permit must automatically become 1.
+[2] New Steering_PS2ManualArmUpdate auto-qualifies at 500ms cadence; connected valid PS2 Analog all-buttons/axes neutral, wheels stopped, initialized non-contradictory NC, BOTH AS5600 transport/magnet/envelope valid, no Voice STOP/cancel/busy owner.
+[3] At boot arm flags remain zero; successful preflight raises steer_manual_enable, steer_pos_enable, steer_safety_motion_permit, steer_ps2_manual_armed to 1; ARM grants permission only, never triggers motor motion by itself.
+[4] Transient pre-arm invalid NC/sensors/radio/neutral/owner auto-retries after recovery, no action from operator. After radio disconnect, disarm; a valid neutral radio packet and preflight later re-enable.
+[5] Existing latched steer_safety_trip_latched is a persistent safety incident; NEVER auto-clear. Even if the physical symptom disappears, auto ARM stays off until safety incident is resolved via separate safe procedure. Distinguish transient preflight invalid from a latched hard event.
+[6] START is removed from PS2_IsManualControlActive takeover and Steering_PS2ManualArmUpdate no longer uses it. The full-neutral preflight still requires START released.
+[7] USER TODO FOR FUTURE COMMIT: use PS2 START to control logging (capture/start-stop/dump details to be designed later). Existing USER-button RamLogger_ButtonUpdate remains; do not claim START logging implemented.
+[8] Voice FF soft ramp, PS2 takeover emergency, physical NC/fault hard stops, C1..C5 live speed, R2/NC spin and F0 pending-only unchanged.
+[9] Added tools/verify_m8_vc02_auto_arm.py plus workflow exact-SHA CI; no CubeIDE target build or flash/physical success claims.
+[10] Keep original 386-line operator requirements and first 17 handoff sections intact. No merges/force pushes.
 END OF CONTEXT HANDOFF
