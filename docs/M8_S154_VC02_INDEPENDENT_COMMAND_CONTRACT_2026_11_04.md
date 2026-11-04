@@ -93,3 +93,14 @@ PS2 đang điều khiển bình thường có thể giữ input để duy trì t
 User yêu cầu **viết firmware nhận đủ lệnh và kiểm tra đúng trước**, sau đó mới bắt đầu đồng bộ tốc độ hai motor lái S15.4. Theo đúng thứ tự, code bổ sung A7 decoder, hai luồng Voice wheel-TIME và steering-angle, B0 CENTRE độc lập, speed C1..C5 độc lập, STOP/PS2 neutral latch, Rotate R2 → physical MIN NC → L2/L1. Steering angle chạy owner vị trí độc lập (command4) với hai target SOFT RAW suy từ hành trình chuẩn hóa; **chưa có common-T hay dynamic velocity synchronization** và chưa được coi đó là góc bánh xe vật lý được hiệu chuẩn.
 
 Các đường motor VC02 steering/rotate mới đều boot disabled: voice_pos_enable=0, voice_angle_mapping_enable=0, voice_pivot_enable=0. A2/A3 tiếp tục khả năng wheel Voice trước đây. Giao thức/host tests không chứng minh bảo đảm điện hoặc cắt nguồn; ghi nguồn bộ cắt độc lập, NC, dòng driver, Coast và target MCU Build/Flash đang chờ. Chi tiết implementation và test đúng SHA ở docs/M8_VC02_I1_IMPLEMENTATION_2026_11_04.md.
+
+
+## 2026-11-04 — Đặc tả mới nhất từ USER: kiểu PLC, latest partial wins
+
+**Chốt thay thế mọi mô tả "conflict" cũ:** mỗi nhóm có thanh ghi lệnh dở riêng. WHEEL: lệnh mới nhất A2/A3/A4/A7 ghi đè movement chưa hoàn tất; chỉ khi có cả D0 XX mới chốt bốn bánh. STEER: hướng mới nhất A5/A6 ghi đè hướng chưa hoàn tất; chỉ khi có đủ B1..B9 mới tính hai target. Có thể nhận TIME trước movement hoặc ANGLE trước turn trong cửa sổ 20 giây; không ghép dữ liệu quá cũ. B0 tự chốt CENTER. C1..C5 chỉ đổi tốc độ Voice bánh, độc lập, không làm motor chạy.
+
+**F0 là CLEAR vùng nhớ lệnh chưa hoàn tất** của cả hai nhóm, không STOP, không hủy lệnh đã chốt/đang thực hiện, không xóa mức speed. **FF STOP** và input điều khiển PS2 đầu tiên trong khi Voice có pending/ready/active hủy toàn bộ cả wheel và steer. PS2 input đó chỉ dùng để hủy; phải thả hết 16 nút và trả LY/RX/LX/RY về neutral với gói Analog hợp lệ, sau đó thao tác mới mới được điều khiển. Wheel+steer vẫn hai owner đồng thời. Riêng A4/A7 yêu cầu R2 → hai NC MIN thực tác động, hai MAX không tác động → L2/L1 spin, không được override R2 trong lúc quay.
+
+**Source branch:** `feature/m8-vc02-plc-latest-command` từ đúng `e96ad4f`, không reset nhánh cũ. Pilot cho 3 Voice route flags boot 1 sau lệnh USER yêu cầu triển khai; **master `steer_safety_motion_permit` vẫn boot 0**, chỉ PS2 START kiểm tra neutral/AS5600/NC/wheel-stop mới cấp quyền. Không đổi PWM, gain, S15.3 LEFT, STOP/NC/ISR/FAULT hay SOFT. Thời gian 20s là mặc định xử lý command dở trong phiên triển khai này, không phải yêu cầu đã đo của VC-02.
+
+**Khả năng chẩn đoán UART:** các biến mới `vc02_uart_rx_byte_count`, `vc02_uart_last_byte`, `vc02_uart_error_count`, `vc02_uart_rearm_error_count`, `vc02_uart_begin_status` để phân biệt nguyên nhân không có decoded event. CI chỉ xác minh HOST C với stub; chưa CubeIDE Clean Build, chưa flash thực, chưa có nhận UART/hardware PASS. S15.4 common-T dựa hai target vẫn milestone kế tiếp.
