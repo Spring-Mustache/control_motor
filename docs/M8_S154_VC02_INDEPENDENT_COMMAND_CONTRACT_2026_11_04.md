@@ -55,3 +55,35 @@ PS2 đang điều khiển bình thường có thể giữ input để duy trì t
 ## 6. Phạm vi & không quyết định thay USER
 
 **Không sửa firmware trong commit kế hoạch này**. Giữ nguyên f2137556 function/PWM, PS2 mapping, S15.3 result 4/4 without skew<2. Kế hoạch người dùng mới thay **cách chốt và xử lý lệnh VOICE** chứ không tự xác lập mapping cơ khí của cặp target. S15.5 arbitrary Ackermann vẫn hoãn; S15.4 chỉ được coi hoàn thành khi đích hai trục và phối hợp thời gian đã được xác minh trên dữ liệu chuẩn và kiểm thử VC-02, không phải chỉ có bảng A/B byte.
+
+## 2026-11-04 — USER sửa đặc tả: SPEED là lệnh độc lập; ROTATE = R2 → L2/L1
+
+**[USER DECISION, có hiệu lực thay các mô tả chưa đủ ở trên]**
+1. **Cấp tốc độ là độc lập:** `C1,C2,C3,C4,C5` là các khẩu lệnh đơn tự hoàn chỉnh, không cần A2/A3/A4/A7, không cần Bn hay TIME. Chỉ cập nhật cấp tốc độ Voice; **không gây chuyển động**. Có thể nói ở thời điểm khác với câu chuyển động. Giữ quy tắc cũ trong STM32: speed mode chọn riêng, có thể tác động tới lệnh bánh **kế tiếp**; việc đổi speed tức thời của lệnh bánh đã chạy không được user yêu cầu nên không tự kích hoạt. Tốc độ của 2 motor đánh lái vẫn suy từ 2 target và giới hạn cơ cấu, không đồng nhất với C1..C5.
+2. **A4 Rotate left + D0 XX:** khi chuỗi movement + TIME hoàn chỉnh và tất cả điều kiện STOP/PS2/NC/owner cho phép, **yêu cầu thao tác vị trí tương đương R2** để đưa 2 cơ cấu lái về đích MIN như đã hiệu chuẩn; chỉ sau khi R2 thành công **và cả NC L_MIN, R_MIN tác động vật lý; L_MAX, R_MAX không tác động**, mới cấp lệnh wheel-spin **tương đương L2** = `WheelControl_SetSpinDirection(-1, ...)`.
+3. **A7 Rotate right + D0 XX:** quy trình R2 tương tự; sau khi R2 đạt trạng thái hợp lệ thì cấp wheel-spin **tương đương L1** = `WheelControl_SetSpinDirection(+1, ...)`.
+4. **Không phát R2 trước khi nhận đủ TIME**: A4/A7 đơn lẻ là pending, không motor; TIME chỉ chốt yêu cầu tổng hợp; không được bypass NC bằng việc chỉ thấy RAW tới MIN, và không fake state PS2/ghi trực tiếp nút `PS2_Pad`. Phải gọi đường position-owner có bảo vệ hiện có hoặc bộ route tương đương với cùng gates.
+5. **Thời gian xoay được tính từ lúc bắt đầu quay bánh**, tức là sau giai đoạn chờ R2/đủ NC (lựa chọn triển khai hợp lý từ thứ tự USER, không phải lời USER khẳng định về mốc thời gian). Nếu R2 thất bại, timeout, fault, NC không khớp hoặc đang bị quyền điều khiển khác chiếm: **không quay bánh**, ghi rõ nguyên nhân. Nếu mất điều kiện NC giữa chừng, dừng wheel-spin ngay và không tự quay lại. Không để quãng chạy bánh trong giai đoạn steering positioning.
+6. **Phụ thuộc quan trọng:** Về tổng thể Voice wheel và voice steering độc lập, NHƯNG Rotate là trường hợp chủ động cần dùng cả steering owner R2 và wheel owner spin. Không được chạy đồng thời một lệnh Turn+Angle khác có đích xung đột với R2, hoặc chiếm quyền PS2. Thiết kế phải từ chối/đợi được quyết định an toàn, không âm thầm ghi đè target đánh lái đang chạy.
+7. **STOP/PS2** hủy cả giai đoạn `WAIT_R2` và `SPINNING`, xóa command pending, TIME latch; PS2 action đầu chỉ cancel, đợi nhả hết button và cả joystick neutral/Analog hợp lệ rồi thao tác mới. Không auto-resume chuỗi quay trước đó.
+
+### Bảng state ROTATE dành cho kiểm thử
+
+| State | Điều kiện chuyển | Wheel PWM | Steering owner |
+|---|---|---|---|
+| `PENDING_ROTATE` | A4/A7 chưa có D0 XX | 0 | Không tự chạy R2 |
+| `REQUEST_R2` | Đủ D0 XX và quyền thực thi hợp lệ | 0 | Gửi yêu cầu vị trí tương đương R2 |
+| `WAIT_R2_AND_NC` | R2 đang đưa 2 trục về MIN | 0 | Giữ owner vị trí đến khi hoàn tất; xác nhận NC L/R MIN vật lý và MAX clear |
+| `SPINNING` | R2 thành công + NC đúng + không STOP/trip/PS2 | Theo voice wheel-speed và giới hạn spin | Không cho lệnh steering khác xung đột; A4=>L2 (-1), A7=>L1 (+1) |
+| `DONE/ABORT` | Hết duration, STOP, PS2, RF loss, NC release, fault | 0/dừng an toàn; NC release phải cắt ngay | Không phát lại R2/Spin khi không có lệnh mới |
+
+### Bổ sung kiểm thử HOST bắt buộc
+
+- C1..C5 đơn lẻ lưu speed mode, không lệnh motor, không TIME; speed mode không xóa pending R2/Turn và giữ được qua từng lệnh theo quy tắc hiện hữu.
+- A4/A7 không kèm TIME **không được** phát R2 hoặc spin; sau D0 XX kiểm chứng trình tự `R2 → NC physically valid → L2/L1`.
+- A4 với `R2` chưa hoàn tất / NC thiếu: spin PWM luôn0; đúng NC MIN nhưng MAX đang tác động: từ chối; khi spinning NC nhả: ngắt bánh ngay, ghi lỗi, không tự khởi động lại.
+- Phân biệt dấu: A4 => L2 => -1, A7 => L1 => +1. Không dùng A5/A6 làm rotate direction.
+- FF STOP hoặc PS2 input tại `REQUEST_R2`, `WAIT_R2_AND_NC`, `SPINNING` hủy cả 2 nhóm; PS2 input không điều khiển đến khi có neutral và tác động MỚI.
+- Khi lệnh steering A5/A6 đang active, incoming Rotate không được bỏ qua owner arbitration và tự chạy R2; khi Rotate chiếm steering, lệnh Turn+Angle khác không thể ghi đè target trong giai đoạn spin.
+
+**Trạng thái:** Đây chỉ là hợp đồng/kế hoạch để tích hợp STM32 S15.4, chưa có firmware điều khiển mới, target build hay bằng chứng motor thực tế. Giữ nguyên `f2137556` code, STOP/NC/atomic và quyền PS2.
