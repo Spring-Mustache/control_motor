@@ -1270,32 +1270,23 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [16] Preserve original 386-line specification, all 17 sections and trailing handoff footer; no hardware PASS claim.
 
 
-## 2026-11-04 — S15.3 predictive LEFT pacing, next experiment
-[0] Continue f2137556 M8 branch, fe4c58f mode1 motor PWM retained by default.
-[1] User asks improvement toward per-stroke arrival skew under 2%, defers visual PS2 mapping.
-[2] 13:16 four-run f2137556 dirty1 log: 4/4 reached3 faults0, RIGHT lag DpadL144ms/7.18%, DpadR132ms/7.00%, RXL336ms/19.29%, RXR264ms/14.46%.
-[3] At 180RAW RMIN L-tail468/468ms, R-tail852/864ms; RMAX L-tail672/612ms, R-tail744/816ms; these are empirical pilot values, not calibrated dynamics.
-[4] New S15.3 LEFT ETA pacing SHADOW ON/actuation OFF, preserving independent RIGHT owner/terminal as baseline.
-[5] M8S153_LeftPacePlan converts direction-correct S15.2 q velocity into RAW/s, estimates time-to-go using >180RAW segment and observed last180RAW tail. Valid recent AS5600 and both MOVING, no NC/STOP required.
-[6] When forecast RIGHT arrives >60ms later, propose LEFT reduction <=72CCR and never below LEFT floor300, fading to0 when either shaft <=320RAW from own SOFT; no RIGHT PWM changes.
-[7] Active pilot is boot OFF and may latch only on a NEW eligible Level2 right-to-RMIN mode1 stroke; RMAX shadow only, mutually exclusive with far RIGHT active and legacy ETA/PI.
-[8] M8S153_PACE post-disarm shadow/proposal/eligibility/lag telemetry; cannot claim actual applied CCR/current/physical speed from hypothetical output.
-[9] Core/Src/main.c, new Core/Inc/steer_s153_left_pace.h, tools/verify_m8_s153_left_pace.py real C host test, workflow, docs and milestones updated.
-[10] Source+HOST CI != STM32CubeIDE clean target build != flashed SHA != powered improvement. Dirty1 in latest log prevents binary identity certainty.
-[11] STOP/NC/atomic, one-press outward escape, RIGHT MIN195 SOFT245, terminal50CCR, LEFT450 RIGHT200 caps, STALL650, PS2/R1/R2 unaffected.
-[12] Historical RMIN NC 3mm gap, current, independent power cutoff, coast not certified; no powered pilot acceptance from CI.
-[13] Old far RIGHT trim proposal still SHADOW ON/actuation OFF; new LEFT ETA proposal also shadow; no default PWM change.
-[14] Next log should give M8S153_PACE shadowEnable1 applyEnable0 applyLast0, proposed by stroke; compare forecast with actual finish skew, 4/4 failure-free required.
-[15] Windows project main path D:\STM32 task\control_motor and native PowerShell after-disarm capture; do not reset dirty user edits.
-[16] Preserve original 386-line spec, 17 handoff sections, footer. S15.3 not PASS; S15.4/VC02 remain pending.
-
-
-[CI follow-up 2026-11-04] New LEFT-PACE host C passed; previously existing far-trim static test falsely included the adjacent new LEFT-PACE function when slicing to Steering_ManualUpdate, so it reported a LEFT-write in far-trim. Fix old verifier to balanced-brace-extract only Steering_S153FarTrimObserve. No MCU motor source/NC/CCR change, recheck CI at next SHA.
-
-
-[2026-11-04 CI legacy right-only verifier follow-up] Static source slice for Steering_S153RightApply previously included adjacent S153FarTrim and S153LeftPace helpers, falsely flagged LEFT assignments in RIGHT-only pilot. Test-only brace-bound extraction fixes isolation; original RIGHT ETA and new LEFT-PACE sources untouched, milestone updated. Full CI still required.
-
-
-[2026-11-04 ETA source refinement] Replay showed early false predicted ETA from 600..1000q/s, so both S15.3 LEFT-PACE q rates now require >=1100/s. Real C property test uses valid 1455/1672q/s and rejects 1099. No applied PWM at boot. Re-evaluate on real controller log; do not claim accurate ETA yet. Milestones and stage documentation updated; preserve all 17 sections and footer.
+## 2026-11-04 — operator constraint restored: NEVER pace manual by reducing LEFT
+[0] Correction to unauthorized candidate after f2137556: no LEFT ETA pacing. Operator explicitly disallows intentional LEFT slowdown for manual D-pad/RX synchronization.
+[1] Source of truth docs/M8_S15_MILESTONE_PLAN_2026_11_01.md lines 23-25 and 45,58 and docs/PROJECT_MILESTONES.md section "operator current decision": LEFT must not be tapered/held/slowed to mask RIGHT lag; S15.3 RIGHT-only.
+[2] The b21a973..0ad0040 SHADOW LEFT ETA Pacing implementation was unauthorized even with actuation OFF. This correction RESTORES the full motor/control/workflow/test tree to the f2137556 baseline, rather than merely setting a flag to zero.
+[3] The original f2137556 RIGHT FAR shadow remains read-only/default actuation OFF; steering owner mode1 remains independent RIGHT and LEFT positive-only (max of baseline).
+[4] Do NOT use the 7-19% endpoint arrival skew objective to justify a LEFT reduction or false S15.3 PASS. Any new RIGHT-only method must respect NC/STOP/CCR cap/current/coast safety.
+[5] No PS2 button map change, no analog/manual pin change, no R1/R2/SELECT change; passive PS2 debug variables remain.
+[6] Baseline mode1 guard updated to assert the offending LEFT PACE symbols and include are ABSENT; host/CI is not target MCU/hardware proof.
+[7] Important inherited legacy S14.2 header M8S142_SyncPlan has conditional p.trim_l, which can lower LEFT in other mode paths; mode1 explicitly restores LEFT >= its owner baseline. This correction does NOT silently change historical S14.2 algorithm. A separate source/physical safety review is warranted for the legacy possibility.
+[8] 2026-11-04 f2137556 4/4 log remains evidence of completion but time skew remains 7.18%,7.00%,19.29%,14.46%, NOT under2%.
+[9] No powered test on corrective commit solely from CI; motor cut/current/coast/NC clearance need independent evidence.
+[10] Source: Core/Src/main.c exact f2137556 copy; far pilot intact. No code that calculates LEFT ETA reduction may remain.
+[11] New head is forward-only corrective commit: history retains prior erroneous commits but HEAD contents contain no left pace source/telemetry/tests.
+[12] Keep original user workflow Git status -> safe pull --ff-only -> CubeIDE clean build -> native PowerShell post-DISARM, no destructive reset of local files.
+[13] Firmware SHA required after new commit and generated header, do not infer from old 0ad0040 log.
+[14] S15.3 NOT PASS; S15.4 and VC-02 deferred until reviewed.
+[15] 17-section project handoff and 386-line original spec remain untouched.
+[16] No user confirmation required to remove unauthorized functionality; new changes to control strategy must follow approved constraints.
 
 END OF CONTEXT HANDOFF

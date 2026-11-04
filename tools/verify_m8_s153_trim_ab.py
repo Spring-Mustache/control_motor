@@ -13,6 +13,12 @@ checks={
 "mode A / C and ETA boot OFF remain":
  "steer_s153_right_only_enable=0U;" in s and
  "else if(steer_s153_latched!=0U)" in s,
+"operator no-LEFT-pacing rule (no unapproved LEFT slowdown candidate)":
+  "#include \"steer_s153_left_pace.h\"" not in s and
+  "steer_s153_left_pace" not in s and
+  "Steering_S153LeftPaceObserve" not in s and
+  "M8S153_PACE," not in s and
+  "if(la<baseline_l)la=baseline_l;" in x,
 "original left positive correction and separate right temporary":
  "uint16_t baseline_l=la,discarded_right=ra;" in x and
  "&la,&discarded_right);" in x and

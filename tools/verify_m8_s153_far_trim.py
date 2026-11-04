@@ -13,22 +13,9 @@ head=(root/"Core/Inc/steer_s153_far_trim.h").read_text(encoding="utf8")
 b=src.index("    else if(steer_s153_trim_only_latched!=0U)")
 e=src.index("    else if (steer_s142_latched != 0U)",b)
 mode=src[b:e]
-# Extract the exact C function, not all following helper functions.
-# New S15.3 LEFT pacing intentionally writes LEFT, whereas this RIGHT
-# controller remains LEFT-read-only; old text-marker slicing conflated them.
 b=src.index("static void Steering_S153FarTrimObserve(")
-open_brace=src.index("{",b)
-depth=0
-end=None
-for i in range(open_brace,len(src)):
-    if src[i]=="{":depth+=1
-    elif src[i]=="}":
-        depth-=1
-        if depth==0:
-            end=i+1
-            break
-if end is None:raise SystemExit("Cannot extract far trim C function")
-pilot=src[b:end]
+e=src.index("static void Steering_ManualUpdate(void)",b)
+pilot=src[b:e]
 checks={
  "fe4c58f mode1 boot ON": "steer_s153_trim_only_enable=1U;" in src,
  "far phase proposal SHADOW ON": "steer_s153_far_shadow_enable=1U;" in src,

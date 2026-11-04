@@ -6,22 +6,7 @@ root=Path(__file__).resolve().parents[1]
 s=(root/'Core/Src/main.c').read_text(encoding='utf-8')
 h=(root/'Core/Inc/steer_s153_right_only.h').read_text(encoding='utf-8')
 reset=s[s.index('static void Steering_S14ManualReset(void)'):s.index('static void Steering_S14Observe(',s.index('static void Steering_S14ManualReset(void)'))]
-# Scope strictly to the actual legacy RIGHT ETA C function, not the
-# subsequently declared S15.3 FAR or LEFT-PACE helper functions.
-# Only the opt-in RIGHT ETA route is prohibited from writing LEFT PWM.
-b=s.index('static void Steering_S153RightApply(')
-open_brace=s.index('{',b)
-depth=0
-end=None
-for i in range(open_brace,len(s)):
-    if s[i]=='{':depth+=1
-    elif s[i]=='}':
-        depth-=1
-        if depth==0:
-            end=i+1
-            break
-if end is None:raise SystemExit('Cannot isolate RIGHT-only C function')
-active=s[b:end]
+active=s[s.index('static void Steering_S153RightApply('):s.index('static void Steering_ManualUpdate(void)\n{',s.index('static void Steering_S153RightApply('))]
 manual=s[s.index('static void Steering_ManualUpdate(void)\n{'):]
 a=manual.index('if(steer_s15_latched!=0U)\n      Steering_S15Apply(')
 b=manual.index('else if (steer_s142_latched != 0U)',a)
