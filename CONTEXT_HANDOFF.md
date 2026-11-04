@@ -1322,4 +1322,24 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [2026-11-04 VC02-I1 additional source-C HOST] Added tools/verify_m8_vc02_executor.py compiling extracted ACTUAL C Voice_StartExecution and Voice_ExecuteMotorControl plus Voice_S154CancelAll with bounded mock owners. Tests opt-in boot OFF, R2-before-SPIN, physical L/R MIN NC and MAX clear, L2 -1/L1 +1, 400CCR cap, duration only after R2, partial/missing NC abort, WAIT timeout, STOP cancel, independent wheel+steer concurrent. This is simulated flags only; not CubeIDE, real encoder, motor, NC latency or electrical cutoff evidence. No motor source changes.
 
 [2026-11-04 VC02-I1 executor host test harness fix] Exact SHA 8ca3d8c first workflow failed only in newly added host harness: source extraction compiled Voice_S154CancelAll referencing a global that the mock omitted and an unsigned >=0 assertion flagged by -Werror. Firmware Core/Src/main.c, parser, HAL, NC and PWM are NOT modified in the harness fix. Add mock VoiceBuildResult_t voice_last_build_result and remove vacuous assertion, rerun CI exact SHA. No real hardware acceptance.
+
+
+## 2026-11-04 — PLC-style VOICE command update after explicit USER request
+[0] Code on new branch feature/m8-vc02-plc-latest-command from exact e96ad4f, preserving earlier branch da38014.
+[1] User contract: incomplete WHEEL movement (A2/A3/A4/A7) overwritten by latest, paired with D0 XX only; incomplete STEER direction (A5/A6) overwritten by latest, paired with angle B1..B9 only. B0 independent CENTER.
+[2] Supports both-part orders within 20s expiry per group, never combines stale partials. No command replay or unsanctioned active override.
+[3] Wheel and steering owner independent; rotate is deliberate R2/NC then L2/L1 exception. Common-T S15.4 remains future work.
+[4] C1..C5 is wheel speed setting only. F0 clears incomplete input registers, never an already committed/active motor; FF cancels all Voice.
+[5] Any PS2 mapped input during Voice pending/active cancels both and consumes that action; require all 16 buttons and four axes neutral Analog frame before NEW PS2 action may move.
+[6] All three Voice opt-in flags ON in experimental new branch, but steering master permit still boot OFF until PS2 START arming checks pass; retain STOP/NC/SOFT/fault/timeout and existing PWM.
+[7] Added USART6 raw byte/last byte/error/rearm/begin status for distinguishing UART no-byte from parse rejection.
+[8] SOURCE/CI C-host test complete only when exact SHA PASS. No CubeIDE/FLASH/POWERED PASS assumed.
+[9] Keep 386 original operator lines and 17 handoff numbered sections; append history only.
+[10] No automatic merging/deleting/force-pushing older feature branches. No edits to user's local D:\\STM32 task\\control_motor.
+[11] User said no more essential questions; implement only explicit scope and don't claim S15.4 timing completed.
+[12] Windows PowerShell UART capture M8S152 is post-disarm per-run logging, not a live VC02 raw transcript.
+[13] Hardware VC-02 configuration may differ from 49 intended commands; verify captured UART bytes on actual flashed SHA.
+[14] PS2 neutral and Voice STOP cannot be validated from HOST fake alone; user must observe input and outputs separately.
+[15] Do not alter S15.3 LEFT deliberate slowdown/no-S15.4 physical Ackermann.
+[16] Next handoff should provide exact new branch SHA, CI, target build and safe local pull commands, no claims beyond evidence.
 END OF CONTEXT HANDOFF
