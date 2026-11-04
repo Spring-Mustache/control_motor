@@ -1088,3 +1088,11 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 [2026-11-04 VC02-I1 expanded HOST coverage] Third verifier tools/verify_m8_vc02_executor.py compiles source Voice_StartExecution/Voice_ExecuteMotorControl/Voice_S154CancelAll with HAL and sensor-owner stubs. Checks no physical motion when Voice boot enable=0, R2/physical NC before spin, right/left L1/L2 sign, 400CCR spin limit, R2-only waiting before timer, missing NC/timeout fail closed, STOP cancels steering and wheel, and forward/back independent of steering. Actual C state simulation is not target CubeIDE/flash or real hardware, NC electrical timing and motor cutoff remain pending. Implementation doc docs/M8_VC02_I1_IMPLEMENTATION_2026_11_04.md remains scope source.
 
 [2026-11-04 VC02-I1 host test-only repair] First 8ca3d8c run failed in the newly added mock executor-C verifier: mock variable voice_last_build_result undeclared plus vacuous unsigned >=0 assertion. Updated only tools/verify_m8_vc02_executor.py with missing mock and meaningful test; firmware motor source unchanged, rerun exact SHA Actions. This is not a CubeIDE/physical outcome.
+
+
+## 2026-11-04 — VC02 PLC latest-command source implementation branch (from e96ad4f)
+
+- [USER] Đã duyệt quy tắc PLC latest-wins trên các câu chưa đủ thành phần, F0 xóa chỉ vùng nhớ lệnh dở, FF/PS2 hủy cả hai owner và yêu cầu nhả neutral rồi input mới.
+- [SOURCE] Nhánh mới `feature/m8-vc02-plc-latest-command` từ chính `e96ad4f`, giữ các nhánh cũ nguyên trạng. Main: latest-wins MOVEMENT/A5-A6/angle partial, cả 2 thứ tự ghép, thời hạn 20s trên từng vùng; F0 pending-only; STOP/PS2/owner còn nguyên; neutral thêm toàn bộ nút và trục. USART6 thô có các counter độc lập decoded event.
+- [SOURCE] Sau yêu cầu triển khai thực tế của USER, ba cờ Voice route được bật ở nhánh thí nghiệm để dùng chức năng; `steer_safety_motion_permit` vẫn boot 0 và PS2 START arm với NC/AS5600/neutral mới cấp quyền. Không sửa S15.3 active gains, không tự kết luận an toàn vật lý từ CI.
+- [TEST/PENDING] HOST exact-source test builder/decoder/executor yêu cầu exact-SHA CI PASS. STM32CubeIDE Clean Build, flash đúng SHA, đo UART/NC/STOP và powered arrival đều CHƯA THỰC HIỆN. S15.4 common-T chưa code.
