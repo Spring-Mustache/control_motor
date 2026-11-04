@@ -1318,4 +1318,6 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [TEST] tools/verify_m8_vc02_i1.py real parser C+pure geometry/NC C and source invariants, tools/verify_m8_vc02_command_core.py compiles original main.c event functions with HAL stubs; workflow exact SHA. Check CI result. Full integration hardware S15.4 status remains PENDING.
 [DOC] docs/M8_VC02_I1_IMPLEMENTATION_2026_11_04.md and docs/M8_S154_VC02_INDEPENDENT_COMMAND_CONTRACT_2026_11_04.md, 49-command map docs/VC02_OPERATOR_COMMAND_MAP_2026_11_04.md. Handoff sections 0..16 preserved, appended only; source 386-line original spec untouched.
 
+
+[2026-11-04 VC02-I1 additional source-C HOST] Added tools/verify_m8_vc02_executor.py compiling extracted ACTUAL C Voice_StartExecution and Voice_ExecuteMotorControl plus Voice_S154CancelAll with bounded mock owners. Tests opt-in boot OFF, R2-before-SPIN, physical L/R MIN NC and MAX clear, L2 -1/L1 +1, 400CCR cap, duration only after R2, partial/missing NC abort, WAIT timeout, STOP cancel, independent wheel+steer concurrent. This is simulated flags only; not CubeIDE, real encoder, motor, NC latency or electrical cutoff evidence. No motor source changes.
 END OF CONTEXT HANDOFF

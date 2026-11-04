@@ -97,6 +97,9 @@ jobs:
       - name: Verify VC-02 I1 compiled main.c command builder (actual C HOST)
         run: python3 tools/verify_m8_vc02_command_core.py
 
+      - name: Verify VC-02 I1 real C wheel/steering executor safety state machine
+        run: python3 tools/verify_m8_vc02_executor.py
+
       - name: Verify S15.3 far-zone candidate actual C HOST and baseline guards
         run: python3 tools/verify_m8_s153_far_trim.py
 
