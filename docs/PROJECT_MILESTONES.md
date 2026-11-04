@@ -1139,3 +1139,9 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [SOURCE] Each new PRIMARY A2/A3/A4/A7 clears pending wheel group entirely before setting movement; A5/A6 clears pending steer group entirely before setting turn. Orphan D0 XX or B1..B9 ignored; B0 standalone CENTER remains. D0 and B1..B9 now MUST follow their corresponding PRIMARY in the same live pending phrase. The two groups remain independently executable and unaffected by one another.
 - [SAFETY] All accepted/active owner commands still protected from overwritten pending input; F0 pending-only, FF soft-wheel STOP, PS2 hard takeover, C1..C5 live, R2/NC spin, guarded auto-ARM and physical faults unchanged. No PWM/PID/S15.4 changes.
 - [TEST] Actual-C HOST `tools/verify_m8_vc02_command_core.py` assertions updated: missed primary cannot cause premature motion; new primary clears stale parameter and same-primary resets as well; expiry and independent groups. Integration static checks updated in `tools/verify_m8_vc02_i1.py`. Exact-SHA CI is required; no CubeIDE build/flash/physical tests performed.
+
+
+## 2026-11-04 — Static check follow-up for strict-phrase parser
+
+- [TEST] GitHub CI found a static test formatting mismatch: actual C clears `duration_valid = 0U;` and `angle_valid = 0U;`, while the test expected tokens without spaces. Updated `tools/verify_m8_vc02_i1.py` exact source checks; production parser was not changed in this follow-up.
+- [CONTEXT] Synchronized context handoff and milestones under the repo's exact-SHA code-change contract. Real C HOST command test and full CI remain verification gates; no CubeIDE build/flash/hardware PASS inferred.
