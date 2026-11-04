@@ -1269,4 +1269,24 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] Main user folder D:\STM32 task\control_motor, native PowerShell post-DISARM UART, do not overwrite dirty local work.
 [16] Preserve original 386-line specification, all 17 sections and trailing handoff footer; no hardware PASS claim.
 
+
+## 2026-11-04 — S15.3 predictive LEFT pacing, next experiment
+[0] Continue f2137556 M8 branch, fe4c58f mode1 motor PWM retained by default.
+[1] User asks improvement toward per-stroke arrival skew under 2%, defers visual PS2 mapping.
+[2] 13:16 four-run f2137556 dirty1 log: 4/4 reached3 faults0, RIGHT lag DpadL144ms/7.18%, DpadR132ms/7.00%, RXL336ms/19.29%, RXR264ms/14.46%.
+[3] At 180RAW RMIN L-tail468/468ms, R-tail852/864ms; RMAX L-tail672/612ms, R-tail744/816ms; these are empirical pilot values, not calibrated dynamics.
+[4] New S15.3 LEFT ETA pacing SHADOW ON/actuation OFF, preserving independent RIGHT owner/terminal as baseline.
+[5] M8S153_LeftPacePlan converts direction-correct S15.2 q velocity into RAW/s, estimates time-to-go using >180RAW segment and observed last180RAW tail. Valid recent AS5600 and both MOVING, no NC/STOP required.
+[6] When forecast RIGHT arrives >60ms later, propose LEFT reduction <=72CCR and never below LEFT floor300, fading to0 when either shaft <=320RAW from own SOFT; no RIGHT PWM changes.
+[7] Active pilot is boot OFF and may latch only on a NEW eligible Level2 right-to-RMIN mode1 stroke; RMAX shadow only, mutually exclusive with far RIGHT active and legacy ETA/PI.
+[8] M8S153_PACE post-disarm shadow/proposal/eligibility/lag telemetry; cannot claim actual applied CCR/current/physical speed from hypothetical output.
+[9] Core/Src/main.c, new Core/Inc/steer_s153_left_pace.h, tools/verify_m8_s153_left_pace.py real C host test, workflow, docs and milestones updated.
+[10] Source+HOST CI != STM32CubeIDE clean target build != flashed SHA != powered improvement. Dirty1 in latest log prevents binary identity certainty.
+[11] STOP/NC/atomic, one-press outward escape, RIGHT MIN195 SOFT245, terminal50CCR, LEFT450 RIGHT200 caps, STALL650, PS2/R1/R2 unaffected.
+[12] Historical RMIN NC 3mm gap, current, independent power cutoff, coast not certified; no powered pilot acceptance from CI.
+[13] Old far RIGHT trim proposal still SHADOW ON/actuation OFF; new LEFT ETA proposal also shadow; no default PWM change.
+[14] Next log should give M8S153_PACE shadowEnable1 applyEnable0 applyLast0, proposed by stroke; compare forecast with actual finish skew, 4/4 failure-free required.
+[15] Windows project main path D:\STM32 task\control_motor and native PowerShell after-disarm capture; do not reset dirty user edits.
+[16] Preserve original 386-line spec, 17 handoff sections, footer. S15.3 not PASS; S15.4/VC02 remain pending.
+
 END OF CONTEXT HANDOFF

@@ -91,6 +91,9 @@ jobs:
       - name: Verify PS2 16-key layout and passive 32-bit packet mirrors (actual C HOST)
         run: python3 tools/verify_ps2_button_layout.py
 
+      - name: Verify S15.3 predictive LEFT pacing host C and shadow-only gates
+        run: python3 tools/verify_m8_s153_left_pace.py
+
       - name: Verify S15.3 far-zone candidate actual C HOST and baseline guards
         run: python3 tools/verify_m8_s153_far_trim.py
 
