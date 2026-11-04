@@ -103,6 +103,9 @@ jobs:
       - name: Verify FF soft brake and PS2 emergency takeover with actual C HOST
         run: python3 tools/verify_m8_vc02_stop_swap.py
 
+      - name: Verify guarded automatic ARM and sensor recovery without START (actual C HOST)
+        run: python3 tools/verify_m8_vc02_auto_arm.py
+
       - name: Verify S15.3 far-zone candidate actual C HOST and baseline guards
         run: python3 tools/verify_m8_s153_far_trim.py
 
