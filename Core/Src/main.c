@@ -4180,6 +4180,11 @@ static void Steering_PositionFinish(uint8_t result)
   steer_pos_escape_mask = 0U;
   steer_pos_command = 0U;
   steer_pos_result = result;
+  if(voice_pos_owned!=0U)
+  {
+    voice_pos_last_result=result;
+    voice_pos_owned=0U;
+  }
 }
 
 /* IRQ must cut only the affected motor for NC limit rising edge.
@@ -4782,10 +4787,12 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     /* Escape no longer uses MAX PWM and a 120-ms motor pause.
      * Follow the same position PWM law throughout R1/R2 travel.
      */
-    goal = (steer_pos_command == 1U) ?
+    goal = (steer_pos_command == 3U) ?
+      (left ? voice_pos_goal_l : voice_pos_goal_r) :
+      ((steer_pos_command == 1U) ?
         (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
         (left ? steer_pos_left_r2_target_raw :
-                steer_pos_right_r2_target_raw);
+                steer_pos_right_r2_target_raw));
     if (steer_pos_command == 2U)
     {
       if ((left != 0U) && (goal > STEER_POS_LEFT_MIN_RAW))
@@ -4812,10 +4819,12 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     return;
   }
 
-  goal = (steer_pos_command == 1U) ?
-      (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
-      (left ? steer_pos_left_r2_target_raw :
-              steer_pos_right_r2_target_raw);
+  goal = (steer_pos_command == 3U) ?
+      (left ? voice_pos_goal_l : voice_pos_goal_r) :
+      ((steer_pos_command == 1U) ?
+        (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
+        (left ? steer_pos_left_r2_target_raw :
+                steer_pos_right_r2_target_raw));
   /* New SELECT NC samples are authoritative for physical HARD limits,
    * but they must never push a formerly safe R2 setpoint farther
    * INTO a changed NC. Clamp only if a stored R2 target has become
@@ -4838,7 +4847,7 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
    * result=3. A close RAW reading must NOT declare pivot-ready before
    * the steering module has reached its required mechanical angle.
    */
-  if (steer_pos_command == 1U)
+  if ((steer_pos_command == 1U) || (steer_pos_command == 3U))
   {
     uint16_t fine_enter = (left != 0U) ?
         STEER_POS_FINE_LEFT_ENTER_RAW : steer_pos_right_fine_enter_raw;
@@ -4935,6 +4944,7 @@ static void Steering_PositionUpdate(void)
   uint32_t now = HAL_GetTick();
   uint32_t irq_state;
   uint8_t buttons = 0U;
+  uint8_t from_voice = 0U;
   uint8_t raw_mask, pending, late_pending;
   uint8_t allowed, left_escape_irq_hold = 0U, right_escape_irq_hold = 0U;
   uint16_t left_cmd = 0U, right_cmd = 0U;
@@ -4944,28 +4954,54 @@ static void Steering_PositionUpdate(void)
 
   if ((PS2_Pad.Connected == 1U) && (PS2_Pad.R1 != 0U)) buttons |= 1U;
   if ((PS2_Pad.Connected == 1U) && (PS2_Pad.R2 != 0U)) buttons |= 2U;
+  /* Voice is a separate OWNER. These flags are NOT PS2 button fields. */
+  if(voice_pos_owned!=0U)
+  {
+    from_voice=1U;
+    buttons=steer_pos_command;
+  }
+  else if(voice_pos_request!=0U)
+  {
+    from_voice=1U;
+    buttons=voice_pos_request;
+  }
   steer_pos_buttons = buttons;
 
-  allowed = ((PS2_Pad.Connected == 1U) && (PS2_Pad.Mode == 0x73U) &&
-             (control_mode == CONTROL_MODE_PS2) &&
-             (control_stop_latched == 0U) && (ps2_cancel_hold == 0U) &&
-             (ps2_spin_rf_latched == 0U) &&
-             (voice_execution_active == 0U) && (voice_command_ready == 0U) &&
-             (PS2_Pad.L1 == 0U) && (PS2_Pad.L2 == 0U) &&
-             (WheelControl_SpinIsActive() == 0U) &&
-             (PS2_Pad.Left == 0U) && (PS2_Pad.Right == 0U) &&
-             /* Position steering may overlap LY/Up/Down propulsion;
-              * L1/L2 spin remains an exclusive maneuver.
-              */
-             (PS2_Pad.RX >= (128U - STEER_POS_RX_NEUTRAL_DELTA)) &&
-             (PS2_Pad.RX <= (128U + STEER_POS_RX_NEUTRAL_DELTA)) &&
-             (steer_pos_enable == 1U) &&
-             (steer_manual_active == 0U) &&
-             (steer_cal_active == 0U) &&
-             (PS2_Pad.Select == 0U) &&
-             (debug_as5600_poll_enable == 0U) &&
-             (steer_test_running == 0U) && (steer_test_request == 0U) &&
-             (steer_test_arm == 0U));
+  allowed=(uint8_t)(
+    ((from_voice!=0U) &&
+     (control_mode==CONTROL_MODE_VOICE) &&
+     (voice_pos_enable==1U) &&
+     (steer_safety_motion_permit==1U) &&
+     (steer_safety_trip_latched==0U) &&
+     (control_stop_latched==0U) &&
+     (ps2_cancel_hold==0U) &&
+     (ps2_spin_rf_latched==0U) &&
+     (steer_manual_active==0U) &&
+     (steer_cal_active==0U) &&
+     (WheelControl_SpinIsActive()==0U) &&
+     (debug_as5600_poll_enable==0U) &&
+     (steer_test_running==0U) &&
+     (steer_test_request==0U) &&
+     (steer_test_arm==0U) &&
+     ((buttons!=2U)||(Steering_PositionWheelsStopped()!=0U))) ||
+    ((from_voice==0U) &&
+     (PS2_Pad.Connected==1U)&&(PS2_Pad.Mode==0x73U) &&
+     (control_mode==CONTROL_MODE_PS2) &&
+     (control_stop_latched==0U)&&(ps2_cancel_hold==0U) &&
+     (ps2_spin_rf_latched==0U) &&
+     (voice_execution_active==0U)&&(voice_command_ready==0U) &&
+     (PS2_Pad.L1==0U)&&(PS2_Pad.L2==0U) &&
+     (WheelControl_SpinIsActive()==0U) &&
+     (PS2_Pad.Left==0U)&&(PS2_Pad.Right==0U) &&
+     (PS2_Pad.RX >= (128U-STEER_POS_RX_NEUTRAL_DELTA)) &&
+     (PS2_Pad.RX <= (128U+STEER_POS_RX_NEUTRAL_DELTA)) &&
+     (steer_pos_enable==1U) &&
+     (steer_manual_active==0U)&&(steer_cal_active==0U) &&
+     (PS2_Pad.Select==0U) &&
+     (debug_as5600_poll_enable==0U) &&
+     (steer_test_running==0U)&&(steer_test_request==0U) &&
+     (steer_test_arm==0U)));
+
 
   if (steer_pos_active == 0U)
   {
@@ -4975,7 +5011,8 @@ static void Steering_PositionUpdate(void)
       Steering_PositionLeftOff();
       Steering_PositionRightOff();
     }
-    if ((buttons == 0U) || (steer_pos_previous_buttons != 0U))
+    if ((buttons == 0U) ||
+        ((from_voice == 0U) && (steer_pos_previous_buttons != 0U)))
     {
       steer_pos_previous_buttons = buttons;
       return;
@@ -5015,6 +5052,13 @@ static void Steering_PositionUpdate(void)
 
       steer_pos_result = 6U;
       steer_pos_reject_count++;
+      if(from_voice!=0U)
+      {
+        voice_pos_request=0U;
+        voice_pos_rejected=1U;
+        voice_pos_last_result=6U;
+        voice_pos_reject_count++;
+      }
       return;
     }
 
@@ -5026,6 +5070,12 @@ static void Steering_PositionUpdate(void)
      */
     steer_pos_active = 1U;
     steer_pos_command = buttons;
+    voice_pos_owned=from_voice;
+    if(from_voice!=0U)
+    {
+      voice_pos_request=0U;
+      voice_pos_rejected=0U;
+    }
     steer_pos_result = 1U;
     steer_pos_start_ms = now;
     if (buttons == 2U)
@@ -5250,7 +5300,8 @@ static void Steering_PositionUpdate(void)
       ((steer_left_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
        (steer_right_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE)))
     steer_angle_wp_hold_mask = 0U;
-  if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
+  if ((steer_pos_command != 3U) &&
+      (steer_pos_left_state == STEER_AXIS_MOVING) &&
       (steer_pos_right_state == STEER_AXIS_MOVING) &&
       (steer_left_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE) &&
       (steer_right_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE))
@@ -12528,7 +12579,8 @@ static uint8_t PS2_IsManualControlActive(void)
       (steer_cal_active != 0U) ||
       (PS2_Pad.Select != 0U) ||
       (Steering_ManualRequestDirection() != 0) ||
-      (WheelControl_SpinIsActive() != 0U))
+      ((WheelControl_SpinIsActive() != 0U) &&
+       (voice_rotate_stage != 2U)))
   {
     return 1U;
   }
