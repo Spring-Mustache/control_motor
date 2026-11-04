@@ -27,6 +27,7 @@
 #include "wheel_control.h"
 #include "ram_logger.h"
 #include "vc02.h"
+#include "voice_s154_route.h"
 #include "as5600.h"
 #include "steer_s14_math.h"
 #include "steer_s142_speed.h"
@@ -55,8 +56,8 @@ typedef enum
   VOICE_MOVE_NONE = 0,
   VOICE_MOVE_FORWARD,
   VOICE_MOVE_BACKWARD,
-  VOICE_MOVE_ROTATE
-
+  VOICE_MOVE_ROTATE,          /* A4 left: R2 then L2 */
+  VOICE_MOVE_ROTATE_RIGHT     /* A7 right: R2 then L1 */
 } VoiceMovement_t;
 
 
@@ -609,6 +610,12 @@ volatile int16_t voice_execution_pwm = 0;
 volatile uint32_t voice_execution_finish_count = 0U;
 volatile uint32_t voice_unsupported_command_count = 0U;
 volatile uint32_t voice_ignored_during_execution_count = 0U;
+volatile uint8_t voice_rotate_stage = 0U; /* 0 idle; 1 WAIT_R2; 2 SPIN */
+volatile int8_t voice_rotate_direction = 0;
+volatile uint32_t voice_rotate_wait_start_ms = 0U;
+volatile uint32_t voice_rotate_reject_count = 0U;
+volatile uint32_t voice_rotate_nc_cut_count = 0U;
+#define VOICE_ROTATE_R2_WAIT_LIMIT_MS 6500U
 
 /* M7-S01: visible directly in CubeIDE Live Expressions.
  * Bit0 R_MAX (PF5); bit1 R_MIN (PF8); bit2 L_MIN (PD10); bit3 L_MAX (PD11).
@@ -1991,6 +1998,23 @@ volatile uint8_t steer_pos_left_fine_adapt_enable = 1U;
  * 4 sensor fault, 5 timeout, 7 escaped MIN (press R1 again), 8 stalled
  * or went the wrong way, 9 unexpected limit / arbitration cancelled.
  */
+/* S15.4 I1 Voice position is opt-in and owns the existing NC/AS5600
+ * position service, not fake PS2 raw buttons. 3 = angle RAW target.
+ * Boot OFF until CubeIDE/real electrical and mechanical gates.
+ */
+volatile uint8_t voice_pos_enable = 0U;
+volatile uint8_t voice_angle_mapping_enable = 0U;
+volatile uint8_t voice_pivot_enable = 0U;
+volatile uint8_t voice_pos_request = 0U; /* 1 CENTER; 2 R2; 3 angle */
+volatile uint8_t voice_pos_owned = 0U;
+volatile uint8_t voice_pos_rejected = 0U;
+volatile uint8_t voice_pos_last_result = 0U;
+volatile uint8_t voice_pos_last_angle_deg = 0U;
+volatile int8_t voice_pos_last_turn = 0;
+volatile uint16_t voice_pos_goal_l = 0U;
+volatile uint16_t voice_pos_goal_r = 0U;
+volatile uint32_t voice_pos_request_count = 0U;
+volatile uint32_t voice_pos_reject_count = 0U;
 volatile uint8_t steer_pos_enable = 0U;
 volatile uint8_t steer_pos_active = 0U;
 volatile uint8_t steer_pos_result = 0U;
@@ -11238,89 +11262,99 @@ static void Voice_SetStraight(void)
  * Nếu chuỗi chưa hợp lệ: không thực thi, không lưu TIME,
  * và giữ pending để người dùng có thể bổ sung hoặc Clear command.
  */
-static uint8_t Voice_FinalizeCommand(uint8_t duration_sec)
+/* VC-02 steering command is a separate owner from wheel TIME.
+ * B0 alone = R1 CENTER; A5/A6+B1..B9 = 2 independent RAW targets.
+ * Mapping is a normalized shaft proxy, not a measured wheel angle.
+ */
+static void Voice_S154StageSteerAngle(uint8_t angle)
 {
-  VoiceTurn_t final_turn = VOICE_TURN_NONE;
-  uint8_t final_angle = 0U;
-
-  voice_command_complete = 0U;
-
-  if (voice_pending_command.movement_valid == 0U)
+  VoiceS154Goals_t goals={0};
+  int8_t dir=0;
+  if((voice_pending_command.turn_valid!=0U)&&
+     (voice_pending_command.turn==VOICE_TURN_LEFT))dir=-1;
+  else if((voice_pending_command.turn_valid!=0U)&&
+          (voice_pending_command.turn==VOICE_TURN_RIGHT))dir=1;
+  if((voice_pos_request!=0U)||(voice_pos_owned!=0U)||
+     (voice_rotate_stage!=0U)||(steer_pos_active!=0U)||
+     (steer_manual_active!=0U)||(steer_cal_active!=0U))
   {
-    voice_last_build_result = VOICE_BUILD_ERROR_NO_MOVEMENT;
-    voice_invalid_count++;
-    return 0U;
+    voice_ignored_during_execution_count++;return;
   }
-
-  if (voice_pending_command.movement_conflict != 0U)
+  if(angle!=0U)
   {
-    voice_last_build_result = VOICE_BUILD_ERROR_MOVEMENT_CONFLICT;
-    voice_invalid_count++;
-    return 0U;
-  }
-
-  if (voice_pending_command.steering_conflict != 0U)
-  {
-    voice_last_build_result = VOICE_BUILD_ERROR_STEERING_CONFLICT;
-    voice_invalid_count++;
-    return 0U;
-  }
-
-  /*
-   * Rotate in place hiện chưa dùng Turn/Angle.
-   * Nếu người dùng đã đưa steering > 0 vào chuỗi rotate thì báo sai.
-   */
-  if (voice_pending_command.movement == VOICE_MOVE_ROTATE)
-  {
-    if ((voice_pending_command.turn_valid != 0U) ||
-        (voice_pending_command.angle_valid != 0U))
+    if((dir==0)||(voice_pending_command.steering_conflict!=0U)||
+       (voice_angle_mapping_enable!=1U))
     {
-      voice_last_build_result = VOICE_BUILD_ERROR_ROTATE_WITH_STEERING;
       voice_invalid_count++;
-      return 0U;
+      voice_last_build_result=VOICE_BUILD_ERROR_STEERING_INCOMPLETE;
+      return;
     }
+    goals=VoiceS154_AngleGoals(dir,angle,
+        STEER_POS_LEFT_CENTER_RAW,STEER_POS_RIGHT_CENTER_RAW,
+        STEER_MANUAL_LEFT_SOFT_MAX,STEER_MANUAL_RIGHT_SOFT_MIN,
+        STEER_MANUAL_LEFT_SOFT_MIN,STEER_MANUAL_RIGHT_SOFT_MAX);
+    if(goals.valid==0U)
+    {
+      voice_invalid_count++;
+      voice_last_build_result=VOICE_BUILD_ERROR_STEERING_INCOMPLETE;
+      return;
+    }
+    voice_pos_goal_l=goals.left_raw;
+    voice_pos_goal_r=goals.right_raw;
   }
   else
   {
-    /*
-     * Chạy thường:
-     * - không Turn, không Angle -> đi thẳng 0 độ: hợp lệ.
-     * - có Turn và có Angle -> hợp lệ.
-     * - chỉ có một trong hai -> thiếu thành phần steering.
-     */
-    if ((voice_pending_command.turn_valid != 0U) !=
-        (voice_pending_command.angle_valid != 0U))
-    {
-      voice_last_build_result = VOICE_BUILD_ERROR_STEERING_INCOMPLETE;
-      voice_invalid_count++;
-      return 0U;
-    }
-
-    if ((voice_pending_command.turn_valid != 0U) &&
-        (voice_pending_command.angle_valid != 0U))
-    {
-      final_turn = voice_pending_command.turn;
-      final_angle = voice_pending_command.angle_deg;
-    }
+    voice_pos_goal_l=STEER_POS_LEFT_CENTER_RAW;
+    voice_pos_goal_r=STEER_POS_RIGHT_CENTER_RAW;
   }
-
-  voice_completed_command.movement = voice_pending_command.movement;
-  voice_completed_command.turn = final_turn;
-  voice_completed_command.angle_deg = final_angle;
-  voice_completed_command.speed_level = voice_speed_mode;
-  voice_completed_command.duration_sec = duration_sec;
-
-  voice_command_complete = 1U;
-  voice_command_ready = 1U;
+  voice_pos_last_angle_deg=angle;
+  voice_pos_last_turn=dir;
+  voice_pos_rejected=0U;
+  voice_pos_last_result=0U;
+  voice_pos_request=(angle==0U)?1U:3U;
+  voice_pos_request_count++;
+  voice_pending_command.turn=VOICE_TURN_NONE;
+  voice_pending_command.turn_valid=0U;
+  voice_pending_command.angle_valid=0U;
+  voice_pending_command.steering_conflict=0U;
+  voice_command_complete=1U; /* REQUEST accepted, not motor arrived */
   voice_completed_count++;
-  voice_last_build_result = VOICE_BUILD_RESULT_OK;
-
-  /* Command đã chốt xong; tránh TIME sau đó làm sống lại command cũ. */
-  Voice_ResetPendingCommand();
-
-  return 1U;
+  voice_last_build_result=VOICE_BUILD_RESULT_OK;
 }
 
+/* TIME finalizes wheel movement only. Steering requires no TIME. */
+static uint8_t Voice_FinalizeCommand(uint8_t duration_sec)
+{
+  if((VoiceS154_DurationValid(duration_sec)==0U)||
+     (voice_pending_command.movement_valid==0U))
+  {
+    voice_last_build_result=VOICE_BUILD_ERROR_NO_MOVEMENT;
+    voice_invalid_count++;return 0U;
+  }
+  if(voice_pending_command.movement_conflict!=0U)
+  {
+    voice_last_build_result=VOICE_BUILD_ERROR_MOVEMENT_CONFLICT;
+    voice_invalid_count++;return 0U;
+  }
+  if((voice_command_ready!=0U)||(voice_execution_active!=0U))
+  {
+    voice_ignored_during_execution_count++;return 0U;
+  }
+  voice_completed_command.movement=voice_pending_command.movement;
+  voice_completed_command.turn=VOICE_TURN_NONE;
+  voice_completed_command.angle_deg=0U;
+  voice_completed_command.speed_level=voice_speed_mode;
+  voice_completed_command.duration_sec=duration_sec;
+  voice_command_complete=1U;
+  voice_command_ready=1U;
+  voice_completed_count++;
+  voice_last_build_result=VOICE_BUILD_RESULT_OK;
+  /* Preserve separately pending steering direction for B1..B9. */
+  voice_pending_command.movement=VOICE_MOVE_NONE;
+  voice_pending_command.movement_valid=0U;
+  voice_pending_command.movement_conflict=0U;
+  return 1U;
+}
 
 /* ============================================================
  * M3 - kiểm tra pending có dữ liệu voice hay không.
@@ -12710,145 +12744,75 @@ static void Control_Arbitrate(void)
  * VC-02 M2 - nhận event và gom command không phụ thuộc thứ tự.
  * ============================================================
  */
+/* VC02-I1: event parsing is independent from actuation.
+ * Wheel movement needs D0 TIME. Steering A5/A6+angle is immediate.
+ */
 static void VC02_M2_ProcessEvent(const VC02_Event_t *event)
 {
-  if (event == NULL)
-  {
-    return;
-  }
-
-  /* Giữ lại toàn bộ biến debug của M1. */
+  if(event==NULL)return;
   VC02_M1_RecordEvent(event);
-
-  /*
-   * M4' - khi một voice command đã READY hoặc đang chạy:
-   * - STOP vẫn dừng ngay.
-   * - SPEED được phép đổi cho command kế tiếp.
-   * - CLEAR chỉ xóa pending, không dừng command đã chốt/đang chạy.
-   * - Movement/Turn/Angle/Time mới không được xếp hàng tự chạy.
-   */
-  if ((voice_execution_active != 0U) ||
-      (voice_command_ready != 0U))
+  if(event->type==VC02_EVENT_STOP)
   {
-    if (event->type == VC02_EVENT_STOP)
-    {
-      Control_RequestStop();
-      voice_stop_count++;
-      return;
-    }
-
-    if (event->type == VC02_EVENT_SPEED)
-    {
-      if ((event->value >= VC02_SPEED_VERY_SLOW) &&
-          (event->value <= VC02_SPEED_FULL))
-      {
-        voice_speed_mode = event->value;
-      }
-      return;
-    }
-
-    if (event->type == VC02_EVENT_CLEAR)
-    {
-      /* Clear chỉ xóa chuỗi pending; không hủy command đã chốt/đang chạy. */
-      Voice_ResetPendingCommand();
-      voice_clear_count++;
-      return;
-    }
-
-    if (event->type == VC02_EVENT_WAKEUP)
-    {
-      return;
-    }
-
-    voice_ignored_during_execution_count++;
+    Control_RequestStop();voice_stop_count++;return;
+  }
+  if(event->type==VC02_EVENT_WAKEUP)return;
+  if(event->type==VC02_EVENT_SPEED)
+  {
+    if((event->value>=VC02_SPEED_VERY_SLOW)&&
+       (event->value<=VC02_SPEED_FULL))
+      voice_speed_mode=event->value;
     return;
   }
-
-  switch (event->type)
+  if(event->type==VC02_EVENT_CLEAR)
   {
-    case VC02_EVENT_WAKEUP:
-      /* Wake-up không thay đổi chuỗi pending. */
-      break;
-
+    Voice_ResetPendingCommand();
+    if((voice_pos_owned==0U)&&(voice_pos_request!=2U))
+      voice_pos_request=0U;
+    voice_clear_count++;return;
+  }
+  if((control_stop_latched!=0U)||(ps2_cancel_hold!=0U)||
+     (ps2_spin_rf_latched!=0U)||(control_mode==CONTROL_MODE_PS2))
+  {
+    voice_ignored_during_execution_count++;return;
+  }
+  switch(event->type)
+  {
     case VC02_EVENT_FORWARD:
-      voice_command_complete = 0U;
-      voice_last_build_result = VOICE_BUILD_RESULT_NONE;
-      Voice_SetMovement(VOICE_MOVE_FORWARD);
-      break;
-
     case VC02_EVENT_BACKWARD:
-      voice_command_complete = 0U;
-      voice_last_build_result = VOICE_BUILD_RESULT_NONE;
-      Voice_SetMovement(VOICE_MOVE_BACKWARD);
-      break;
-
     case VC02_EVENT_ROTATE_IN_PLACE:
-      voice_command_complete = 0U;
-      voice_last_build_result = VOICE_BUILD_RESULT_NONE;
-      Voice_SetMovement(VOICE_MOVE_ROTATE);
+    case VC02_EVENT_ROTATE_RIGHT:
+      if((voice_execution_active!=0U)||(voice_command_ready!=0U))
+      {
+        voice_ignored_during_execution_count++;return;
+      }
+      voice_command_complete=0U;
+      voice_last_build_result=VOICE_BUILD_RESULT_NONE;
+      if(event->type==VC02_EVENT_FORWARD)
+        Voice_SetMovement(VOICE_MOVE_FORWARD);
+      else if(event->type==VC02_EVENT_BACKWARD)
+        Voice_SetMovement(VOICE_MOVE_BACKWARD);
+      else if(event->type==VC02_EVENT_ROTATE_IN_PLACE)
+        Voice_SetMovement(VOICE_MOVE_ROTATE);
+      else Voice_SetMovement(VOICE_MOVE_ROTATE_RIGHT);
       break;
-
     case VC02_EVENT_TURN_LEFT:
-      voice_command_complete = 0U;
-      voice_last_build_result = VOICE_BUILD_RESULT_NONE;
-      Voice_SetTurn(VOICE_TURN_LEFT);
-      break;
-
     case VC02_EVENT_TURN_RIGHT:
-      voice_command_complete = 0U;
-      voice_last_build_result = VOICE_BUILD_RESULT_NONE;
-      Voice_SetTurn(VOICE_TURN_RIGHT);
+      if((voice_pos_request!=0U)||(voice_pos_owned!=0U)||
+         (voice_rotate_stage!=0U)||(steer_pos_active!=0U))
+      {
+        voice_ignored_during_execution_count++;return;
+      }
+      Voice_SetTurn((event->type==VC02_EVENT_TURN_LEFT)?
+          VOICE_TURN_LEFT:VOICE_TURN_RIGHT);
       break;
-
     case VC02_EVENT_ANGLE:
-      voice_command_complete = 0U;
-      voice_last_build_result = VOICE_BUILD_RESULT_NONE;
-
-      if (event->value == 0U)
-      {
-        Voice_SetStraight();
-      }
-      else
-      {
-        Voice_SetAngle(event->value);
-      }
+      if((event->value<=45U)&&((event->value%5U)==0U))
+        Voice_S154StageSteerAngle(event->value);
+      else voice_invalid_count++;
       break;
-
-    case VC02_EVENT_SPEED:
-      /*
-       * Speed là mode độc lập và có thể nói ở bất kỳ lúc nào.
-       * Không xóa pending, không chốt command.
-       */
-      if ((event->value >= VC02_SPEED_VERY_SLOW) &&
-          (event->value <= VC02_SPEED_FULL))
-      {
-        voice_speed_mode = event->value;
-      }
-      break;
-
     case VC02_EVENT_DURATION:
-      /* TIME là lệnh cuối dùng để kiểm tra và chốt command. */
-      (void)Voice_FinalizeCommand(event->value);
-      break;
-
-    case VC02_EVENT_CLEAR:
-      Voice_ResetPendingCommand();
-      voice_command_complete = 0U;
-      voice_last_build_result = VOICE_BUILD_RESULT_NONE;
-      voice_clear_count++;
-      break;
-
-    case VC02_EVENT_STOP:
-      /*
-       * STOP cao nhất trong arbitration M3.
-       * Dừng ngay và hủy pending/ready/active voice.
-       */
-      Control_RequestStop();
-      voice_stop_count++;
-      break;
-
-    default:
-      break;
+      (void)Voice_FinalizeCommand(event->value);break;
+    default:break;
   }
 }
 /* S11 DEBUG SYMBOL RETENTION -- diagnostics only.
