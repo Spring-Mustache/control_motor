@@ -1413,4 +1413,12 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [8] HOST compiled actual C command-builder regression and source integration checks updated; exact-SHA CI required; CubeIDE build, flash and physical actuation not proven.
 [9] New rule supersedes older spec lines permitting TIME-before-movement or ANGLE-before-turn: do NOT reintroduce backwards pairing just to satisfy outdated tests.
 [10] PS2 START logging integration still TODO in later commit; this work does not touch logger or ARM.
+
+
+## 2026-11-04 — CI follow-up: exact static check formatting synchronization
+
+[0] After initial strict-order parser implementation, tools/verify_m8_vc02_i1.py static predicate compared `voice_pending_command.duration_valid=0U;` / `angle_valid=0U;` without the spaces present in actual production source.
+[1] Updated only the static test predicates to match `duration_valid = 0U;` and `angle_valid = 0U;`. No motor behavior, parser semantics or safety gates changed in this follow-up.
+[2] Keep strict movement-first TIME and turn-first ANGLE semantics, missing primary parameter discarded, independent owners, F0/FF and guarded auto-ARM.
+[3] Exact SHA HOST CI still required. Do not claim target STM32 build/flash or real motion tests.
 END OF CONTEXT HANDOFF
