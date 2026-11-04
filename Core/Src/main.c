@@ -12434,61 +12434,36 @@ static void Steering_PS2ManualDisarm(uint8_t status)
 
 static void Steering_PS2ManualArmUpdate(void)
 {
-  static uint8_t start_previous = 0U;
-  static uint8_t require_release = 0U;
-  static uint32_t start_hold_begin_ms = 0U;
-  uint8_t start_now = ((PS2_Pad.Connected == 1U) &&
-                       (PS2_Pad.Mode == 0x73U) &&
-                       (PS2_Pad.Start != 0U)) ? 1U : 0U;
-  uint32_t now = HAL_GetTick();
+  static uint32_t last_check_ms = 0U;
+  uint32_t now_ms = HAL_GetTick();
   uint8_t reject = 0U;
 
-  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U) ||
-      (steer_safety_trip_latched != 0U))
+  /* A latched incident is still an error and cannot be silently cleared.
+   * The NC/EXTI emergency protection is a distinct protection layer.
+   */
+  if (steer_safety_trip_latched != 0U)
   {
     if (steer_ps2_manual_armed != 0U)
       Steering_PS2ManualDisarm(4U);
-    else
-    {
-      steer_ps2_manual_arm_status = 4U;
-      steer_ps2_manual_arm_hold_elapsed_ms = 0U;
-    }
-    start_previous = 0U;
-    require_release = 1U;
+    else steer_ps2_manual_arm_status = 4U;
     return;
   }
-
-  if (steer_ps2_manual_armed != 0U)
+  if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
   {
-    if ((start_now != 0U) && (start_previous == 0U))
-    {
-      Steering_PS2ManualDisarm(3U);
-      require_release = 1U;
-    }
-    start_previous = start_now;
+    if (steer_ps2_manual_armed != 0U)
+      Steering_PS2ManualDisarm(4U);
+    else steer_ps2_manual_arm_status = 4U;
     return;
   }
+  if (steer_ps2_manual_armed != 0U) return;
 
-  if (start_now == 0U)
-  {
-    start_previous = 0U;
-    require_release = 0U;
-    start_hold_begin_ms = 0U;
-    steer_ps2_manual_arm_hold_elapsed_ms = 0U;
-    if (steer_ps2_manual_arm_status == 1U)
-      steer_ps2_manual_arm_status = 0U;
-    return;
-  }
-
-  if (require_release != 0U) return;
-  if (start_previous == 0U)
-    start_hold_begin_ms = now;
-  start_previous = 1U;
-
-  if ((Steering_ManualInputsNeutral() == 0U) ||
-      (PS2_Pad.Select != 0U) ||
-      (PS2_Pad.R1 != 0U) || (PS2_Pad.R2 != 0U) ||
-      (PS2_Pad.L1 != 0U) || (PS2_Pad.L2 != 0U))
+  /* Transient preflight rejections are retried WITHOUT any key press,
+   * at most twice a second to bound I2C work.
+   */
+  if ((uint32_t)(now_ms - last_check_ms) < 500U) return;
+  last_check_ms = now_ms;
+  steer_ps2_manual_arm_hold_elapsed_ms = 0U;
+  if (Steering_CalInputsNeutral() == 0U)
     reject = 5U;
   else if ((control_stop_latched != 0U) ||
            (ps2_cancel_hold != 0U) ||
@@ -12500,10 +12475,6 @@ static void Steering_PS2ManualArmUpdate(void)
            (debug_limit_r_min.initialized == 0U) ||
            (debug_limit_l_max.initialized == 0U) ||
            (debug_limit_l_min.initialized == 0U) ||
-           /* An already-asserted single MIN/MAX on each side is
-            * allowed for a NEW command that moves away from that end.
-            * Reject contradictory MIN+MAX on the same axis.
-            */
            ((debug_limit_active_mask & 0x03U) == 0x03U) ||
            ((debug_limit_active_mask & 0x0CU) == 0x0CU) ||
            ((debug_limit_raw_mask & 0x03U) == 0x03U) ||
@@ -12514,33 +12485,23 @@ static void Steering_PS2ManualArmUpdate(void)
   else if (Steering_PositionWheelsStopped() == 0U)
     reject = 8U;
   else if ((steer_test_running != 0U) ||
-           (steer_test_arm != 0U) || (steer_test_request != 0U) ||
+           (steer_test_arm != 0U) ||
+           (steer_test_request != 0U) ||
            (steer_pos_active != 0U) ||
            (steer_cal_active != 0U) ||
            (debug_as5600_poll_enable != 0U))
     reject = 10U;
-
   if (reject != 0U)
   {
     steer_ps2_manual_arm_status = reject;
-    steer_ps2_manual_arm_hold_elapsed_ms = 0U;
     steer_ps2_manual_arm_reject_count++;
-    require_release = 1U; /* never auto-arm a previously held START */
     return;
   }
-
-  steer_ps2_manual_arm_hold_elapsed_ms =
-      (uint32_t)(now - start_hold_begin_ms);
-  steer_ps2_manual_arm_status = 1U;
-  if (steer_ps2_manual_arm_hold_elapsed_ms >=
-      STEER_PS2_MANUAL_ARM_HOLD_MS)
   {
     uint16_t left_raw = 0U, right_raw = 0U;
     uint8_t left_ok, right_ok, left_envelope = 0U, right_envelope = 0U;
     uint8_t fail = 0U;
-    /* Run BOTH sensor reads even when the first rejects. Only one
-     * START-held attempt is made; no repeated motor authorization.
-     */
+    /* Both sensors must independently pass on this bounded preflight. */
     left_ok = Steering_PositionReadOne(1U, &left_raw);
     right_ok = Steering_PositionReadOne(0U, &right_raw);
     steer_ps2_arm_left_read_status = debug_as5600_left_read_status;
@@ -12579,13 +12540,9 @@ static void Steering_PS2ManualArmUpdate(void)
       steer_ps2_arm_sensor_fail_count++;
       steer_ps2_manual_arm_status = 9U;
       steer_ps2_manual_arm_reject_count++;
-      require_release = 1U;
       return;
     }
-    /* Deliberate START arming grants D-pad/RX and bounded R1/R2
-     * position commands under the existing NC, geometry and STOP gates.
-     * SELECT calibration still requires its separate explicit arm.
-     */
+    /* Guarded automatic permission; never a request to start motion. */
     steer_manual_enable = 1U;
     steer_pos_enable = 1U;
     steer_safety_neutral_required = 1U;
@@ -12663,7 +12620,6 @@ static uint8_t PS2_IsManualControlActive(void)
       (steer_manual_active != 0U) ||
       (steer_cal_active != 0U) ||
       (PS2_Pad.Select != 0U) ||
-      (PS2_Pad.Start != 0U) ||
       (PS2_Pad.L3 != 0U) || (PS2_Pad.R3 != 0U) ||
       (PS2_Pad.Triangle != 0U) || (PS2_Pad.Circle != 0U) ||
       (PS2_Pad.Cross != 0U) || (PS2_Pad.Square != 0U) ||
@@ -13751,7 +13707,7 @@ int main(void)
         m8_s02_ps2_poll_count++;
     }
     PS2_Read_Data();
-    Steering_PS2ManualArmUpdate(); /* START arm/disarm, safe-neutral only */
+    Steering_PS2ManualArmUpdate(); /* guarded automatic ARM, START not required */
     PS2_DebugObserveAllInputs();  /* All 16 PS2 buttons; input only */
     PS2_DebugShadowSteeringCommands(); /* Dpad/RX/R1/R2/Select, NO PWM */
     PS2_RestoreRouteUpdate(); /* S15 all mapped PS2 commands, read-only */
@@ -13781,6 +13737,9 @@ int main(void)
          (m8_s00_first_fault.valid != 0U) ||
          (M8S00_CalHasSession() != 0U) ||
          (m8_s00_joint_any_steer_frames != 0U)) ? 1U : 0U;
+    /* TODO(next commit): map PS2 START to logging. Existing USER button
+     * logging remains unchanged in this commit.
+     */
     RamLogger_ButtonUpdate();
     if (wheel_log_m8_s00_button_dump_request != 0U)
     {
