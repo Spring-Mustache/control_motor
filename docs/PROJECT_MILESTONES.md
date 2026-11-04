@@ -1109,3 +1109,11 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [SOURCE] `Voice_ExecuteMotorControl` now reads updated `voice_speed_mode` for active wheel each cycle, recomputes signed FORWARD/BACKWARD target through existing shaper/PID and uses updated level for protected rotate spin; pre-R2 speed changes never spin early. `voice_speed_active_update_count` exposes application via Live Expressions.
 - [SAFETY] ROTATE still caps speed at 400 CCR; C2..C5 saturate to the same spin target; unchanged NC/R2, STOP, PS2 owner, 20s partial timeout, F0 pending-only, independent steering. No PID/ramp changes or new firmware preflight grants.
 - [TEST] Actual production C executor host regression includes live speed change up/down, signed reverse, BOTH spin directions/physical NC loss, unchanged TIME and inactivity. CI exact new SHA is required. STM32CubeIDE/flash/hardware tests still pending.
+
+
+## 2026-11-04 — Experimental braking-policy swap isolated from a1396e7d
+
+- [USER] Wants to retain a1396e7d as exact rollback point. Trial branch `feature/m8-vc02-stop-ps2-brake-swap` created FROM a1396e7d; original branch and commit unchanged.
+- [SOURCE] Spoken FF Voice STOP now cancels Voice and requests existing M6 soft zero-target ramp for wheels. Control arbitration STOP stays latched until existing wheel-stopped guard is true; PS2 takeover while Voice active/pending OR during FF coasting immediately calls the pre-existing emergency wheel/steering stop and requires neutral+fresh PS2 input.
+- [SAFETY] Existing NC/EXTI/safety-trip and RF-loss emergency paths preserved. During RF-loss in a braking spin, hard stop remains. Soft STOP does NOT serve as physical E-stop. No PWM, PID or S15.4 changes.
+- [TEST] `tools/verify_m8_vc02_stop_swap.py` compiles actual affected C, is wired into `.github/workflows/context-handoff-release.yml`. GitHub exact-SHA CI required. STM32CubeIDE Clean Build/Flash/physical brake measurement not yet verified.
