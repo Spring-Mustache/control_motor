@@ -1378,4 +1378,9 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [9] Voice FF is no longer a physical emergency stop; separate hardware E-stop must remain functional.
 [10] Observe `control_stop_latched`, `ps2_cancel_hold`, `wheel_target_pwm`, `wheel_current_pwm`, measured RPM before enabling powered verification.
 [11] Original 386-line specification and first 17 context sections retained. These notes are additive only.
+
+
+## 2026-11-04 — HOST test stub correction for STOP/PS2 swap
+[0] New C compiler test originally missed pre-existing global steer_test_running, referenced in production Control_Arbitrate.
+[1] Test stub now declares this owner flag. No production source or braking policy changed; rerun exact-SHA CI to confirm test outcome.
 END OF CONTEXT HANDOFF
