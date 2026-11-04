@@ -1289,4 +1289,7 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] Windows project main path D:\STM32 task\control_motor and native PowerShell after-disarm capture; do not reset dirty user edits.
 [16] Preserve original 386-line spec, 17 handoff sections, footer. S15.3 not PASS; S15.4/VC02 remain pending.
 
+
+[CI follow-up 2026-11-04] New LEFT-PACE host C passed; previously existing far-trim static test falsely included the adjacent new LEFT-PACE function when slicing to Steering_ManualUpdate, so it reported a LEFT-write in far-trim. Fix old verifier to balanced-brace-extract only Steering_S153FarTrimObserve. No MCU motor source/NC/CCR change, recheck CI at next SHA.
+
 END OF CONTEXT HANDOFF
