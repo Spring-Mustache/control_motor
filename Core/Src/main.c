@@ -1999,13 +1999,13 @@ volatile uint8_t steer_pos_left_fine_adapt_enable = 1U;
  * or went the wrong way, 9 unexpected limit / arbitration cancelled.
  */
 /* S15.4 I1 Voice position is opt-in and owns the existing NC/AS5600
- * position service, not fake PS2 raw buttons. 3 = angle RAW target.
+ * position service, not fake PS2 raw buttons. 4 = angle RAW target.
  * Boot OFF until CubeIDE/real electrical and mechanical gates.
  */
 volatile uint8_t voice_pos_enable = 0U;
 volatile uint8_t voice_angle_mapping_enable = 0U;
 volatile uint8_t voice_pivot_enable = 0U;
-volatile uint8_t voice_pos_request = 0U; /* 1 CENTER; 2 R2; 3 angle */
+volatile uint8_t voice_pos_request = 0U; /* 1 CENTER; 2 R2; 4 angle */
 volatile uint8_t voice_pos_owned = 0U;
 volatile uint8_t voice_pos_rejected = 0U;
 volatile uint8_t voice_pos_last_result = 0U;
@@ -4787,7 +4787,7 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     /* Escape no longer uses MAX PWM and a 120-ms motor pause.
      * Follow the same position PWM law throughout R1/R2 travel.
      */
-    goal = (steer_pos_command == 3U) ?
+    goal = (steer_pos_command == 4U) ?
       (left ? voice_pos_goal_l : voice_pos_goal_r) :
       ((steer_pos_command == 1U) ?
         (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
@@ -4819,7 +4819,7 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     return;
   }
 
-  goal = (steer_pos_command == 3U) ?
+  goal = (steer_pos_command == 4U) ?
       (left ? voice_pos_goal_l : voice_pos_goal_r) :
       ((steer_pos_command == 1U) ?
         (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
@@ -4847,7 +4847,7 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
    * result=3. A close RAW reading must NOT declare pivot-ready before
    * the steering module has reached its required mechanical angle.
    */
-  if ((steer_pos_command == 1U) || (steer_pos_command == 3U))
+  if ((steer_pos_command == 1U) || (steer_pos_command == 4U))
   {
     uint16_t fine_enter = (left != 0U) ?
         STEER_POS_FINE_LEFT_ENTER_RAW : steer_pos_right_fine_enter_raw;
@@ -5300,7 +5300,7 @@ static void Steering_PositionUpdate(void)
       ((steer_left_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
        (steer_right_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE)))
     steer_angle_wp_hold_mask = 0U;
-  if ((steer_pos_command != 3U) &&
+  if ((steer_pos_command != 4U) &&
       (steer_pos_left_state == STEER_AXIS_MOVING) &&
       (steer_pos_right_state == STEER_AXIS_MOVING) &&
       (steer_left_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE) &&
@@ -11331,6 +11331,8 @@ static void Voice_S154StageSteerAngle(uint8_t angle)
   {
     voice_ignored_during_execution_count++;return;
   }
+  if(angle==0U)Voice_SetStraight();
+  else Voice_SetAngle(angle);
   if(angle!=0U)
   {
     if((dir==0)||(voice_pending_command.steering_conflict!=0U)||
@@ -11362,7 +11364,7 @@ static void Voice_S154StageSteerAngle(uint8_t angle)
   voice_pos_last_turn=dir;
   voice_pos_rejected=0U;
   voice_pos_last_result=0U;
-  voice_pos_request=(angle==0U)?1U:3U;
+  voice_pos_request=(angle==0U)?1U:4U;
   voice_pos_request_count++;
   voice_pending_command.turn=VOICE_TURN_NONE;
   voice_pending_command.turn_valid=0U;
@@ -11673,8 +11675,12 @@ static void Voice_ExecuteMotorControl(void)
       voice_execution_finish_count++;
       return;
     }
-    WheelControl_SetSpinDirection(voice_rotate_direction,
-        (int16_t)Voice_SpeedLevelToPWM(voice_active_command.speed_level));
+    /* Do not exceed the previously used PS2 L1/L2 spin PWM. */
+    {
+      uint16_t speed=Voice_SpeedLevelToPWM(voice_active_command.speed_level);
+      if(speed>(uint16_t)MOTOR_DPAD_PWM)speed=(uint16_t)MOTOR_DPAD_PWM;
+      WheelControl_SetSpinDirection(voice_rotate_direction,(int16_t)speed);
+    }
     if(WheelControl_SpinIsActive()==0U)
     {
       /* Wheel spin owner refused startup, never claim execution. */
@@ -12735,8 +12741,10 @@ static void Control_Arbitrate(void)
    * This does not modify the pre-existing Voice/STOP latch behavior.
    */
   if (((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U)) &&
-      ((WheelControl_SpinIsActive() != 0U) ||
-       (steer_pos_active != 0U) || (steer_manual_active != 0U) ||
+      (((WheelControl_SpinIsActive() != 0U) &&
+        (voice_rotate_stage != 2U)) ||
+       ((steer_pos_active != 0U) && (voice_pos_owned == 0U)) ||
+       (steer_manual_active != 0U) ||
        (steer_cal_active != 0U)))
     ps2_spin_rf_latched = 1U;
 
