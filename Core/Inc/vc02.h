@@ -110,6 +110,13 @@ void VC02_UART_ErrorCallback(UART_HandleTypeDef *huart);
 uint8_t VC02_GetEvent(VC02_Event_t *event);
 
 
+/* All raw USART6 RX bytes, including D0 prefix and unsupported data. */
+extern volatile uint32_t vc02_uart_rx_byte_count;
+extern volatile uint32_t vc02_uart_error_count;
+extern volatile uint32_t vc02_uart_rearm_error_count;
+extern volatile uint8_t vc02_uart_last_byte;
+extern volatile uint8_t vc02_uart_begin_status; /* HAL_OK is 0 */
+
 /* Số event bị mất nếu FIFO đầy, phục vụ debug. */
 uint32_t VC02_GetDroppedEventCount(void);
 
