@@ -7,6 +7,10 @@
 #define PS2_SPI_TIMEOUT_MS 10U
 
 volatile PS2_ControllerTypeDef PS2_Pad;
+/* Raw PS2 packet bitmask before field decoding: one bit per pressed
+ * button. 32-bit view avoids the previously observed narrow Live
+ * Expressions debugger byte displacement. NO motor I/O or SPI extra. */
+volatile uint32_t debug_ps2_frame_buttons32 = 0U;
 
 static SPI_HandleTypeDef *ps2_hspi;
 static GPIO_TypeDef *ps2_cs_port;
@@ -56,6 +60,7 @@ void PS2_Read_Data(void) {
             // Báo mất kết nối để main.c dừng motor theo fail-safe
             PS2_Pad.Connected = 0;
             PS2_Pad.Mode = 0;
+            debug_ps2_frame_buttons32 = 0U;
             return;
         }
 
@@ -69,6 +74,14 @@ void PS2_Read_Data(void) {
     if((ps2_data[1] == 0x41 || ps2_data[1] == 0x73) && ps2_data[2] == 0x5A) {
         PS2_Pad.Connected = 1;
         PS2_Pad.Mode = ps2_data[1];
+        /* Byte3 bits0..7 (SELECT..LEFT), byte4 bits0..7
+         * (L2,R2,L1,R1,TRIANGLE,CIRCLE,CROSS,SQUARE).
+         * Active LOW -> pressed=1. This is independent of PS2_Pad
+         * field layout, and remains read-only diagnostic evidence.
+         */
+        debug_ps2_frame_buttons32 =
+            (uint32_t)(uint8_t)(~ps2_data[3]) |
+            ((uint32_t)(uint8_t)(~ps2_data[4]) << 8);
 
         // Byte 3: Nút chức năng & D-Pad (Đã tích hợp L3, R3)
         PS2_Pad.Select = (~ps2_data[3] >> 0) & 0x01;
@@ -102,5 +115,6 @@ void PS2_Read_Data(void) {
     } else {
         PS2_Pad.Connected = 0;
         PS2_Pad.Mode = 0;
+        debug_ps2_frame_buttons32 = 0U;
     }
 }

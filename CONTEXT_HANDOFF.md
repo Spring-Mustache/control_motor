@@ -1241,4 +1241,12 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] Next chat use HEAD and CI, only PowerShell native UART from main Windows repo, private logs not committed.
 [16] Original 386-line requirement and 17 sections preserved; no source=hardware conflation.
 
+
+## 2026-11-04 — PS2 1-byte Live Expressions offset vs actual L1/L2 spin NC gate
+[OBSERVED] L2 shows R2, R2 shows L1, L1 shows R1, R1 shows Triangle in Live Expressions; exact adjacent 8-bit struct fields. Code PS2 bit assignments standard; cannot yet conclude physical receiver protocol or LIVE address truth. Existing prior AS5600 narrow-expression shift reinforces debugger hypothesis, not proof.
+[CODE] New read-only debug_ps2_frame_buttons32 from raw byte3/4 active-low packet before decode; debug_ps2_button_mask32 and debug_ps2_button_seen_mask32 from decoded struct. Preserve original PS2 actuation and no motor power from observers.
+[GATE] L1/L2 WheelControl spin only if physical NC mask exactly 0x06 (L_MIN+R_MIN, both MAX clear); ps2_spin_nc_block_frames counts blocked requests. Do NOT bypass NC or drive at ~3mm RMIN clearance merely to prove button.
+[TEST] tools/verify_ps2_button_layout.py compiles/tests ACTUAL C ps2.c 16 buttons + invalid/SPI error; HOST+CI separate from CubeIDE target and real 8-bit RF packet. Doc docs/PS2_BUTTON_LAYOUT_AUDIT_2026_11_04.md.
+[USE] Motor supply disconnected, confirm exact new SHA/ELF; hold one physical key and observe both 32-bit masks: L2=256,R2=512,L1=1024,R1=2048,Triangle=4096. On mismatch pursue raw/controller or Live Expressions cause; no blind swapping of controls. S15.3 status unchanged, not hardware PASS.
+
 END OF CONTEXT HANDOFF

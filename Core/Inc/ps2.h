@@ -19,6 +19,8 @@ typedef struct {
 
 // Khai báo biến toàn cục (extern) để main.c có thể truy cập
 extern volatile PS2_ControllerTypeDef PS2_Pad;
+/* 32-bit input-only packet mirror, zero on invalid/disconnected data. */
+extern volatile uint32_t debug_ps2_frame_buttons32;
 
 // Nguyên mẫu hàm
 void PS2_Init(SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_port, uint16_t cs_pin);

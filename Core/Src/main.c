@@ -11480,6 +11480,8 @@ volatile uint32_t debug_ps2_mapping_sample_count = 0U;
 volatile uint8_t debug_ps2_auto_observe_enable = 1U;
 volatile uint8_t debug_steer_auto_as5600_idle_observe = 1U;
 volatile uint16_t debug_ps2_button_mask = 0U;
+volatile uint32_t debug_ps2_button_mask32 = 0U;
+volatile uint32_t debug_ps2_button_seen_mask32 = 0U;
 volatile uint16_t debug_ps2_button_rising_mask = 0U;
 volatile uint16_t debug_ps2_button_seen_mask = 0U;
 volatile uint32_t debug_ps2_button_press_edges = 0U;
@@ -11523,6 +11525,7 @@ static void PS2_DebugObserveAllInputs(void)
   if ((PS2_Pad.Connected != 1U) || (PS2_Pad.Mode != 0x73U))
   {
     debug_ps2_button_mask = 0U;
+    debug_ps2_button_mask32 = 0U;
     debug_ps2_button_rising_mask = 0U;
     previous_mask = 0U;
     return;
@@ -11547,6 +11550,8 @@ static void PS2_DebugObserveAllInputs(void)
 
   rising = (uint16_t)(mask & (uint16_t)~previous_mask);
   debug_ps2_button_mask = mask;
+  debug_ps2_button_mask32 = (uint32_t)mask;
+  debug_ps2_button_seen_mask32 |= (uint32_t)mask;
   debug_ps2_button_rising_mask = rising;
   debug_ps2_button_seen_mask |= mask;
   if (rising != 0U) debug_ps2_button_press_edges++;

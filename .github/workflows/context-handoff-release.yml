@@ -88,6 +88,9 @@ jobs:
       - name: Verify D-pad/RX NC outward held-command HOST regression
         run: python3 tools/verify_m8_manual_nc_escape.py
 
+      - name: Verify PS2 16-key layout and passive 32-bit packet mirrors (actual C HOST)
+        run: python3 tools/verify_ps2_button_layout.py
+
       - name: Verify S15.3 RIGHT trim isolation source and STOP guards
         run: python3 tools/verify_m8_s153_trim_ab.py
 
