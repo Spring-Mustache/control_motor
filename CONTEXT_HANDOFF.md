@@ -1398,4 +1398,19 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [8] Voice FF soft ramp, PS2 takeover emergency, physical NC/fault hard stops, C1..C5 live speed, R2/NC spin and F0 pending-only unchanged.
 [9] Added tools/verify_m8_vc02_auto_arm.py plus workflow exact-SHA CI; no CubeIDE target build or flash/physical success claims.
 [10] Keep original 386-line operator requirements and first 17 handoff sections intact. No merges/force pushes.
+
+
+## 2026-11-04 — Latest USER correction: strict primary-then-parameter VC02 command strings
+
+[0] User reports misrecognition: VC-02 often hears only trailing D0 TIME or B angle; earlier code cached the trailing parameter and then automatically actuated when the leading primary was later spoken. This is unwanted and unsafe.
+[1] NEW overriding rule: wheel command needs fresh A2/A3/A4/A7 BEFORE fresh D0 XX. A D0 XX received without a preceding wheel primary is discarded outright and never cached. New primary overwrites and clears entire incomplete wheel group (movement+duration), even if repeated.
+[2] NEW overriding rule: steering requires fresh A5/A6 BEFORE fresh B1..B9. Orphan B1..B9 discarded, never cached. Every new steering primary resets whole incomplete steering group (direction+angle), even if repeated. B0 still executes standalone center R1.
+[3] Preserve independent wheel and steering pending streams so A2 A5 B6 D0 0A can still complete both; do not cancel a completed/active motor owner as part of the parser change.
+[4] Existing FF Voice soft wheel stop, PS2 cancel emergency, physical NC/EXTI fault protections, C1..C5 live speed updates and guarded auto-ARM from 9a315915 remain untouched.
+[5] F0 continues to clear ONLY incomplete buffers; FF cancels owners as prior policy. 20s partial pending timeout retained; late parameter after expiry discarded rather than buffered.
+[6] New diagnostic counts voice_orphan_duration_discard_count and voice_orphan_angle_discard_count; use VC02 raw/event counters for missed primary debugging too.
+[7] New branch feature/m8-vc02-strict-ordered-phrases created from exact 9a315915129e5b577845a9e5806d27e86c467f6c; old branch and rollback points 536796e2/a1396e7d retained.
+[8] HOST compiled actual C command-builder regression and source integration checks updated; exact-SHA CI required; CubeIDE build, flash and physical actuation not proven.
+[9] New rule supersedes older spec lines permitting TIME-before-movement or ANGLE-before-turn: do NOT reintroduce backwards pairing just to satisfy outdated tests.
+[10] PS2 START logging integration still TODO in later commit; this work does not touch logger or ARM.
 END OF CONTEXT HANDOFF
