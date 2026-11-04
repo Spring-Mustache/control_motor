@@ -13563,6 +13563,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    /* Expire incomplete PLC Voice input registers even when UART is idle.
+     * Never touches a committed or active motor command.
+     */
+    Voice_PendingExpire();
+
     /* M7-S01 limit switch inputs only: sample regardless of control mode. */
     SteeringLimits_DebugUpdate();
 
