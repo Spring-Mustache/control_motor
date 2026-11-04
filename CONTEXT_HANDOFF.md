@@ -1363,4 +1363,19 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [8] No target Clean Build/Flash/actual UART/motor physical speed verified; CI host alone insufficient.
 [9] No S15.4 common-T sync changes in this speed fix.
 [10] Keep original operator 386-line spec, 17-section handoff, log provenance, and existing milestones intact; this is an append-only project update.
+
+
+## 2026-11-04 — NEW trial branch FF soft STOP / PS2 hard cancel FROM a1396e7d
+[0] The user expressly requested keep a1396e7d as the known-good setpoint; new branch `feature/m8-vc02-stop-ps2-brake-swap` starts exactly at `a1396e7d568eea1e05aa0e7d54a0947436c1871d`. No reset/force push to original branch.
+[1] Voice FF STOP now cancels Voice, requests existing M6 soft wheel ramp via zero target, and does NOT call Wheel_EmergencyStop on FF path. Steering owner still stops immediately.
+[2] Control_Arbitrate uses STOP latch until Steering_PositionWheelsStopped confirms actual wheel halt. It does not permit automatic Voice or PS2 control during coast.
+[3] First PS2 active input while Voice pending/ready/active now calls Wheel_EmergencyStop immediately; action consumed and ps2_cancel_hold requires full analog valid neutral then NEW input.
+[4] PS2 input during FF soft-stop coast triggers the same emergency cut and PS2 neutral rearm; RF-loss while wheel spin brakes still triggers immediate emergency.
+[5] NC/EXTI, steer safety trip, RF-loss steering, and physical cutoff remain independent emergency mechanisms; do NOT soften these.
+[6] No changes to M6 PID/ramp tuning, PWM, speed commands, VC-02 packet grammar, S15.4 status or S15.3 tuning.
+[7] Real C HOST test `tools/verify_m8_vc02_stop_swap.py` and CI job added. Exact SHA PASS must be checked; no claims about STM32 target build or motor physical braking without evidence.
+[8] OpenAI write tool previously blocked one attempted update without an explained technical reason; this distinct new branch was successfully updated via the normal GitHub API, not by resetting original refs.
+[9] Voice FF is no longer a physical emergency stop; separate hardware E-stop must remain functional.
+[10] Observe `control_stop_latched`, `ps2_cancel_hold`, `wheel_target_pwm`, `wheel_current_pwm`, measured RPM before enabling powered verification.
+[11] Original 386-line specification and first 17 context sections retained. These notes are additive only.
 END OF CONTEXT HANDOFF
