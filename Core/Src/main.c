@@ -2908,6 +2908,17 @@ volatile uint8_t steer_voice_s154_right_late_fine_enable = 1U;
 volatile uint8_t steer_voice_s154_right_fall_late_fine_enable = 1U;
 volatile uint16_t steer_voice_s154_right_fine_entry_used = STEER_POS_FINE_RIGHT_MIN_RAW;
 volatile uint32_t steer_voice_s154_run_sync_frames = 0U;
+/* M8-S15.5: 15deg Voice LEFT has 214permille peak progress gap.
+ * Safely move the EXISTING leader taper to full floor by gap100
+ * instead of gap150, ONLY for this one command, both coarse axes.
+ * Keep the proven 300/100 cap, 175/50 nonzero floors, and fine entry.
+ * This trial defaults ON, but never requests or arms motor motion.
+ */
+#define STEER_VOICE_S155_LEFT15_TAPER_RAMP_PERMILLE 70U
+volatile uint8_t steer_voice_s155_left15_taper_enable = 1U;
+volatile uint32_t steer_voice_s155_left15_taper_frames = 0U;
+volatile uint8_t steer_voice_s155_peak_leader = 0U; /* 1 LEFT, 2 RIGHT */
+volatile uint32_t steer_voice_s155_peak_at_ms = 0U;
 /* Read-only per-Voice run coordinator rejection counters. Auto-captured
  * on completion, no manual debug flag required, no actuator writes.
  */
@@ -2925,6 +2936,8 @@ typedef struct {
   uint32_t seq, total_ms, fine_ms, skew_ms, dropped;
   uint32_t left_done_ms, right_done_ms, right_fine_ms, sync_frames;
   uint32_t sync_disabled, sync_phase, sync_stale, sync_nc, sync_waypoint;
+  uint32_t peak_at_ms, s155_taper_frames;
+  uint8_t peak_leader;
   uint16_t start, goal, entry, quiet, end, gap, pulse_max_ms, entry_limit;
   int16_t error, last_move;
   uint8_t angle, turn, pulses, reversals, weak, good, back;
@@ -3825,6 +3838,40 @@ static void Steering_S142SyncApply(uint16_t start_l,uint16_t goal_l,
     steer_s142_sync_sat_r_frames++;
 }
 
+/* S15.5: one small-stroke, Voice-only early phase taper.
+ * TRUE only for active Voice angle15 LEFT, no PS2/R1/R2/manual/45.
+ * Pure taper never grants PWM above owner's proposal, below the
+ * established nonzero floor, or past physical NC.
+ */
+static uint8_t Steering_VoiceS155Left15Active(uint8_t mode)
+{
+  return ((steer_voice_s155_left15_taper_enable == 1U) &&
+          (voice_pos_owned != 0U) && (mode == 4U) &&
+          (voice_pos_last_angle_deg == 15U) &&
+          (voice_pos_last_turn < 0)) ? 1U : 0U;
+}
+
+/* Same arithmetic as existing 120-permille taper when trial inactive.
+ * At 15deg LEFT only, ramp 70 instead of 120 so leader reaches its
+ * already-tested floor at gap100 (90% "worst-point" alignment).
+ */
+static uint16_t Steering_VoiceS155LeaderTaper(uint16_t duty,
+                                              uint16_t floor,
+                                              uint16_t gap,
+                                              uint16_t lead,
+                                              uint8_t trial)
+{
+  uint16_t span = (trial != 0U) ?
+      STEER_VOICE_S155_LEFT15_TAPER_RAMP_PERMILLE : 120U;
+  uint16_t excess;
+  uint32_t trim;
+  if ((duty <= floor) || (gap <= lead)) return duty;
+  excess = (uint16_t)(gap - lead);
+  if (excess > span) excess = span;
+  trim = ((uint32_t)(duty - floor) * excess + span / 2U) / span;
+  return (uint16_t)(duty - trim);
+}
+
 /* Output-only supervisor AFTER all per-axis guard/sensor checks and BEFORE
  * the atomic late NC IRQ / GPIO / CCR recheck. Both sensor samples must be
  * fresh. This function NEVER raises a PWM command or reverses an axis.
@@ -3842,8 +3889,7 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   uint16_t pl, pr, lead, frontier, slow;
   int32_t target_l, target_r;
   uint32_t now = HAL_GetTick();
-  (void)floor_l;
-  (void)floor_r;
+  uint8_t s155_left15 = Steering_VoiceS155Left15Active(mode);
   steer_angle_wp_last_trim_pwm = 0U;
 
   /* Pace only the ordinary (coarse) trajectory. R1 fine CENTER
@@ -3987,8 +4033,6 @@ static void Steering_AngleWaypointApply(uint8_t mode,
      */
     if (gap > lead)
     {
-      uint16_t excess = (uint16_t)(gap - lead);
-      if (excess > 120U) excess = 120U;
       if ((pl > pr) && (allow_hold_l != 0U) &&
           (dist_l > 100U) && (*duty_l > floor_l) &&
           ((steer_speed_obs_l.valid == 0U) ||
@@ -3996,13 +4040,16 @@ static void Steering_AngleWaypointApply(uint8_t mode,
            ((uint32_t)steer_speed_obs_l.speed_pms + 20U >=
             (uint32_t)steer_speed_obs_r.speed_pms)))
       {
-        uint32_t trim = ((uint32_t)(*duty_l - floor_l) *
-                         excess + 60U) / 120U;
-        if (trim > 0U)
+        uint16_t next = Steering_VoiceS155LeaderTaper(
+            *duty_l, floor_l, gap, lead, s155_left15);
+        if (next < *duty_l)
         {
-          *duty_l = (uint16_t)(*duty_l - trim);
+          *duty_l = next;
           if (steer_speed_taper_l_frames != 0xffffffffUL)
             steer_speed_taper_l_frames++;
+          if ((s155_left15 != 0U) &&
+              (steer_voice_s155_left15_taper_frames != 0xffffffffUL))
+            steer_voice_s155_left15_taper_frames++;
         }
       }
       else if ((pr > pl) && (allow_hold_r != 0U) &&
@@ -4012,13 +4059,16 @@ static void Steering_AngleWaypointApply(uint8_t mode,
                 ((uint32_t)steer_speed_obs_r.speed_pms + 20U >=
                  (uint32_t)steer_speed_obs_l.speed_pms)))
       {
-        uint32_t trim = ((uint32_t)(*duty_r - floor_r) *
-                         excess + 60U) / 120U;
-        if (trim > 0U)
+        uint16_t next = Steering_VoiceS155LeaderTaper(
+            *duty_r, floor_r, gap, lead, s155_left15);
+        if (next < *duty_r)
         {
-          *duty_r = (uint16_t)(*duty_r - trim);
+          *duty_r = next;
           if (steer_speed_taper_r_frames != 0xffffffffUL)
             steer_speed_taper_r_frames++;
+          if ((s155_left15 != 0U) &&
+              (steer_voice_s155_left15_taper_frames != 0xffffffffUL))
+            steer_voice_s155_left15_taper_frames++;
         }
       }
     }
@@ -4234,7 +4284,15 @@ static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
       (uint16_t)(steer_voice_s154_progress_r - steer_voice_s154_progress_l);
   steer_voice_s154_gap_permille = gap;
   if (gap > steer_voice_s154_peak_gap_permille)
+  {
     steer_voice_s154_peak_gap_permille = gap;
+    if ((voice_pos_owned != 0U) && (mode == 4U))
+    {
+      steer_voice_s155_peak_leader = (steer_voice_s154_progress_l >
+          steer_voice_s154_progress_r) ? 1U : 2U;
+      steer_voice_s155_peak_at_ms = (uint32_t)(now - steer_pos_start_ms);
+    }
+  }
   steer_voice_s154_pwm_l = *pwm_l;
   steer_voice_s154_pwm_r = *pwm_r;
   if (steer_voice_s154_frames != 0xffffffffUL)
@@ -4460,6 +4518,9 @@ static void Steering_VoiceRightFineCapture(uint8_t result)
       (uint32_t)(steer_voice_s154_done_r_ms -
                  steer_voice_s154_right_fine_enter_ms) : 0U;
   d->sync_frames = steer_voice_s154_run_sync_frames;
+  d->peak_leader = steer_voice_s155_peak_leader;
+  d->peak_at_ms = steer_voice_s155_peak_at_ms;
+  d->s155_taper_frames = steer_voice_s155_left15_taper_frames;
   d->sync_disabled = steer_voice_s154_run_sync_disabled;
   d->sync_phase = steer_voice_s154_run_sync_phase;
   d->sync_stale = steer_voice_s154_run_sync_stale;
@@ -5524,6 +5585,9 @@ static void Steering_PositionUpdate(void)
       steer_voice_s154_common_eta_ms = 0U;
       steer_voice_s154_arrival_skew_ms = 0U;
       steer_voice_s154_run_sync_frames = 0U;
+      steer_voice_s155_left15_taper_frames = 0U;
+      steer_voice_s155_peak_leader = 0U;
+      steer_voice_s155_peak_at_ms = 0U;
       steer_voice_s154_run_sync_disabled = 0U;
       steer_voice_s154_run_sync_phase = 0U;
       steer_voice_s154_run_sync_stale = 0U;
@@ -7241,7 +7305,8 @@ static void M8S11_StreamUpdate(void)
         "entryLimit=%u,syncFrames=%lu,leftDoneMs=%lu,"
         "rightDoneMs=%lu,rightFineMs=%lu,"
         "syncDisabled=%lu,syncPhase=%lu,syncStale=%lu,"
-        "syncNc=%lu,syncWaypoint=%lu\r\n",
+        "syncNc=%lu,syncWaypoint=%lu,"
+        "peakLeader=%u,peakAtMs=%lu,earlyTaperFrames=%lu\r\n",
         FW_BUILD_GIT_SHA,(unsigned long)d->seq,
         (unsigned)d->angle,(unsigned)d->turn,
         (unsigned long)d->total_ms,(unsigned long)d->fine_ms,
@@ -7262,7 +7327,10 @@ static void M8S11_StreamUpdate(void)
         (unsigned long)d->sync_phase,
         (unsigned long)d->sync_stale,
         (unsigned long)d->sync_nc,
-        (unsigned long)d->sync_waypoint);
+        (unsigned long)d->sync_waypoint,
+        (unsigned)d->peak_leader,
+        (unsigned long)d->peak_at_ms,
+        (unsigned long)d->s155_taper_frames);
     if (M8S11_SendLine(n) != 0U)
     {
       m8_s154_right_fine_pending = 0U;

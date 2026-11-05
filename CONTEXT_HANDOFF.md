@@ -1571,4 +1571,23 @@ END OF CONTEXT HANDOFF
 [15] Rollback source SHA c2c2d09eb56e3b3e5be7474853655c6cdfb25395.
 [16] SOURCE-STAGED / HOST CI / CubeIDE BUILD / FLASH / HARDWARE PASS independent.
 
+## 2026-11-05 — M8 S15.5 >90% normalized progress goal, isolated LEFT15 leader taper trial
+[0] User requested improve both steering axes to >90% tracking on ALL six Voice 15/30/40 LEFT/RIGHT cases. Prior exact physical-good SHA 9cd6067cf9e7a9885ee4c36121e3912e80956860, private log M8S154_right_fine_20261105_195646.txt; no raw private log publicly.
+[1] Correct peakGap series = 214,52,40,25,49,62 permille; worst point % = 78.6,94.8,96.0,97.5,95.1,93.8. Only LEFT15 fails. All 6 resultL/R/finish=2, RIGHT fine pulses0, syncFrames75..209, all errors abs<=5 RAW. >90 requires peakGap<100, NOT just shared arrival or average over command.
+[2] Source common S15.4 waypoint controls only leader nonzero taper and follower bounded boost. Existing taper deadband=lead30 and ramp120 => full floor only at gap150. Trial only on Voice mode4, active owner, last angle15 and last turn LEFT, new boot1 enable steer_voice_s155_left15_taper_enable.
+[3] On this eligible command, leave deadband=lead30 but shorten taper ramp120 to70 => full prevalidated floor at gap100 (left175,right50), never zero PWM. Normal cases retain bit-exact legacy math per HOST compiled actual C test.
+[4] No changes to LEFT/R1/R2/Voice45 NC, existing two-direction RIGHT10 RAW fine-entry, sensor reading, S15.4 post-I2C fresh tick, physical NC IRQ/late CCR, STOP PS2 or motor max300/100, ±5 acceptance, voice 5s watchdog or 650ms stall.
+[5] Keep all required flags boot=1 and do not demand manual Live Expressions. New S15.5 flag boot1 but is not motor/auto-ARM permission.
+[6] Auto M8S154_FINE line appends peakLeader (1L/2R), peakAtMs and earlyTaperFrames. Record per-run with original fields, UART safe idle, Windows PowerShell collector unchanged, no public private logs.
+[7] New isolated branch feature/m8-s155-voice15-left-early-taper from tested 9cd6067c; baseline and earlier branches preserved.
+[8] New tools/verify_m8_s155_voice15_left_taper.py compiles real C helper, checks gating, bit-exact fallback thousands of samples, never below floor and effective trial at gap100. CI step added plus old exhaustive safety suites.
+[9] Real vehicle >90% improvement NOT established. No claim that changing normalized taper guarantees <100 peak; may increase total time/timeout or terminal skew. Only after exact SHA full Actions success, CubeIDE Clean Build/Flash and protected rig test.
+[10] Operator next tests 15 LEFT FIRST, stops if unsafe, then safe 6 Voice 15/30/40 both directions, sends ONE private TXT. Compare all peakGap <100, earlyTaperFrames >0 at 15LEFT, peakLeader/AtMs, no faults, pulse/reverse, right error, syncFrames, timing. If not >90, use new peak diagnostic to choose next controller fix.
+[11] Roll back to exact known physically-good 9cd6067cf9e7a9885ee4c36121e3912e80956860, clean build/flash.
+[12] Original original 386-line requirements preserved; docs/M8_S155_VOICE15_LEFT_EARLY_TAPER_2026_11_05.md.
+[13] SOURCE_STAGED until exact Actions; HOST then target CubeIDE BUILD, FLASH and HARDWARE PASS independently.
+[14] No code speed/pulse changes after build until user real log as requested.
+[15] Do not overstate visual "two motors bám" from peakGap: it is normalized progress maximum, not mean speed or average.
+[16] Safe stop, physical NC and supply cut remain mandatory if altered pacing stalls.
+
 END OF CONTEXT HANDOFF
