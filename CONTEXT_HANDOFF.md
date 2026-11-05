@@ -1489,4 +1489,11 @@ END OF CONTEXT HANDOFF
 ## 2026-11-05 — S15.4 passive fine diagnostic follow-up: verifier and UART literal correction
 [0-16] CI at initial diagnostic SHA 00c63930a762834a70975a80c07d990739188129 failed ONLY new static/C HOST fixture because verifier used a literal backslash-n rather than a newline anchor for the existing M8S11 definition. All prior S15.4 actual C and STOP/NC regression steps had passed. Corrected verifier anchor and C UART suffix from literal escaped CRLF to on-wire CRLF. No changes to motor actuation, STOP, NC, RIGHT fine timing/PWM or diagnostic data field semantics. Re-run full exact-SHA Actions before operator build/flash; neither the failed run nor correction is target/hardware PASS.
 
+## 2026-11-05 — User-reported PowerShell parser failure repaired (S15.4 capture only)
+[0] Operator ran native tools/capture_m8_s154_right_fine.ps1 and got ParserError at log display line 48: the variable expansion "$MaxEvents:" is an invalid PowerShell variable reference because colon follows it. This occurs before COM open and before ANY log capture; not a firmware/AS5600 issue.
+[1] Fix only PowerShell interpolation to "${MaxEvents}:" without changing serial protocol, log fields, firmware flags or motor control. Add the new script to Windows PowerShell 5.1 Parser.ParseFile CI matrix, which previously only parsed S15.2 and stamping scripts; that gap permitted error.
+[2] No CubeIDE clean/build/flash required for this host-only correction; user needs git pull on unchanged trial branch. New exact SHA CI must succeed and captured results carry flashed MCU SHA, which may legitimately be prior good firmware SHA.
+[3] HOST/CI syntax success does not verify actual ST-LINK VCP, COM selection, UART or safe motor functionality. Await operator's physical log before speed/fine actuation changes.
+[4] All 17-section historical handoff content, original 386-line requirements, Voice45 NC, existing S15.4 and STOP/PS2/NC protection unchanged.
+
 END OF CONTEXT HANDOFF

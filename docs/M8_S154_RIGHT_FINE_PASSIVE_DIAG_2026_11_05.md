@@ -27,3 +27,6 @@ For example try both directions at 15°, 30°, 40°, increasing only if previous
 
 ## Acceptance and next step
 Exact-SHA HOST test is not a CubeIDE build or motor PASS. Analyze result codes (2 for Voice 5–40 encoder completion), ±5 RAW settled error, fine pulses/reversals, time, geometry and missing/dropped records. Only after identifying which phase is responsible should a separate boot-OFF actuation-tuning branch be proposed. Keep baseline S15.4 behavior and safety immutable until evidence exists.
+
+## 2026-11-05 PowerShell parser hotfix
+The initial `tools/capture_m8_s154_right_fine.ps1` used `$MaxEvents:` in a double-quoted progress string. Windows PowerShell 5.1 treats that as an invalid scoped variable reference and stops before listening to COM. Corrected it to `${MaxEvents}:`. New CI step parses this script using actual Windows PowerShell AST Parser. Host-side only: use `git pull --ff-only` on the existing branch, **do not rebuild/flash solely for this fix**. MCU SHA in log can correctly differ from host-only HEAD because flashed firmware unchanged.

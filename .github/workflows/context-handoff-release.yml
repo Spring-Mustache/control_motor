@@ -151,6 +151,7 @@ jobs:
           $tokens = $null
           $errors = $null
           foreach ($path in @(".\\tools\\capture_m8_s152.ps1",
+                               ".\\tools\\capture_m8_s154_right_fine.ps1",
                                ".\\tools\\stamp_firmware_build.ps1")) {
             $tokens = $null
             $errors = $null

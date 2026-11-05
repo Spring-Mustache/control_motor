@@ -1191,3 +1191,8 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 ## 2026-11-05 — Diagnostic first-CI repair (test anchor + on-wire CRLF only)
 - At SHA 00c63930a762834a70975a80c07d990739188129 all preexisting S15.4/STOP/NC HOST steps passed, but new passive verifier failed to locate M8S11 definition because its Python string used a literal slash-n; correct the new verifier.
 - Also correct the newly added UART log suffix to real CRLF in emitted M8S154_FINE. No motor algorithm, servo timing, NC, PWM, flags or 5–40 goal change. Exact new SHA CI is required before CubeIDE Build/Flash/physical log.
+
+## 2026-11-05 — M8S154 PowerShell parser correction after first operator attempt
+- [OPERATOR TEST] `capture_m8_s154_right_fine.ps1` failed before any COM capture with `InvalidVariableReferenceWithDrive` on `$MaxEvents:` in Write-Host. No measured fine tuning data yet.
+- [FIX] Host-only change to `${MaxEvents}:`; add S15.4 capture to Windows PowerShell 5.1 parser CI list so exact SHA validates the newly added script. No firmware rebuild/flash needed, only pull script from branch.
+- [PENDING] Actual COM capture and user private log, hardware A/B, possible subsequent fine tuning (after real data only).

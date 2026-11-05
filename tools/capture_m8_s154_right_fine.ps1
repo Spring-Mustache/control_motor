@@ -45,7 +45,7 @@ try{
   }else{Write-Warning "M8S154_FINE does not contain full MCU SHA"}
   [System.IO.File]::AppendAllText($file,$line+"`r`n",$utf8)
   $n++
-  Write-Host "Captured $n/$MaxEvents: $line"
+  Write-Host "Captured $n/${MaxEvents}: $line"
  }
 }finally{
  if($serial.IsOpen){$serial.Close()};$serial.Dispose()
