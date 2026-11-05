@@ -97,6 +97,9 @@ jobs:
       - name: Verify VC-02 I1 compiled main.c command builder (actual C HOST)
         run: python3 tools/verify_m8_vc02_command_core.py
 
+      - name: Verify Voice 45 reaches both expected physical NC, not RAW-only (actual C HOST)
+        run: python3 tools/verify_m8_vc02_45_nc.py
+
       - name: Verify VC-02 I1 real C wheel/steering executor safety state machine
         run: python3 tools/verify_m8_vc02_executor.py
 
