@@ -2879,6 +2879,33 @@ static SteeringAngleSpeedObs_t steer_speed_obs_r = {0};
 static int16_t steer_speed_i_l = 0, steer_speed_i_r = 0;
 volatile uint16_t steer_speed_measured_l_pms = 0U;
 volatile uint16_t steer_speed_measured_r_pms = 0U;
+
+/* S15.4 - Voice-only dual steering, backed by the existing AS5600
+ * normalized stroke/velocity coordinator. Setting 0 restores the
+ * previous independent Voice position servos WITHOUT changing NC/STOP.
+ * Only the coarse, moving phase may adapt PWM; no forced 0-duty hold.
+ * All values below are observation/diagnostics, not power grants.
+ */
+volatile uint8_t steer_voice_s154_enable = 1U; /* trial: disable via Live Expressions */
+volatile uint8_t steer_voice_s154_active = 0U;
+volatile uint8_t steer_voice_s154_last_mode = 0U; /* 4 RAW; 5 NC */
+volatile uint8_t steer_voice_s154_status = 0U; /* 0 idle,1 pace,2 disabled,3 other phase,4 stale,5 NC */
+volatile uint16_t steer_voice_s154_start_l = 0U;
+volatile uint16_t steer_voice_s154_start_r = 0U;
+volatile uint16_t steer_voice_s154_progress_l = 0U;
+volatile uint16_t steer_voice_s154_progress_r = 0U;
+volatile uint16_t steer_voice_s154_gap_permille = 0U;
+volatile uint16_t steer_voice_s154_peak_gap_permille = 0U;
+volatile uint16_t steer_voice_s154_pwm_l = 0U;
+volatile uint16_t steer_voice_s154_pwm_r = 0U;
+volatile uint32_t steer_voice_s154_common_eta_ms = 0U; /* estimate, NOT deadline */
+volatile uint32_t steer_voice_s154_l_eta_ms = 0U;
+volatile uint32_t steer_voice_s154_r_eta_ms = 0U;
+volatile uint32_t steer_voice_s154_frames = 0U;
+volatile uint32_t steer_voice_s154_skipped_frames = 0U;
+volatile uint32_t steer_voice_s154_done_l_ms = 0U;
+volatile uint32_t steer_voice_s154_done_r_ms = 0U;
+volatile uint32_t steer_voice_s154_arrival_skew_ms = 0U;
 volatile uint16_t steer_speed_reference_pms = 0U;
 volatile uint16_t steer_speed_feedback_boost_l_pwm = 0U;
 volatile uint16_t steer_speed_feedback_boost_r_pwm = 0U;
@@ -3830,7 +3857,10 @@ static void Steering_AngleWaypointApply(uint8_t mode,
    */
   {
     uint8_t kind = (mode == 3U) ? m8_s05_manual_kind : mode;
-    if ((kind >= 1U) && (kind <= 4U))
+    /* Voice S15.4 has independent diagnostics; never pollute the
+     * legacy R1/R2/manual cross-axis tracking accumulators.
+     */
+    if ((mode <= 3U) && (kind >= 1U) && (kind <= 4U))
     {
       M8S00Track_t *track = &m8_s00_track[kind];
       uint16_t gap = (pl > pr) ? (pl - pr) : (pr - pl);
@@ -4066,6 +4096,112 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   }
 }
 
+/* S15.4: reuse the already bounded M8-S00 normalized AS5600
+ * velocity/phase coordinator for VC-02 steering, with VOICE'S OWN
+ * starting positions and goals (not R1 CENTER or R2 both-MIN).
+ * This only changes PWM proposals while BOTH sensors are fresh,
+ * both axes are moving coarse, and no NC is asserted.
+ * The existing atomic late-IRQ / NC / direction check runs AFTER it.
+ * If either axis enters fine/escape/DONE/ERROR, leave per-axis PWM
+ * untouched; servo's actual completion rules always win.
+ */
+static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
+                                   uint16_t *pwm_l, uint16_t *pwm_r)
+{
+  uint32_t before;
+  uint16_t gap, speed_l, speed_r;
+  uint8_t mode = steer_pos_command;
+  uint16_t floor_l = Steering_PositionClampDuty(steer_pos_left_pwm_min);
+  uint16_t floor_r = Steering_PositionClampDuty(steer_pos_right_pwm_min);
+  steer_voice_s154_active = 0U;
+  if ((voice_pos_owned == 0U) ||
+      ((mode != 4U) && (mode != STEER_POS_VOICE45_NC)))
+    return;
+  steer_voice_s154_last_mode = mode;
+  if ((steer_voice_s154_enable != 1U) ||
+      (steer_angle_wp_enable != 1U))
+  {
+    steer_voice_s154_status = 2U;
+    return;
+  }
+  if ((steer_pos_left_state != STEER_AXIS_MOVING) ||
+      (steer_pos_right_state != STEER_AXIS_MOVING) ||
+      (steer_left_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
+      (steer_right_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE))
+  {
+    steer_voice_s154_status = 3U;
+    return;
+  }
+  /* On any asserted physical NC the existing position owner alone
+   * decides DONE/ERROR. NEVER alter the resulting zero PWM.
+   */
+  if ((nc & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK |
+             STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
+  {
+    steer_voice_s154_status = 5U;
+    return;
+  }
+  if ((*pwm_l == 0U) || (*pwm_r == 0U) ||
+      (steer_pos_left_last_sample_ms == 0U) ||
+      (steer_pos_right_last_sample_ms == 0U) ||
+      ((uint32_t)(now - steer_pos_left_last_sample_ms) > 40U) ||
+      ((uint32_t)(now - steer_pos_right_last_sample_ms) > 40U) ||
+      (floor_l > *pwm_l) || (floor_r > *pwm_r))
+  {
+    steer_voice_s154_status = 4U;
+    return;
+  }
+
+  before = steer_angle_wp_frames;
+  Steering_AngleWaypointApply(mode,
+      steer_left_axis.escape_start_raw, voice_pos_goal_l,
+      debug_as5600_left_raw,
+      steer_right_axis.escape_start_raw, voice_pos_goal_r,
+      debug_as5600_right_raw,
+      1U, 1U, floor_l, floor_r, pwm_l, pwm_r);
+  /* Invalid geometry / sub-5deg travel -> independent servo only. */
+  if (steer_angle_wp_frames == before)
+  {
+    steer_voice_s154_status = 3U;
+    if (steer_voice_s154_skipped_frames != 0xffffffffUL)
+      steer_voice_s154_skipped_frames++;
+    return;
+  }
+  steer_voice_s154_active = 1U;
+  steer_voice_s154_status = 1U;
+  steer_voice_s154_progress_l = steer_angle_wp_progress_left;
+  steer_voice_s154_progress_r = steer_angle_wp_progress_right;
+  gap = (steer_voice_s154_progress_l > steer_voice_s154_progress_r) ?
+      (uint16_t)(steer_voice_s154_progress_l - steer_voice_s154_progress_r) :
+      (uint16_t)(steer_voice_s154_progress_r - steer_voice_s154_progress_l);
+  steer_voice_s154_gap_permille = gap;
+  if (gap > steer_voice_s154_peak_gap_permille)
+    steer_voice_s154_peak_gap_permille = gap;
+  steer_voice_s154_pwm_l = *pwm_l;
+  steer_voice_s154_pwm_r = *pwm_r;
+  if (steer_voice_s154_frames != 0xffffffffUL)
+    steer_voice_s154_frames++;
+
+  /* Read-only common-time estimate; never treated as permission to
+   * extend the existing 5s watchdog. Speeds are normalized per the
+   * differing stroke lengths measured by the two AS5600s.
+   */
+  speed_l = steer_speed_measured_l_pms;
+  speed_r = steer_speed_measured_r_pms;
+  steer_voice_s154_l_eta_ms = (speed_l != 0U) ?
+      ((uint32_t)(1000U - steer_voice_s154_progress_l) * 1000U) /
+        speed_l : 0U;
+  steer_voice_s154_r_eta_ms = (speed_r != 0U) ?
+      ((uint32_t)(1000U - steer_voice_s154_progress_r) * 1000U) /
+        speed_r : 0U;
+  steer_voice_s154_common_eta_ms =
+      ((steer_speed_obs_l.valid != 0U) &&
+       (steer_speed_obs_r.valid != 0U) &&
+       (speed_l != 0U) && (speed_r != 0U)) ?
+      ((steer_voice_s154_l_eta_ms > steer_voice_s154_r_eta_ms) ?
+       steer_voice_s154_l_eta_ms : steer_voice_s154_r_eta_ms) : 0U;
+}
+
 /* No synchronization-induced PWM=0 remains. Each axis's original
  * stall/timeout watchdog now stays active without artificial resets.
  */
@@ -4231,6 +4367,7 @@ static void Steering_PositionRightOff(void)
 
 static void Steering_PositionFinish(uint8_t result)
 {
+  steer_voice_s154_active = 0U;
   Steering_AngleWaypointReset();
   if (steer_pos_active != 0U)
     M8S00_CaptureStop(6U, 3U, result,
@@ -4267,6 +4404,24 @@ static void Steering_PositionOnLimitInterrupt(uint8_t limit_bit)
 
 static void Steering_PositionAxisDone(uint8_t left, uint8_t result)
 {
+  /* Arrival evidence: 5..40 reached independent encoder targets,
+   * 45 reached the expected physical NC. No sync function can mark
+   * either axis DONE; it remains owned by this position servo.
+   */
+  if ((voice_pos_owned != 0U) &&
+      ((steer_pos_command == 4U) ||
+       (steer_pos_command == STEER_POS_VOICE45_NC)))
+  {
+    uint32_t t = HAL_GetTick();
+    if (left != 0U) steer_voice_s154_done_l_ms = t;
+    else steer_voice_s154_done_r_ms = t;
+    if ((steer_voice_s154_done_l_ms != 0U) &&
+        (steer_voice_s154_done_r_ms != 0U))
+      steer_voice_s154_arrival_skew_ms =
+          (steer_voice_s154_done_l_ms > steer_voice_s154_done_r_ms) ?
+          (steer_voice_s154_done_l_ms - steer_voice_s154_done_r_ms) :
+          (steer_voice_s154_done_r_ms - steer_voice_s154_done_l_ms);
+  }
   M8S00_R2EncOnMin(left, result);
   M8S00_ArrivalDone(left, result);
   if (steer_pos_active != 0U)
@@ -5159,6 +5314,19 @@ static void Steering_PositionUpdate(void)
     steer_pos_limit_trip_mask = 0U;
     steer_pos_left_state = STEER_AXIS_MOVING;
     steer_pos_right_state = STEER_AXIS_MOVING;
+    /* A fresh Voice 5..45 motion begins with independent RAW spans.
+     * No old completion timestamps or phase measurements are reused.
+     */
+    if ((from_voice != 0U) &&
+        ((buttons == 4U) || (buttons == STEER_POS_VOICE45_NC)))
+    {
+      Steering_AngleWaypointReset();
+      steer_voice_s154_status = 0U;
+      steer_voice_s154_peak_gap_permille = 0U;
+      steer_voice_s154_arrival_skew_ms = 0U;
+      steer_voice_s154_done_l_ms = 0U;
+      steer_voice_s154_done_r_ms = 0U;
+    }
     steer_pos_left_result = 0U;
     steer_pos_right_result = 0U;
     steer_left_axis.progress_ms = now;
@@ -5283,6 +5451,9 @@ static void Steering_PositionUpdate(void)
       {
         steer_left_axis.last_raw = v;
         steer_left_axis.escape_start_raw = v;
+        if ((from_voice != 0U) &&
+            ((buttons == 4U) || (buttons == STEER_POS_VOICE45_NC)))
+          steer_voice_s154_start_l = v;
         if ((buttons == 1U) &&
             (Steering_AngleOutsideCenterBand(1U, v) != 0U))
           m8_s00_arrival.near_start_far |= 1U;
@@ -5298,6 +5469,9 @@ static void Steering_PositionUpdate(void)
       {
         steer_right_axis.last_raw = v;
         steer_right_axis.escape_start_raw = v;
+        if ((from_voice != 0U) &&
+            ((buttons == 4U) || (buttons == STEER_POS_VOICE45_NC)))
+          steer_voice_s154_start_r = v;
         if ((buttons == 1U) &&
             (Steering_AngleOutsideCenterBand(0U, v) != 0U))
           m8_s00_arrival.near_start_far |= 2U;
@@ -5367,6 +5541,11 @@ static void Steering_PositionUpdate(void)
 
   Steering_PositionAxisUpdate(1U, raw_mask, now, &left_cmd, &left_dir);
   Steering_PositionAxisUpdate(0U, raw_mask, now, &right_cmd, &right_dir);
+  /* S15.4: bounded common-progress / normalized speed coordinator.
+   * Runs AFTER independent AS5600 + NC + stall checks, BEFORE the
+   * original atomic late-NC/CCR guards. It cannot grant motor power.
+   */
+  Steering_VoiceS154Sync(now, raw_mask, &left_cmd, &right_cmd);
   /* Both samples are validated by their per-axis NC/AS5600 checks.
    * Speed feedback is coarse-only; never override R1 fine PWM/quiet.
    * R2 still only declares DONE at its OWN physical MIN contact.
