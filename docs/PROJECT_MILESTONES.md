@@ -1160,3 +1160,8 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 - [AUDIT] Additional source review found an R1/R2-only PWM coordination path gated by `steer_pos_command != 4U`; new Voice45 mode5 would have incorrectly used both R2 MIN targets. Explicitly excluded `STEER_POS_VOICE45_NC` from the existing waypoint/phase pacing; independent axis position toward left/right expected NC remains, unchanged R1/R2 pacing.
 - [TEST] Strengthened tools/verify_m8_vc02_45_nc.py to enforce this source isolation and monitor fail-closed NC behavior. Exact SHA CI and hardware preflight pending.
+
+
+## 2026-11-05 — Correct HOST NC test function extraction
+
+- [TEST] Full CI discovered our newly added production-C test extracted a forward declaration instead of Steering_SafetyExpectedNcMask implementation, falsely failing the NC expected-mask assertion. Corrected test extraction anchor; source logic unchanged. Exact SHA full CI rerun required.
