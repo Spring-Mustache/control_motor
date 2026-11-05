@@ -49,6 +49,9 @@ assert "buttons!=STEER_POS_VOICE45_NC" in update
 assert "Steering_PositionWheelsStopped()!=0U" in update
 assert "Steering_PositionExpectedNc(1U)" in expected_mask
 assert "Steering_PositionExpectedNc(0U)" in expected_mask
+assert "(steer_pos_command != STEER_POS_VOICE45_NC)" in update
+assert "Steering_AngleWaypointApply(steer_pos_command" in update
+assert "Steering_PhaseLimit(steer_pos_command" in update
 assert "Steering_PositionOnLimitInterrupt" in SRC
 assert "Steering_PositionNcDirectionAllowed" in update
 assert "steer_safety_trip_latched==0U" in update
