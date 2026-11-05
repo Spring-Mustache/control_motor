@@ -1467,4 +1467,23 @@ END OF CONTEXT HANDOFF
 [0] The first new Voice S15.4 test compile under HOST gcc -Werror failed on two unused TEST STUB start-observation globals (not production firmware). Removed unused fixture-only variables; actual production S15.4 coordinator unchanged.
 [1] GitHub exact-SHA workflow enforces updating this append-only handoff and docs/PROJECT_MILESTONES.md after any source or test change. These entries record that final additional test modification. Re-run full CI on the completed SHA.
 [2] Final CI may verify HOST extraction/decoding/NC/STOP, but not ARM target build or physical synchronization. Keep all safety and existing operator-proven Voice45 behavior unchanged.
+## 2026-11-05 — Passive RIGHT Voice fine diagnosis, operator hardware report and 17-section update
+[0] New separate trial feature/m8-s154-right-fine-passive-diag branches from known S15.4 HEAD 1f9334088f4d06349abc862316f5e5ef8800ee05, preserves append-only historical context.
+[1] Operator reported S15.4 physically makes both coarse motors visibly synchronize; LEFT finishes well, RIGHT Voice 5..40 performs multiple direction-changing final alignments. Not a quantitative log or new branch HARDWARE PASS.
+[2] Goal is isolate RIGHT fine overshoot, weak pulses and quiet/coast settling causes before active changes.
+[3] User explicitly requires new trial flags boot=1, no manual variable settings. Actual servo S15.4 and Voice flags already boot1, new diagnostic flag boot1.
+[4] Milestone S15.4 PASS HOST baseline, physical sync report qualitative; new fine diagnostic SOURCE-staged only.
+[5] Actual RIGHT fine servo fields already count pulses/weak/good/backtrack; new timer and reverse counter are observational, not actuation.
+[6] Snapshot at Steering_PositionFinish before Voice clears; UART transmission deferred until stopped/no conflict, nonblocking IT.
+[7] Tools: Core/Src/main.c, tools/verify_m8_s154_right_fine_diag.py, tools/capture_m8_s154_right_fine.ps1, docs/M8_S154_RIGHT_FINE_PASSIVE_DIAG_2026_11_05.md.
+[8] No tuning performed. R1/LEFT manual, NC Voice45, all motor PWM envelopes and STOP/PS2 unaffected.
+[9] Older R1 fine settings RIGHT PWM85, pulse12ms, entry15 RAW and quiet wait are known code, not established Voice fault cause.
+[10] UART log itself cannot prove actual motor supply cutoff, current or coast; maintain independent hardware cut and safe rig.
+[11] Run exact-SHA CI; operator CubeIDE Clean Build/Flash, safe incremental Voice angles, collect private PowerShell TXT, then decide if new tuning is warranted.
+[12] Missing physically validated serial output and hardware measurements, plus operator test date/flash identity.
+[13] 2026-11-05 continuation only, no rewriting historical snapshots.
+[14] Tests remain HOST (actual C capture and static wiring); no target ARM binary compiled by connector.
+[15] Next chat must validate new branch HEAD and not assume former branch is latest; don't publish private TXT.
+[16] SOURCE-STAGED, HOST CI, CubeIDE BUILD, FLASH, HARDWARE PASS tracked separately; unchanged original 386-line contract.
+
 END OF CONTEXT HANDOFF

@@ -1180,3 +1180,10 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 ## 2026-11-05 — S15.4 HOST regression strict-warning repair
 
 - [CI] Initial new tools/verify_m8_s154_voice_sync.py test failed under gcc -Werror because its synthetic HOST fixture declared unused local start-observation fields; these fields are not part of the compiled production synchronizer. Removed the unused fixture declarations only. The code/test changes postdated the prior handoff snapshot; updated append-only handoff and milestones for exact-SHA checks. This is NOT a motor or target compiler failure.
+
+## 2026-11-05 — S15.4 RIGHT Voice fine passive trace, boot enabled, no speed change
+- [USER] Coarse S15.4 physical sync appears good; LEFT finishes well; RIGHT Voice 5..40 repeatedly reverses during fine correction before target. No measured cause yet.
+- [SOURCE] New isolated branch feature/m8-s154-right-fine-passive-diag from 1f9334088f4d06349abc862316f5e5ef8800ee05. No changes to actuator PWM/NC/STOP/PS2/fine algorithm/LEFT/R1/R2/Voice45. Adds RIGHT fine entry time, direction reversal counter and completed-command summary.
+- [DEFAULT] Existing steer_voice_s154_enable=1, steer_angle_wp_enable=1 and Voice route flags=1 retained; new steer_voice_s154_right_fine_diag_enable=1. No manual debugger settings needed. Auto-ARM safety guard unchanged.
+- [UART] Auto after safe idle, existing nonblocking UART3 IT sends M8S154_FINE one line (SHA, target, RIGHT raw, pulses, reversals, time, result); Windows PowerShell tools/capture_m8_s154_right_fine.ps1 collects TXT without button presses/serial TX.
+- [CI] New actual-C HOST test + static UART guard check wired to exact-SHA workflow. Still requires CubeIDE Build/Flash and protected rig testing; only tune after privately received hardware logs. See docs/M8_S154_RIGHT_FINE_PASSIVE_DIAG_2026_11_05.md.

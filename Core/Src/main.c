@@ -2887,6 +2887,25 @@ volatile uint16_t steer_speed_measured_r_pms = 0U;
  * All values below are observation/diagnostics, not power grants.
  */
 volatile uint8_t steer_voice_s154_enable = 1U; /* trial: disable via Live Expressions */
+/* Voice command4 RIGHT fine diagnosis: passive, automatically enabled.
+ * No change to PWM, STOP/NC, fine thresholds or S15.4 coarse pacing.
+ */
+volatile uint8_t steer_voice_s154_right_fine_diag_enable = 1U;
+volatile uint32_t steer_voice_s154_right_fine_enter_ms = 0U;
+volatile uint8_t steer_voice_s154_right_fine_reversals = 0U;
+volatile uint32_t steer_voice_s154_right_fine_log_count = 0U;
+volatile uint32_t steer_voice_s154_right_fine_drop_count = 0U;
+volatile uint32_t steer_voice_s154_right_fine_tx_count = 0U;
+typedef struct {
+  uint32_t seq, total_ms, fine_ms, skew_ms, dropped;
+  uint16_t start, goal, entry, quiet, end, gap, pulse_max_ms;
+  int16_t error, last_move;
+  uint8_t angle, turn, pulses, reversals, weak, good, back;
+  uint8_t quiet_valid, phase, result_l, result_r, result_total;
+} M8S154RightFineDiag_t;
+static M8S154RightFineDiag_t m8_s154_right_fine_last = {0};
+static uint8_t m8_s154_right_fine_pending = 0U;
+
 volatile uint8_t steer_voice_s154_active = 0U;
 volatile uint8_t steer_voice_s154_last_mode = 0U; /* 4 RAW; 5 NC */
 volatile uint8_t steer_voice_s154_status = 0U; /* 0 idle,1 pace,2 disabled,3 other phase,4 stale,5 NC */
@@ -4367,8 +4386,60 @@ static void Steering_PositionRightOff(void)
   steer_pos_right_pwm = 0U;
 }
 
+/* A new Voice4 capture is copied before the owner/state is cleared.
+ * An unsent previous record is never overwritten by a new motor run.
+ */
+static void Steering_VoiceRightFineCapture(uint8_t result)
+{
+  M8S154RightFineDiag_t *d = &m8_s154_right_fine_last;
+  const SteeringPositionAxis_t *a = &steer_right_axis;
+  uint32_t now;
+  if ((steer_voice_s154_right_fine_diag_enable != 1U) ||
+      (voice_pos_owned == 0U) || (steer_pos_command != 4U))
+    return;
+  if (m8_s154_right_fine_pending != 0U)
+  {
+    if (steer_voice_s154_right_fine_drop_count != 0xffffffffUL)
+      steer_voice_s154_right_fine_drop_count++;
+    return;
+  }
+  now = HAL_GetTick();
+  *d = (M8S154RightFineDiag_t){0};
+  if (steer_voice_s154_right_fine_log_count != 0xffffffffUL)
+    steer_voice_s154_right_fine_log_count++;
+  d->seq = steer_voice_s154_right_fine_log_count;
+  d->total_ms = (uint32_t)(now - steer_pos_start_ms);
+  d->fine_ms = (steer_voice_s154_right_fine_enter_ms != 0U) ?
+      (uint32_t)(now - steer_voice_s154_right_fine_enter_ms) : 0U;
+  d->skew_ms = steer_voice_s154_arrival_skew_ms;
+  d->dropped = steer_voice_s154_right_fine_drop_count;
+  d->start = steer_voice_s154_start_r;
+  d->goal = voice_pos_goal_r;
+  d->entry = a->fine_enter_raw;
+  d->quiet = a->fine_first_quiet_raw;
+  d->end = debug_as5600_right_raw;
+  d->gap = steer_voice_s154_peak_gap_permille;
+  d->pulse_max_ms = a->fine_max_pulse_ms;
+  d->error = steer_pos_right_error;
+  d->last_move = a->fine_last_move_raw;
+  d->angle = voice_pos_last_angle_deg;
+  d->turn = (voice_pos_last_turn < 0) ? 1U : 2U;
+  d->pulses = a->fine_pulses;
+  d->reversals = steer_voice_s154_right_fine_reversals;
+  d->weak = a->fine_weak_pulses;
+  d->good = a->fine_good_pulses;
+  d->back = a->fine_backtrack_pulses;
+  d->quiet_valid = a->fine_first_quiet_valid;
+  d->phase = a->fine_phase;
+  d->result_l = steer_pos_left_result;
+  d->result_r = steer_pos_right_result;
+  d->result_total = result;
+  m8_s154_right_fine_pending = 1U;
+}
+
 static void Steering_PositionFinish(uint8_t result)
 {
+  Steering_VoiceRightFineCapture(result);
   steer_voice_s154_active = 0U;
   Steering_AngleWaypointReset();
   if (steer_pos_active != 0U)
@@ -4673,6 +4744,9 @@ static void Steering_PositionFineUpdate(uint8_t left,
     axis->fine_quiet_since_ms = now;
     axis->fine_quiet_raw = raw;
     axis->fine_enter_raw = raw;
+    if ((left == 0U) && (voice_pos_owned != 0U) &&
+        (steer_pos_command == 4U))
+      steer_voice_s154_right_fine_enter_ms = now;
   }
 
   if (axis->fine_phase == STEER_POS_FINE_PHASE_PULSE)
@@ -4826,6 +4900,12 @@ static void Steering_PositionFineUpdate(uint8_t left,
          * decreases RAW, left DIR0 increases RAW.
          */
         dir0 = left ? (err > 0) : (err < 0);
+        /* Read-only count of direction changes between RIGHT fine pulses. */
+        if ((left == 0U) && (voice_pos_owned != 0U) &&
+            (steer_pos_command == 4U) && (axis->fine_pulses != 0U) &&
+            (axis->fine_dir0 != dir0) &&
+            (steer_voice_s154_right_fine_reversals < 255U))
+          steer_voice_s154_right_fine_reversals++;
         axis->fine_dir0 = dir0;
         axis->fine_start_error = err;
         axis->fine_pulse_start_raw = raw;
@@ -5337,6 +5417,8 @@ static void Steering_PositionUpdate(void)
       steer_voice_s154_r_eta_ms = 0U;
       steer_voice_s154_common_eta_ms = 0U;
       steer_voice_s154_arrival_skew_ms = 0U;
+      steer_voice_s154_right_fine_enter_ms = 0U;
+      steer_voice_s154_right_fine_reversals = 0U;
       steer_voice_s154_done_l_ms = 0U;
       steer_voice_s154_done_r_ms = 0U;
     }
@@ -7007,6 +7089,55 @@ static void M8S11_StreamUpdate(void)
 
   if (period < 50U) period = 50U;
   if (period > 250U) period = 250U;
+
+  /* Automatic Voice RIGHT fine summary; only at safe motor/serial idle.
+   * Uses the existing M8S11 nonblocking UART IRQ TX buffer, never a
+   * blocking print while auto-ARM is active. No actuator writes.
+   */
+  if ((m8_s154_right_fine_pending != 0U) &&
+      (m8_s11_stream_state == 0U) &&
+      (m8_s11_stream_enable == 0U) &&
+      (wheel_log_active == 0U) &&
+      (wheel_log_dump_active == 0U) &&
+      (wheel_log_dump_request == 0U) &&
+      (m8_s00_dump_request == 0U) &&
+      (steer_pos_active == 0U) &&
+      (steer_manual_active == 0U) &&
+      (steer_cal_active == 0U) &&
+      (steer_test_running == 0U) &&
+      (Steering_PositionWheelsStopped() != 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) == 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) == 0U) &&
+      (huart3.gState == HAL_UART_STATE_READY))
+  {
+    const M8S154RightFineDiag_t *d = &m8_s154_right_fine_last;
+    n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+        "M8S154_FINE,sha=%s,seq=%lu,angle=%u,turn=%u,"
+        "totalMs=%lu,fineMs=%lu,start=%u,goal=%u,entry=%u,"
+        "quiet=%u,end=%u,error=%d,pulses=%u,reversals=%u,"
+        "weak=%u,good=%u,back=%u,lastMove=%d,maxPulseMs=%u,"
+        "quietValid=%u,phase=%u,resultL=%u,resultR=%u,"
+        "finish=%u,peakGap=%u,skewMs=%lu,dropped=%lu\\r\\n",
+        FW_BUILD_GIT_SHA,(unsigned long)d->seq,
+        (unsigned)d->angle,(unsigned)d->turn,
+        (unsigned long)d->total_ms,(unsigned long)d->fine_ms,
+        (unsigned)d->start,(unsigned)d->goal,(unsigned)d->entry,
+        (unsigned)d->quiet,(unsigned)d->end,(int)d->error,
+        (unsigned)d->pulses,(unsigned)d->reversals,
+        (unsigned)d->weak,(unsigned)d->good,(unsigned)d->back,
+        (int)d->last_move,(unsigned)d->pulse_max_ms,
+        (unsigned)d->quiet_valid,(unsigned)d->phase,
+        (unsigned)d->result_l,(unsigned)d->result_r,
+        (unsigned)d->result_total,(unsigned)d->gap,
+        (unsigned long)d->skew_ms,(unsigned long)d->dropped);
+    if (M8S11_SendLine(n) != 0U)
+    {
+      m8_s154_right_fine_pending = 0U;
+      if (steer_voice_s154_right_fine_tx_count != 0xffffffffUL)
+        steer_voice_s154_right_fine_tx_count++;
+    }
+    return;
+  }
 
   if (m8_s11_stream_state == 0U)
   {
