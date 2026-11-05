@@ -4188,10 +4188,12 @@ static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
    */
   speed_l = steer_speed_measured_l_pms;
   speed_r = steer_speed_measured_r_pms;
-  steer_voice_s154_l_eta_ms = (speed_l != 0U) ?
+  steer_voice_s154_l_eta_ms =
+      ((steer_speed_obs_l.valid != 0U) && (speed_l != 0U)) ?
       ((uint32_t)(1000U - steer_voice_s154_progress_l) * 1000U) /
         speed_l : 0U;
-  steer_voice_s154_r_eta_ms = (speed_r != 0U) ?
+  steer_voice_s154_r_eta_ms =
+      ((steer_speed_obs_r.valid != 0U) && (speed_r != 0U)) ?
       ((uint32_t)(1000U - steer_voice_s154_progress_r) * 1000U) /
         speed_r : 0U;
   steer_voice_s154_common_eta_ms =
@@ -5322,7 +5324,18 @@ static void Steering_PositionUpdate(void)
     {
       Steering_AngleWaypointReset();
       steer_voice_s154_status = 0U;
+      steer_voice_s154_active = 0U;
+      steer_voice_s154_start_l = 0U;
+      steer_voice_s154_start_r = 0U;
+      steer_voice_s154_progress_l = 0U;
+      steer_voice_s154_progress_r = 0U;
+      steer_voice_s154_gap_permille = 0U;
       steer_voice_s154_peak_gap_permille = 0U;
+      steer_voice_s154_pwm_l = 0U;
+      steer_voice_s154_pwm_r = 0U;
+      steer_voice_s154_l_eta_ms = 0U;
+      steer_voice_s154_r_eta_ms = 0U;
+      steer_voice_s154_common_eta_ms = 0U;
       steer_voice_s154_arrival_skew_ms = 0U;
       steer_voice_s154_done_l_ms = 0U;
       steer_voice_s154_done_r_ms = 0U;
