@@ -1590,4 +1590,10 @@ END OF CONTEXT HANDOFF
 [15] Do not overstate visual "two motors bám" from peakGap: it is normalized progress maximum, not mean speed or average.
 [16] Safe stop, physical NC and supply cut remain mandatory if altered pacing stalls.
 
+## 2026-11-05 — M8 S15.5 HOST extracted fixture upkeep
+[0] Initial S15.5 trial SHA 2d486d15245cb83a1143af39bb56b128326c6e0b Windows PowerShell syntax PASS but full context HOST FAIL: preexisting extracted-C S15.4 coordinator fixture had no new read-only peakLeader,peakAtMs,steer_pos_start_ms fields. Update test fixture ONLY.
+[1] Also update existing extracted-C RIGHT snapshot HOST fixture for three new diag fields/globals and check values. Correct new regression's unnecessary conditional assert to direct workflow assertion.
+[2] Firmware control, NC/STOP, UART protocol, PWM and S15.5 ramp untouched in this follow-up. Full exact-SHA CI must PASS before CubeIDE.
+[3] Physical >90% still pending on trial hardware. Known tested rollback 9cd6067c, never force reset user's local worktree.
+
 END OF CONTEXT HANDOFF

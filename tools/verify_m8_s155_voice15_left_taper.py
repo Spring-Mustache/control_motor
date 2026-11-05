@@ -51,7 +51,7 @@ for x in ("peakLeader=%u","peakAtMs=%lu","earlyTaperFrames=%lu"):
 assert "Steering_PositionWheelsStopped() != 0U" in uart
 assert "huart3.gState == HAL_UART_STATE_READY" in uart
 assert "HAL_UART_Transmit(" not in uart
-assert testPath if False else "verify_m8_s155_voice15_left_taper.py" in workflow
+assert "verify_m8_s155_voice15_left_taper.py" in workflow
 assert "steer_voice_s154_peak_gap_permille = gap;" in sync
 assert "steer_voice_s155_peak_leader" in sync and "steer_voice_s155_peak_at_ms" in sync
 cc=shutil.which("gcc") or shutil.which("clang") or shutil.which("cc")
