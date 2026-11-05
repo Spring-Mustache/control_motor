@@ -7117,7 +7117,7 @@ static void M8S11_StreamUpdate(void)
         "quiet=%u,end=%u,error=%d,pulses=%u,reversals=%u,"
         "weak=%u,good=%u,back=%u,lastMove=%d,maxPulseMs=%u,"
         "quietValid=%u,phase=%u,resultL=%u,resultR=%u,"
-        "finish=%u,peakGap=%u,skewMs=%lu,dropped=%lu\\r\\n",
+        "finish=%u,peakGap=%u,skewMs=%lu,dropped=%lu\r\n",
         FW_BUILD_GIT_SHA,(unsigned long)d->seq,
         (unsigned)d->angle,(unsigned)d->turn,
         (unsigned long)d->total_ms,(unsigned long)d->fine_ms,

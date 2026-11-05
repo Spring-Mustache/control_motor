@@ -1486,4 +1486,7 @@ END OF CONTEXT HANDOFF
 [15] Next chat must validate new branch HEAD and not assume former branch is latest; don't publish private TXT.
 [16] SOURCE-STAGED, HOST CI, CubeIDE BUILD, FLASH, HARDWARE PASS tracked separately; unchanged original 386-line contract.
 
+## 2026-11-05 — S15.4 passive fine diagnostic follow-up: verifier and UART literal correction
+[0-16] CI at initial diagnostic SHA 00c63930a762834a70975a80c07d990739188129 failed ONLY new static/C HOST fixture because verifier used a literal backslash-n rather than a newline anchor for the existing M8S11 definition. All prior S15.4 actual C and STOP/NC regression steps had passed. Corrected verifier anchor and C UART suffix from literal escaped CRLF to on-wire CRLF. No changes to motor actuation, STOP, NC, RIGHT fine timing/PWM or diagnostic data field semantics. Re-run full exact-SHA Actions before operator build/flash; neither the failed run nor correction is target/hardware PASS.
+
 END OF CONTEXT HANDOFF

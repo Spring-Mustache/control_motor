@@ -1187,3 +1187,7 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [DEFAULT] Existing steer_voice_s154_enable=1, steer_angle_wp_enable=1 and Voice route flags=1 retained; new steer_voice_s154_right_fine_diag_enable=1. No manual debugger settings needed. Auto-ARM safety guard unchanged.
 - [UART] Auto after safe idle, existing nonblocking UART3 IT sends M8S154_FINE one line (SHA, target, RIGHT raw, pulses, reversals, time, result); Windows PowerShell tools/capture_m8_s154_right_fine.ps1 collects TXT without button presses/serial TX.
 - [CI] New actual-C HOST test + static UART guard check wired to exact-SHA workflow. Still requires CubeIDE Build/Flash and protected rig testing; only tune after privately received hardware logs. See docs/M8_S154_RIGHT_FINE_PASSIVE_DIAG_2026_11_05.md.
+
+## 2026-11-05 — Diagnostic first-CI repair (test anchor + on-wire CRLF only)
+- At SHA 00c63930a762834a70975a80c07d990739188129 all preexisting S15.4/STOP/NC HOST steps passed, but new passive verifier failed to locate M8S11 definition because its Python string used a literal slash-n; correct the new verifier.
+- Also correct the newly added UART log suffix to real CRLF in emitted M8S154_FINE. No motor algorithm, servo timing, NC, PWM, flags or 5–40 goal change. Exact new SHA CI is required before CubeIDE Build/Flash/physical log.
