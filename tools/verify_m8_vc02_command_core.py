@@ -90,10 +90,11 @@ static volatile int control_mode=CONTROL_MODE_IDLE;
 static volatile uint8_t control_stop_latched=0,ps2_cancel_hold=0,ps2_spin_rf_latched=0;
 #define STEER_POS_LEFT_CENTER_RAW 1886U
 #define STEER_POS_RIGHT_CENTER_RAW 662U
-#define STEER_MANUAL_LEFT_SOFT_MAX 1454U
-#define STEER_MANUAL_RIGHT_SOFT_MIN 245U
-#define STEER_MANUAL_LEFT_SOFT_MIN 2225U
-#define STEER_MANUAL_RIGHT_SOFT_MAX 970U
+#define STEER_POS_LEFT_MAX_RAW 1374U
+#define STEER_POS_RIGHT_MIN_RAW 195U
+#define STEER_POS_LEFT_MIN_RAW 2297U
+#define STEER_POS_RIGHT_MAX_RAW 1029U
+#define STEER_POS_VOICE45_NC 5U
 static void Voice_ResetPendingCommand(void);
 static void Control_RequestStop(void)
 {
@@ -132,8 +133,15 @@ int main(void) {
  neutral();
  send(VC02_EVENT_TURN_RIGHT,0);
  send(VC02_EVENT_ANGLE,45);
- assert(voice_pos_request==4&&voice_pos_goal_l==2225&&
-        voice_pos_goal_r==970);
+ assert(voice_pos_request==STEER_POS_VOICE45_NC &&
+        voice_pos_goal_l==2297&&voice_pos_goal_r==1029&&
+        voice_pos_last_angle_deg==45&&voice_pos_last_turn==1);
+ neutral();
+ send(VC02_EVENT_TURN_LEFT,0);
+ send(VC02_EVENT_ANGLE,45);
+ assert(voice_pos_request==STEER_POS_VOICE45_NC &&
+        voice_pos_goal_l==1374&&voice_pos_goal_r==195&&
+        voice_pos_last_angle_deg==45&&voice_pos_last_turn==-1);
  neutral();
  send(VC02_EVENT_ANGLE,0);
  assert(voice_pos_request==1&&voice_pos_goal_l==1886&&
@@ -293,7 +301,7 @@ int main(void) {
  neutral();
  send(VC02_EVENT_FORWARD,0);send(VC02_EVENT_DURATION,0);
  assert(!voice_command_ready&&voice_invalid_count);
- puts("PASS actual VC02 PLC C: strict primary->parameter, orphan TIME/ANGLE discarded, replacement clears group, independent owners, timeout, F0/FF");
+ puts("PASS actual VC02 PLC C: strict phrases, hard MIN/MAX mapping, 45->NC request, orphan discard, independent owners, F0/FF");
 }
 """
 CC=shutil.which("gcc") or shutil.which("cc")
