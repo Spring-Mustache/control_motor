@@ -1437,4 +1437,11 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [9] Test tools/verify_m8_vc02_45_nc.py compiles real C NC helper functions and checks actual main.c wiring; test tools/verify_m8_vc02_command_core.py and tools/verify_m8_vc02_i1.py updated. Exact SHA PASS required; HOST tests do not equal target build, flash or powered hardware.
 [10] Physical commissioning risk: NC may be after an outdated runtime landmark or mechanically too late to prevent coast; do not loosen limits, disable EXTI or increase drive just to force switch. Validate switch and position with motor power removed before a controlled supported bench test.
 [11] Prior C1..C5 live wheel speed, strict primary-then-parameter parser, FF soft STOP, first PS2 takeover hard STOP, guarded auto-ARM and START logging TODO remain untouched.
+
+
+## 2026-11-05 — Critical additional Voice45 isolation from R1/R2 PWM pacing
+[0] During control-path audit found Steering_PositionUpdate's R1/R2 shared waypoint branch originally used condition steer_pos_command != 4U, so new mode5 would incorrectly enter and pace toward BOTH R2 MIN raw endpoints even for LEFT45 L_MAX+R_MIN or RIGHT45 L_MIN+R_MAX.
+[1] Production source now also excludes STEER_POS_VOICE45_NC from both Steering_AngleWaypointApply and Steering_PhaseLimit R1/R2 paths. 45 uses only independent NC-position axes and existing per-axis PWM limit/stall/timeout. No new timing/PWM increase.
+[2] Added static test assertion that excludes mode5 from R1/R2 waypoint path while preserving original R1/R2 behavior and hardware NC preflight.
+[3] Requires exact SHA HOST CI and, independently, STM32CubeIDE Clean Build, physical endstop checks and suspended chassis acceptance before powered use.
 END OF CONTEXT HANDOFF
