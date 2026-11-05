@@ -22,6 +22,7 @@ def function(signature):
     raise AssertionError(signature)
 
 sync=function("static void Steering_VoiceS154Sync(")
+startup=function("static uint16_t Steering_VoiceS156StartupCap(")
 speed=function("static void Steering_AngleSpeedObserve(")
 progress=function("static uint16_t Steering_AngleStrokeProgress(")
 position=function("static void Steering_PositionUpdate(")
@@ -102,6 +103,11 @@ static uint32_t steer_voice_s154_run_sync_frames=0;
 static uint8_t steer_voice_s155_peak_leader=0;
 static uint32_t steer_voice_s155_peak_at_ms=0;
 static uint32_t steer_pos_start_ms=1;
+#define STEER_VOICE_S156_START_CAP_MS 350U
+static uint8_t steer_voice_s156_start_cap_enable=1;
+static uint8_t voice_pos_last_angle_deg=0;
+static int8_t voice_pos_last_turn=0;
+static uint32_t steer_voice_s156_start_cap_frames=0;
 static uint32_t steer_voice_s154_run_sync_disabled=0;
 static uint32_t steer_voice_s154_run_sync_phase=0;
 static uint32_t steer_voice_s154_run_sync_stale=0;
@@ -220,7 +226,7 @@ cc=shutil.which("gcc") or shutil.which("cc") or shutil.which("clang")
 if not cc:raise SystemExit("HOST C compiler not available")
 with TemporaryDirectory() as d:
     test=Path(d)/"s154.c"
-    test.write_text(top+"\n"+progress+"\n"+speed+"\n"+sync+"\n"+bottom,encoding="utf-8")
+    test.write_text(top+"\n"+progress+"\n"+speed+"\n"+startup+"\n"+sync+"\n"+bottom,encoding="utf-8")
     exe=Path(d)/"s154"
     b=subprocess.run([cc,"-std=c11","-O2","-Wall","-Wextra","-Werror",
                      str(test),"-o",str(exe)],text=True,capture_output=True)

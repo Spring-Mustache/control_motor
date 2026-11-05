@@ -2919,6 +2919,13 @@ volatile uint8_t steer_voice_s155_left15_taper_enable = 1U;
 volatile uint32_t steer_voice_s155_left15_taper_frames = 0U;
 volatile uint8_t steer_voice_s155_peak_leader = 0U; /* 1 LEFT, 2 RIGHT */
 volatile uint32_t steer_voice_s155_peak_at_ms = 0U;
+/* S15.6: Voice15 LEFT only: right led by 20.1% at 245ms.
+ * Limit right proposal to EXISTING nonzero floor while it is ahead
+ * for initial 350ms. No additional motor grant, NC or direction change.
+ */
+#define STEER_VOICE_S156_START_CAP_MS 350U
+volatile uint8_t steer_voice_s156_start_cap_enable = 1U;
+volatile uint32_t steer_voice_s156_start_cap_frames = 0U;
 /* Read-only per-Voice run coordinator rejection counters. Auto-captured
  * on completion, no manual debug flag required, no actuator writes.
  */
@@ -2936,7 +2943,7 @@ typedef struct {
   uint32_t seq, total_ms, fine_ms, skew_ms, dropped;
   uint32_t left_done_ms, right_done_ms, right_fine_ms, sync_frames;
   uint32_t sync_disabled, sync_phase, sync_stale, sync_nc, sync_waypoint;
-  uint32_t peak_at_ms, s155_taper_frames;
+  uint32_t peak_at_ms, s155_taper_frames, s156_cap_frames;
   uint8_t peak_leader;
   uint16_t start, goal, entry, quiet, end, gap, pulse_max_ms, entry_limit;
   int16_t error, last_move;
@@ -4192,6 +4199,23 @@ static void Steering_AngleWaypointApply(uint8_t mode,
   }
 }
 
+/* Pure bounded reduction after S15.4's validated two-axis waypoint.
+ * Give original proposed PWM back if RIGHT falls behind or at >350ms.
+ */
+static uint16_t Steering_VoiceS156StartupCap(uint8_t mode,
+    uint32_t elapsed_ms, uint16_t progress_l, uint16_t progress_r,
+    uint16_t proposed_r, uint16_t floor_r)
+{
+  if ((steer_voice_s156_start_cap_enable != 1U) ||
+      (voice_pos_owned == 0U) || (mode != 4U) ||
+      (voice_pos_last_angle_deg != 15U) ||
+      (voice_pos_last_turn >= 0) ||
+      (elapsed_ms > STEER_VOICE_S156_START_CAP_MS) ||
+      (progress_r < progress_l) || (proposed_r <= floor_r))
+    return proposed_r;
+  return floor_r;
+}
+
 /* S15.4: reuse the already bounded M8-S00 normalized AS5600
  * velocity/phase coordinator for VC-02 steering, with VOICE'S OWN
  * starting positions and goals (not R1 CENTER or R2 both-MIN).
@@ -4272,6 +4296,22 @@ static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
     if (steer_voice_s154_skipped_frames != 0xffffffffUL)
       steer_voice_s154_skipped_frames++;
     return;
+  }
+  /* S15.6 final nonzero RIGHT-only cap. This runs only after normal
+   * S15.4 two-axis coarse, fresh sensor and NC eligibility checks.
+   */
+  if (mode == 4U)
+  {
+    uint16_t v = Steering_VoiceS156StartupCap(mode,
+        (uint32_t)(now - steer_pos_start_ms),
+        steer_angle_wp_progress_left, steer_angle_wp_progress_right,
+        *pwm_r, floor_r);
+    if (v < *pwm_r)
+    {
+      *pwm_r = v;
+      if (steer_voice_s156_start_cap_frames != 0xffffffffUL)
+        steer_voice_s156_start_cap_frames++;
+    }
   }
   steer_voice_s154_active = 1U;
   if (steer_voice_s154_run_sync_frames != 0xffffffffUL)
@@ -4521,6 +4561,7 @@ static void Steering_VoiceRightFineCapture(uint8_t result)
   d->peak_leader = steer_voice_s155_peak_leader;
   d->peak_at_ms = steer_voice_s155_peak_at_ms;
   d->s155_taper_frames = steer_voice_s155_left15_taper_frames;
+  d->s156_cap_frames = steer_voice_s156_start_cap_frames;
   d->sync_disabled = steer_voice_s154_run_sync_disabled;
   d->sync_phase = steer_voice_s154_run_sync_phase;
   d->sync_stale = steer_voice_s154_run_sync_stale;
@@ -5586,6 +5627,7 @@ static void Steering_PositionUpdate(void)
       steer_voice_s154_arrival_skew_ms = 0U;
       steer_voice_s154_run_sync_frames = 0U;
       steer_voice_s155_left15_taper_frames = 0U;
+      steer_voice_s156_start_cap_frames = 0U;
       steer_voice_s155_peak_leader = 0U;
       steer_voice_s155_peak_at_ms = 0U;
       steer_voice_s154_run_sync_disabled = 0U;
@@ -7306,7 +7348,8 @@ static void M8S11_StreamUpdate(void)
         "rightDoneMs=%lu,rightFineMs=%lu,"
         "syncDisabled=%lu,syncPhase=%lu,syncStale=%lu,"
         "syncNc=%lu,syncWaypoint=%lu,"
-        "peakLeader=%u,peakAtMs=%lu,earlyTaperFrames=%lu\r\n",
+        "peakLeader=%u,peakAtMs=%lu,earlyTaperFrames=%lu,"
+        "startCapFrames=%lu\r\n",
         FW_BUILD_GIT_SHA,(unsigned long)d->seq,
         (unsigned)d->angle,(unsigned)d->turn,
         (unsigned long)d->total_ms,(unsigned long)d->fine_ms,
@@ -7330,7 +7373,8 @@ static void M8S11_StreamUpdate(void)
         (unsigned long)d->sync_waypoint,
         (unsigned)d->peak_leader,
         (unsigned long)d->peak_at_ms,
-        (unsigned long)d->s155_taper_frames);
+        (unsigned long)d->s155_taper_frames,
+        (unsigned long)d->s156_cap_frames);
     if (M8S11_SendLine(n) != 0U)
     {
       m8_s154_right_fine_pending = 0U;

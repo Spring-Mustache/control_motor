@@ -115,6 +115,9 @@ jobs:
       - name: Verify S15.5 Voice15 LEFT bounded early taper (actual C HOST)
         run: python3 tools/verify_m8_s155_voice15_left_taper.py
 
+      - name: Verify S15.6 RIGHT nonzero startup cap (actual C HOST)
+        run: python3 tools/verify_m8_s156_start_cap.py
+
       - name: Verify VC-02 I1 real C wheel/steering executor safety state machine
         run: python3 tools/verify_m8_vc02_executor.py
 
