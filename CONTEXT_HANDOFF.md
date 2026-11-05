@@ -1450,3 +1450,15 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [0] Exact SHA CI test tools/verify_m8_vc02_45_nc.py initially selected the forward declaration of Steering_SafetyExpectedNcMask(), not the later C function definition; assertion therefore checked the wrong body.
 [1] Fixed the test signature to include the opening brace after the full function name, reading only the real implementation. Production motor source unchanged by this follow-up. Re-run exact SHA CI.
 END OF CONTEXT HANDOFF
+
+
+## 2026-11-05 — M8-S15.4 Voice dual-AS5600 synchronized-speed trial (latest)
+[0] Operator confirmed existing A5/A6 B9 45° NC motor motion works if VC-02 receives direction then angle with a spoken pause. This is the BASELINE; do not redesign parser. Operator now orders S15.4 speed synchronization using actual AS5600 encoder target geometry.
+[1] Forked new feature/m8-s154-voice-dual-steer-common-progress from 66053b61ea3890ed7a56c80a98eced758908d911; that parent branch preserves user-confirmed behavior.
+[2] In Core/Src/main.c, new steer_voice_s154_enable=1U defaults to trial; 0 restores the immediately preceding independent Voice position behavior at runtime (change only when stationary). Command4 (5..40 interpolated encoder) and command5 (45 must reach both corresponding physical NC) feed old bounded M8-S00 steering normalized progress and velocity feedback. Existing AS5600 start/goal separately passed: steer_left_axis.escape_start_raw/voice_pos_goal_l, right analog.
+[3] Steering_VoiceS154Sync runs AFTER Steering_PositionAxisUpdate for both motors and BEFORE late IRQ / atomic NC / CCR write, only both coarse MOVING, both fresh <=40ms, NC-clear, nonzero PWM and valid per-axis floor; cannot create PWM where owner zero, cannot bypass safety, limit caps remain 300/100 or lower. Independent 45 NC completion, RAW safety stop before missing NC, fine correction, timeout, watchdog remain original.
+[4] Added observability: steer_voice_s154_start_l/r, progress_l/r (permille), gap_permille and peak, pwm_l/r after coordinator, l_eta_ms/r_eta_ms/common_eta_ms from real sample rates, status 0 idle/1 pace/2 disabled/3 ineligible state/4 stale or zero/5 asserted NC, done_l_ms/r_ms, arrival_skew_ms. These do not certify equal arrival.
+[5] New tools/verify_m8_s154_voice_sync.py extracts and HOST compiles production C normalized stroke progress/speed observer/sync wrapper, and static-checks real wiring, NC guards, pause-independent UART parser, range caps, and R1/R2 unaffected. Exact SHA Actions CI needed.
+[6] Detailed design and safe A/B physical acceptance in docs/M8_S154_VOICE_DUAL_SYNC_2026_11_05.md; append-only project milestones updated.
+[7] IMPORTANT: S15.4 actual powered MOTOR sync NOT hardware-tested. CubeIDE Clean Build and flash matching ELF, no-power NC preflight, supported chassis with emergency power cut, A/B enabled-vs-disabled measured phase gap and arrival skew required. Preserve fail-closed and do not tune PWM/NC thresholds simply to force skew.
+END OF CONTEXT HANDOFF
