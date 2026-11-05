@@ -1444,4 +1444,9 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [1] Production source now also excludes STEER_POS_VOICE45_NC from both Steering_AngleWaypointApply and Steering_PhaseLimit R1/R2 paths. 45 uses only independent NC-position axes and existing per-axis PWM limit/stall/timeout. No new timing/PWM increase.
 [2] Added static test assertion that excludes mode5 from R1/R2 waypoint path while preserving original R1/R2 behavior and hardware NC preflight.
 [3] Requires exact SHA HOST CI and, independently, STM32CubeIDE Clean Build, physical endstop checks and suspended chassis acceptance before powered use.
+
+
+## 2026-11-05 — HOST test forward declaration extraction correction
+[0] Exact SHA CI test tools/verify_m8_vc02_45_nc.py initially selected the forward declaration of Steering_SafetyExpectedNcMask(), not the later C function definition; assertion therefore checked the wrong body.
+[1] Fixed the test signature to include the opening brace after the full function name, reading only the real implementation. Production motor source unchanged by this follow-up. Re-run exact SHA CI.
 END OF CONTEXT HANDOFF
