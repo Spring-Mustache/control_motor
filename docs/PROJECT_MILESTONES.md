@@ -1175,3 +1175,8 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [TRACE] Added `steer_voice_s154_progress_l/r`, `gap_permille`, `common_eta_ms` (read-only estimate), `steer_voice_s154_done_l_ms/r_ms` and `arrival_skew_ms`. No HARD guaranteed common T is asserted. 5..40 still requires encoder servo completion, 45 still requires BOTH own NC contacts result3; a motor already DONE keeps CCR0. Legacy R1/R2/manual progress statistics unaffected.
 - [TEST] New exact-source HOST C and static wiring test `tools/verify_m8_s154_voice_sync.py` added to GitHub Actions; also run previous VC-02 strict parser, 45 NC, auto-ARM, STOP/PS2, R1/R2/S15 legacy checks. CI verifies source only, not CubeIDE target or physical movement.
 - [NEXT HARDWARE] Clean Build/flash matching ELF, NC/STOP test without motor power, then supported bench with two-way 15°/30°/40° and finally 45 NC. Use `steer_voice_s154_enable=0` for A/B rollback and compare gap, PWM, independent axis result, `arrival_skew_ms`; if loss of motion/oscillation, disable sync. Never force NC by widening limits or increasing PWM.
+
+
+## 2026-11-05 — S15.4 HOST regression strict-warning repair
+
+- [CI] Initial new tools/verify_m8_s154_voice_sync.py test failed under gcc -Werror because its synthetic HOST fixture declared unused local start-observation fields; these fields are not part of the compiled production synchronizer. Removed the unused fixture declarations only. The code/test changes postdated the prior handoff snapshot; updated append-only handoff and milestones for exact-SHA checks. This is NOT a motor or target compiler failure.
