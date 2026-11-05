@@ -4769,8 +4769,9 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   }
   else
   {
-    if ((steer_pos_command == 2U) && ((limit_mask & own_min) != 0U))
+    if (Steering_PositionAtExpectedNc(left, limit_mask) != 0U)
     {
+      /* R2 or Voice 45: only own expected NC grants result 3. */
       Steering_PositionAxisDone(left, 3U);
       return;
     }
@@ -4850,7 +4851,8 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     /* Escape no longer uses MAX PWM and a 120-ms motor pause.
      * Follow the same position PWM law throughout R1/R2 travel.
      */
-    goal = (steer_pos_command == 4U) ?
+    goal = ((steer_pos_command == 4U) ||
+      (steer_pos_command == STEER_POS_VOICE45_NC)) ?
       (left ? voice_pos_goal_l : voice_pos_goal_r) :
       ((steer_pos_command == 1U) ?
         (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
@@ -4882,7 +4884,8 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     return;
   }
 
-  goal = (steer_pos_command == 4U) ?
+  goal = ((steer_pos_command == 4U) ||
+      (steer_pos_command == STEER_POS_VOICE45_NC)) ?
       (left ? voice_pos_goal_l : voice_pos_goal_r) :
       ((steer_pos_command == 1U) ?
         (left ? STEER_POS_LEFT_CENTER_RAW : STEER_POS_RIGHT_CENTER_RAW) :
@@ -4905,10 +4908,9 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   else steer_pos_right_error = err;
 
   abs_error = (uint16_t)((err < 0) ? -err : err);
-  /* R1: coarse approach and independent short-pulse ±5 RAW trim.
-   * R2: ONLY the physical, own MIN NC (GPIO or EXTI) completes with
-   * result=3. A close RAW reading must NOT declare pivot-ready before
-   * the steering module has reached its required mechanical angle.
+  /* R1 and Voice 5..40: fine RAW servo.
+   * R2 and Voice 45: only expected own physical NC (result 3).
+   * A close RAW reading must never falsely declare NC arrival.
    */
   if ((steer_pos_command == 1U) || (steer_pos_command == 4U))
   {
@@ -4940,13 +4942,15 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
   }
   else
   {
-    /* NC never arrived by the known MIN approach boundary: STOP the
-     * axis as a local fault rather than reversing to a RAW target or
-     * driving farther into an unknown hardstop. The hard AS5600
-     * safety envelope and timeout/stall checks remain separately live.
+    /* R2 or Voice 45: fail at configured physical RAW landmark if
+     * the expected NC is absent. No reversal, no extra torque, and
+     * no credit for RAW-only proximity to a mechanical hard stop.
      */
-    if (((left != 0U) && (raw >= goal)) ||
-        ((left == 0U) && (raw <= goal)))
+    if (((steer_pos_command == STEER_POS_VOICE45_NC) &&
+         (Steering_Voice45RawBoundaryReached(left, raw, goal) != 0U)) ||
+        ((steer_pos_command == 2U) &&
+         (((left != 0U) && (raw >= goal)) ||
+          ((left == 0U) && (raw <= goal)))))
     {
       Steering_PositionAxisFault(left, 8U);
       return;
