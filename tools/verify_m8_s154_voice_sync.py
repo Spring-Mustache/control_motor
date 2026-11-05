@@ -148,9 +148,9 @@ int main(void) {
  assert(o.valid&&o.updated&&o.speed_pms==2000);
  Steering_AngleSpeedObserve(&o,110,130);
  assert(!o.updated);
- Steering_AngleSpeedObserve(&o,120,125);
+ Steering_AngleSpeedObserve(&o,120,115);
  assert(!o.valid);
- Steering_AngleSpeedObserve(&o,130,135);
+ Steering_AngleSpeedObserve(&o,130,125);
  assert(o.valid&&o.speed_pms==1000);
  /* Voice only. Non-Voice R1/R2 must not cross into S15.4. */
  steer_pos_left_state=steer_pos_right_state=STEER_AXIS_MOVING;
