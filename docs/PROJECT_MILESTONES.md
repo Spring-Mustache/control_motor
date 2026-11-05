@@ -1165,3 +1165,13 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 ## 2026-11-05 — Correct HOST NC test function extraction
 
 - [TEST] Full CI discovered our newly added production-C test extracted a forward declaration instead of Steering_SafetyExpectedNcMask implementation, falsely failing the NC expected-mask assertion. Corrected test extraction anchor; source logic unchanged. Exact SHA full CI rerun required.
+
+
+## 2026-11-05 — M8-S15.4 Voice two-axis speed/progress synchronization staged
+
+- [OPERATOR] Confirmed preceding physical 45° Voice NC steering works when direction A5/A6 and angle B9 are spoken separately with a short pause. This DOES NOT validate simultaneous arrival S15.4.
+- [CODE] New independent branch `feature/m8-s154-voice-dual-steer-common-progress` based exactly on passed `66053b61ea3890ed7a56c80a98eced758908d911`; predecessor branch untouched. Voice command4 (5..40 encoder) and command5 (45 NC) now feed a bounded AS5600 normalized progress/velocity coordinator using individual stroke start and goal. Reuses existing M8-S00 speed feedback instead of stacking an experimental PI.
+- [SAFETY] New Voice opt-out `steer_voice_s154_enable=1U` for trial; 0 restores independent Voice servos. Coordination executes after each motor validates AS5600/NC/stall and before original atomic late-NC/CCR checks, only when both move coarse with fresh samples and nonzero owner PWM. It never writes CCR, never holds leading motor at 0 PWM, never raises caps beyond LEFT300/RIGHT100, never overrules a DONE/ERROR/ESCAPING/fine axis. Original STOP/PS2 takeover/motion permit, hard NC and 5s timeout unchanged.
+- [TRACE] Added `steer_voice_s154_progress_l/r`, `gap_permille`, `common_eta_ms` (read-only estimate), `steer_voice_s154_done_l_ms/r_ms` and `arrival_skew_ms`. No HARD guaranteed common T is asserted. 5..40 still requires encoder servo completion, 45 still requires BOTH own NC contacts result3; a motor already DONE keeps CCR0. Legacy R1/R2/manual progress statistics unaffected.
+- [TEST] New exact-source HOST C and static wiring test `tools/verify_m8_s154_voice_sync.py` added to GitHub Actions; also run previous VC-02 strict parser, 45 NC, auto-ARM, STOP/PS2, R1/R2/S15 legacy checks. CI verifies source only, not CubeIDE target or physical movement.
+- [NEXT HARDWARE] Clean Build/flash matching ELF, NC/STOP test without motor power, then supported bench with two-way 15°/30°/40° and finally 45 NC. Use `steer_voice_s154_enable=0` for A/B rollback and compare gap, PWM, independent axis result, `arrival_skew_ms`; if loss of motion/oscillation, disable sync. Never force NC by widening limits or increasing PWM.
