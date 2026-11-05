@@ -1220,3 +1220,8 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 ## 2026-11-05 — First fresh-tick HOST fixture-only correction
 - New read-only status counters must be declared in old extracted-C S15.4 verifier fixture. Fix new verifier's suffix formatting to assert correct names. CI at initial 1ece00a failed test fixture before running the new test; production logic unchanged. Check exact new HEAD Actions before hardware.
+
+## 2026-11-05 — S15.4 active coarse sync; RIGHT Voice RAW-fall guarded fine trial
+- [PHYSICAL] Real MCU c2c2d09e... 6 Voice15/30/40 all results=2. S15.4 active syncFrames80..232, eligibility skip disabled/stale/NC/waypoint=0. RIGHT RAW-rise entry10, zero fine pulse all three; preserve.
+- [NEXT A/B] RIGHT RAW-decrease still uses entry15 and one fine pulse each. New separate feature/m8-s154-right-voice-fall-10raw, source from exact tested c2c2d09e, boot1 flag with RIGHT Voice4 err<0 and R_MIN clearance>=30 allows fine threshold10. Everything else untouched. At 30 RIGHT was already 154ms early, so don't claim uniformly better sync.
+- [TEST] C HOST helper regression broadened; exact CI before user CubeIDE Build/Flash, guarded first small angle and six-row PowerShell log. Roll back physical-good SHA c2c2d09e if worse. docs/M8_S154_RIGHT_FALL_10RAW_2026_11_05.md.

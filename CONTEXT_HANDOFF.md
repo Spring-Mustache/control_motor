@@ -1552,4 +1552,23 @@ END OF CONTEXT HANDOFF
 [0] Initial source SHA 1ece00ae9ccac2316d3b357b4ad89fa40cbc6c83 passed Windows PowerShell syntax but failed extracted real-C S15.4 HOST compilation: the fixture lacked five new passive gate counters. Add only C fixture globals and correct a malformed assertion in the new skip-counter verifier. No firmware/source, motor/NC, fine, or UART changes, and no hardware PASS claimed.
 [1] Exact latest SHA and full CI success required before CubeIDE Build/Flash and user log.
 
+## 2026-11-05 — Fourth trial: RIGHT Voice fall 10-RAW threshold
+[0] User physically tested exact c2c2d09eb56e3b3e5be7474853655c6cdfb25395 and sent private log M8S154_right_fine_20261105_194122.txt. Do not publish raw TXT.
+[1] Six Voice15/30/40 both directions: all resultL=resultR=finish=2, RIGHT final abs(error)<=5 RAW; no reverse, dropped=0.
+[2] S15.4 sync now physically ACTIVE: syncFrames=80/119/150/183/204/232, syncDisabled/stale/NC/waypoint=0. Peak gap positive 44-213, not exact simultaneous movement.
+[3] RIGHT RAW-increase 10RAW entryLimit, 0 fine pulses all 3, rightFineMs210, skew11/77/77; proven condition unchanged.
+[4] RIGHT RAW-decrease (Voice LEFT) entryLimit15 RAW, one fine pulse each, rightFineMs441/441/452; skew231/154/495; at 30 RIGHT finished EARLIER by154 so shorter RIGHT time may worsen skew there.
+[5] Isolated branch feature/m8-s154-right-voice-fall-10raw forks tested c2c2d09e; prior tested branch untouched.
+[6] New boot1 flag steer_voice_s154_right_fall_late_fine_enable. RIGHT only, Voice mode4, voice owned, err<0, goal>=R_MIN +30 RAW selects 10RAW fine entry. Reverts original threshold when any gate fails.
+[7] RIGHT RAW-increase behavior unchanged, S15.4 post-I2C time and coordinator unchanged, LEFT/R1/R2/manual/Voice45 untouched. NC/STOP/PS2, physical encoder safety, CCR300/100 caps, 85/12ms RIGHT fine, 200/100/120ms quiet, 8-pulse/+-5 tolerance, stall and timeouts preserved.
+[8] All test flags boot1; no Live Expressions, no automatic motor command or safety grant.
+[9] Existing auto UART M8S154_FINE and native PowerShell script unchanged; entryLimit reflects actual first fine entry.
+[10] Extend existing actual-C helper host test for negative direction, clearance thresholds, independent toggles; full exact-SHA CI required.
+[11] Operator future: clean worktree switch feature branch, CubeIDE Clean Build and matched flash, physical NC/STOP preflight, fixed rig, independent motor cut, Voice15 LEFT first then six Voice 15/30/40 both directions if safe, send private TXT.
+[12] Performance improvement is hypothesis only; may degrade near endpoint or increase skew at30 LEFT, stop on overshoot/error.
+[13] No physical acceptance for new branch until test and log.
+[14] docs/M8_S154_RIGHT_FALL_10RAW_2026_11_05.md and tools/verify_m8_s154_right_late_fine.py, legacy required docs unchanged.
+[15] Rollback source SHA c2c2d09eb56e3b3e5be7474853655c6cdfb25395.
+[16] SOURCE-STAGED / HOST CI / CubeIDE BUILD / FLASH / HARDWARE PASS independent.
+
 END OF CONTEXT HANDOFF

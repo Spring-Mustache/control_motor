@@ -2899,7 +2899,13 @@ volatile uint8_t steer_voice_s154_right_fine_diag_enable = 1U;
  */
 #define STEER_VOICE_S154_RIGHT_RISE_FINE_ENTRY_RAW 10U
 #define STEER_VOICE_S154_RIGHT_MAX_CLEARANCE_RAW 30U
+/* Independent Voice4-only RIGHT RAW-decreasing fine-entry A/B.
+ * Boot ON for hardware test as requested. No additional motor power.
+ */
+#define STEER_VOICE_S154_RIGHT_FALL_FINE_ENTRY_RAW 10U
+#define STEER_VOICE_S154_RIGHT_MIN_CLEARANCE_RAW 30U
 volatile uint8_t steer_voice_s154_right_late_fine_enable = 1U;
+volatile uint8_t steer_voice_s154_right_fall_late_fine_enable = 1U;
 volatile uint16_t steer_voice_s154_right_fine_entry_used = STEER_POS_FINE_RIGHT_MIN_RAW;
 volatile uint32_t steer_voice_s154_run_sync_frames = 0U;
 /* Read-only per-Voice run coordinator rejection counters. Auto-captured
@@ -5013,16 +5019,32 @@ static uint16_t Steering_VoiceRightLateFineEntry(uint8_t left,
                                                  uint16_t normal_entry)
 {
   int32_t clearance;
-  if ((left != 0U) ||
-      (steer_voice_s154_right_late_fine_enable != 1U) ||
-      (voice_pos_owned == 0U) || (steer_pos_command != 4U) ||
-      (err <= 0))
+  if ((left != 0U) || (voice_pos_owned == 0U) ||
+      (steer_pos_command != 4U))
     return normal_entry;
-  clearance = (int32_t)STEER_POS_RIGHT_MAX_RAW -
-              (int32_t)voice_pos_goal_r;
-  if (clearance < (int32_t)STEER_VOICE_S154_RIGHT_MAX_CLEARANCE_RAW)
-    return normal_entry;
-  return STEER_VOICE_S154_RIGHT_RISE_FINE_ENTRY_RAW;
+  if (err > 0)
+  {
+    /* Preserve proven RIGHT RAW-increasing behavior exactly. */
+    if (steer_voice_s154_right_late_fine_enable != 1U)
+      return normal_entry;
+    clearance = (int32_t)STEER_POS_RIGHT_MAX_RAW -
+                (int32_t)voice_pos_goal_r;
+    if (clearance < (int32_t)STEER_VOICE_S154_RIGHT_MAX_CLEARANCE_RAW)
+      return normal_entry;
+    return STEER_VOICE_S154_RIGHT_RISE_FINE_ENTRY_RAW;
+  }
+  if (err < 0)
+  {
+    /* NEW: toward own R_MIN only, with at least 30 RAW NC clearance. */
+    if (steer_voice_s154_right_fall_late_fine_enable != 1U)
+      return normal_entry;
+    clearance = (int32_t)voice_pos_goal_r -
+                (int32_t)STEER_POS_RIGHT_MIN_RAW;
+    if (clearance < (int32_t)STEER_VOICE_S154_RIGHT_MIN_CLEARANCE_RAW)
+      return normal_entry;
+    return STEER_VOICE_S154_RIGHT_FALL_FINE_ENTRY_RAW;
+  }
+  return normal_entry;
 }
 
 /* Independent axis servo. No checks on the other side's limit inputs.

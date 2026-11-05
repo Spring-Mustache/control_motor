@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M8-S15.4 RIGHT Voice4 RAW-increase fine handoff — actual-C HOST tests.
+"""M8-S15.4 RIGHT Voice4 guarded bidirectional fine handoff — actual-C HOST tests.
 No CubeIDE target compile, physical coast, NC or motor-speed validation.
 """
 from pathlib import Path
@@ -24,6 +24,9 @@ finish=extract("static void Steering_PositionFinish(")
 cap=extract("static void Steering_VoiceRightFineCapture(")
 uart=extract("static void M8S11_StreamUpdate(void)\n{")
 assert "steer_voice_s154_right_late_fine_enable = 1U;" in S
+assert "steer_voice_s154_right_fall_late_fine_enable = 1U;" in S
+assert "#define STEER_VOICE_S154_RIGHT_FALL_FINE_ENTRY_RAW 10U" in S
+assert "#define STEER_VOICE_S154_RIGHT_MIN_CLEARANCE_RAW 30U" in S
 assert "steer_voice_s154_right_fine_diag_enable = 1U;" in S
 assert "steer_voice_s154_enable = 1U;" in S
 assert "voice_pos_enable = 1U;" in S
@@ -67,21 +70,39 @@ top=r'''
 #include <stdio.h>
 #define STEER_VOICE_S154_RIGHT_RISE_FINE_ENTRY_RAW 10U
 #define STEER_VOICE_S154_RIGHT_MAX_CLEARANCE_RAW 30U
+#define STEER_VOICE_S154_RIGHT_FALL_FINE_ENTRY_RAW 10U
+#define STEER_VOICE_S154_RIGHT_MIN_CLEARANCE_RAW 30U
 static uint8_t steer_voice_s154_right_late_fine_enable=1U;
+static uint8_t steer_voice_s154_right_fall_late_fine_enable=1U;
 static uint8_t voice_pos_owned=1U;
 static uint8_t steer_pos_command=4U;
 static uint16_t steer_cal_right_max_runtime=1029U;
+static uint16_t steer_cal_right_min_runtime=195U;
 static uint16_t voice_pos_goal_r=988U;
 #define STEER_POS_RIGHT_MAX_RAW (steer_cal_right_max_runtime)
+#define STEER_POS_RIGHT_MIN_RAW (steer_cal_right_min_runtime)
 '''
 tail=r'''
 int main(void) {
  // actual trial angle40 RIGHT RAW rise: MAX1029, goal988, 41 RAW NC clearance.
  assert(Steering_VoiceRightLateFineEntry(0U,14,15U)==10U);
  assert(Steering_VoiceRightLateFineEntry(0U,5,15U)==10U);
- // LEFT, RIGHT RAW decreasing, R1, Voice45, disabled trial all unchanged.
+ // LEFT remains unchanged. New RIGHT RAW-decrease threshold=10, MIN guard.
  assert(Steering_VoiceRightLateFineEntry(1U,14,15U)==15U);
+ voice_pos_goal_r=247U; // measured 40deg LEFT target, MIN195, clearance52.
+ assert(Steering_VoiceRightLateFineEntry(0U,-14,15U)==10U);
+ assert(Steering_VoiceRightLateFineEntry(0U,-5,15U)==10U);
+ steer_voice_s154_right_fall_late_fine_enable=0U;
  assert(Steering_VoiceRightLateFineEntry(0U,-14,15U)==15U);
+ steer_voice_s154_right_fall_late_fine_enable=1U;
+ voice_pos_goal_r=224U; // 29 RAW clearance -> keep normal.
+ assert(Steering_VoiceRightLateFineEntry(0U,-14,15U)==15U);
+ voice_pos_goal_r=225U; // 30 RAW clearance -> eligible.
+ assert(Steering_VoiceRightLateFineEntry(0U,-14,15U)==10U);
+ voice_pos_goal_r=194U; // goal beyond MIN -> never use late handoff.
+ assert(Steering_VoiceRightLateFineEntry(0U,-14,15U)==15U);
+ voice_pos_goal_r=247U;
+ assert(Steering_VoiceRightLateFineEntry(0U,0,15U)==15U);
  steer_pos_command=1U;
  assert(Steering_VoiceRightLateFineEntry(0U,14,15U)==15U);
  steer_pos_command=5U;
@@ -92,12 +113,14 @@ int main(void) {
  steer_voice_s154_right_late_fine_enable=0U;
  assert(Steering_VoiceRightLateFineEntry(0U,14,15U)==15U);
  steer_voice_s154_right_late_fine_enable=1U;
+ voice_pos_goal_r=988U;
+ assert(Steering_VoiceRightLateFineEntry(0U,14,15U)==10U);
  // More than 30 RAW clearance guard: <=29 falls back to 15.
  voice_pos_goal_r=1000U;
  assert(Steering_VoiceRightLateFineEntry(0U,14,15U)==15U);
  voice_pos_goal_r=999U;
  assert(Steering_VoiceRightLateFineEntry(0U,14,15U)==10U);
- puts("PASS actual C Voice4 RIGHT RAW-rise 10-RAW handoff; fallback guards");
+ puts("PASS actual C Voice4 RIGHT RAW-rise/fall 10-RAW handoff, NC bounds");
  return 0;
 }
 '''
