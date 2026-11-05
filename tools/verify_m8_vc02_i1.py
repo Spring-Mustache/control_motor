@@ -36,9 +36,11 @@ checks={
       "steer_safety_motion_permit = 0U;")) and
   "steer_safety_motion_permit==1U" in
     body(MAIN,"static void Steering_PositionUpdate("),
- "Steering angle route is command 4, not PS2 1|2 == 3 conflict":
-  "voice_pos_request=(angle==0U)?1U:4U;" in MAIN and
+ "Steering 5..40 uses RAW owner 4, 45 owns NC mode 5, not PS2 conflict 3":
+  "voice_pos_request=(angle==0U)?1U:" in MAIN and
+  "((angle==45U)?STEER_POS_VOICE45_NC:4U)" in MAIN and
   "steer_pos_command == 4U" in MAIN and
+  "STEER_POS_VOICE45_NC 5U" in MAIN and
   "(steer_pos_command != 4U)" in MAIN,
  "Duration and movement both required before wheel motion":
   "VoiceS154_DurationValid(duration_sec)" in
@@ -213,18 +215,20 @@ int main(void) {
  assert(!VoiceS154_PivotNcReady(0x0E,0x04,0x02,0x08,0x01));
  for(int d=5;d<=45;d+=5)for(int dir=-1;dir<=1;dir+=2) {
   VoiceS154Goals_t g=VoiceS154_AngleGoals((int8_t)dir,
-   (uint8_t)d,1886,662,1454,245,2225,970);
-  assert(g.valid && g.left_raw>=1454&&g.left_raw<=2225);
-  assert(g.right_raw>=245&&g.right_raw<=970);
+   (uint8_t)d,1886,662,1374,195,2297,1029);
+  assert(g.valid && g.left_raw>=1374&&g.left_raw<=2297);
+  assert(g.right_raw>=195&&g.right_raw<=1029);
   if(dir<0){assert(g.left_raw<1886&&g.right_raw<662);}
   else {assert(g.left_raw>1886&&g.right_raw>662);}
-  if(d==45){assert(g.left_raw==(dir<0?1454:2225));
-            assert(g.right_raw==(dir<0?245:970));}
+  if(d==45){assert(g.left_raw==(dir<0?1374:2297));
+            assert(g.right_raw==(dir<0?195:1029));}
+  /* Intermediates are proportional to HARD MIN/MAX, not old SOFT. */
+  if(d==30&&dir<0){assert(g.left_raw==1545&&g.right_raw==351);}
  }
- assert(!VoiceS154_AngleGoals(0,30,1886,662,1454,245,2225,970).valid);
- assert(!VoiceS154_AngleGoals(-1,0,1886,662,1454,245,2225,970).valid);
- assert(!VoiceS154_AngleGoals(1,30,1886,662,1900,245,2225,970).valid);
- puts("PASS actual UART decoder, full TIME set, A4/A7, B0/B9, speed, physical NC gate and independent angle goal C kernels");
+ assert(!VoiceS154_AngleGoals(0,30,1886,662,1374,195,2297,1029).valid);
+ assert(!VoiceS154_AngleGoals(-1,0,1886,662,1374,195,2297,1029).valid);
+ assert(!VoiceS154_AngleGoals(1,30,1886,662,1900,195,2297,1029).valid);
+ puts("PASS actual UART decoder and calibrated CENTER/MIN/MAX 5-45 angle C kernels; 45 handled by protected NC position owner");
  return 0;
 }
 """
