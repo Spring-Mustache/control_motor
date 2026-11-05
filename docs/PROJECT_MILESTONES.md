@@ -1154,3 +1154,9 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [SAFETY] ISR always zeros corresponding CCR. Expected NC is recognized at initialization, early IRQ, late IRQ and atomic GPIO recheck. Unexpected/dual NC stays error. No RAW-only arrival for 45: reach calibrated boundary without NC -> local fault, timeout/stall unchanged. BOTH axes need physical NC result3 to report Voice45 success. R2 MIN-only behavior unchanged. Voice45 also requires stopped drive wheels. No increased duty, no longer approach beyond known endpoint, no tuning changes.
 - [TEST] New exact-production-C HOST NC helper/edge validation `tools/verify_m8_vc02_45_nc.py` plus updated command-core/route kernels and exact-SHA workflow. Full CI required. CubeIDE Clean Build, flashing, NC bench test and powered motion validation are NOT performed here.
 - [OPERATION] Physical NC must be reached within calibrated RAW envelope BEFORE any hard mechanical collision/after-coast risk. If switch triggers beyond stored runtime landmark, intentionally fail safely rather than force contact. Do not bypass NC or widen hard envelope to make the test pass.
+
+
+## 2026-11-05 — Voice45 must not inherit R1/R2 waypoint pacing
+
+- [AUDIT] Additional source review found an R1/R2-only PWM coordination path gated by `steer_pos_command != 4U`; new Voice45 mode5 would have incorrectly used both R2 MIN targets. Explicitly excluded `STEER_POS_VOICE45_NC` from the existing waypoint/phase pacing; independent axis position toward left/right expected NC remains, unchanged R1/R2 pacing.
+- [TEST] Strengthened tools/verify_m8_vc02_45_nc.py to enforce this source isolation and monitor fail-closed NC behavior. Exact SHA CI and hardware preflight pending.
