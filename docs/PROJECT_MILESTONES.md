@@ -1145,3 +1145,12 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 - [TEST] GitHub CI found a static test formatting mismatch: actual C clears `duration_valid = 0U;` and `angle_valid = 0U;`, while the test expected tokens without spaces. Updated `tools/verify_m8_vc02_i1.py` exact source checks; production parser was not changed in this follow-up.
 - [CONTEXT] Synchronized context handoff and milestones under the repo's exact-SHA code-change contract. Real C HOST command test and full CI remain verification gates; no CubeIDE build/flash/hardware PASS inferred.
+
+
+## 2026-11-05 — VC-02 steering 45 physical NC endpoints, 5–40 calibrated RAW interpolation
+
+- [USER] Operator approves 0 CENTER, 5–40 interpolated proportionally between CENTER and calibrated MIN/MAX, and 45 only after corresponding physical limit switch. NC mapping: LEFT45 L_MAX+R_MIN, RIGHT45 L_MIN+R_MAX. Default soft margins may not redefine 45°.
+- [SOURCE] New isolated trial branch `feature/m8-vc02-45deg-nc-endstops` created from exact `b407c0dbb9f40c2843763483f55ce5bee936990b`; original branches untouched. `VoiceS154_AngleGoals` takes calibrated runtime physical MAX/MIN rather than manual SOFT endpoints; 5..40 continue protected RAW command4; 45 uses command5 with expected NC.
+- [SAFETY] ISR always zeros corresponding CCR. Expected NC is recognized at initialization, early IRQ, late IRQ and atomic GPIO recheck. Unexpected/dual NC stays error. No RAW-only arrival for 45: reach calibrated boundary without NC -> local fault, timeout/stall unchanged. BOTH axes need physical NC result3 to report Voice45 success. R2 MIN-only behavior unchanged. Voice45 also requires stopped drive wheels. No increased duty, no longer approach beyond known endpoint, no tuning changes.
+- [TEST] New exact-production-C HOST NC helper/edge validation `tools/verify_m8_vc02_45_nc.py` plus updated command-core/route kernels and exact-SHA workflow. Full CI required. CubeIDE Clean Build, flashing, NC bench test and powered motion validation are NOT performed here.
+- [OPERATION] Physical NC must be reached within calibrated RAW envelope BEFORE any hard mechanical collision/after-coast risk. If switch triggers beyond stored runtime landmark, intentionally fail safely rather than force contact. Do not bypass NC or widen hard envelope to make the test pass.
