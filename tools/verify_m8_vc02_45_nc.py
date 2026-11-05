@@ -25,7 +25,7 @@ arrived=body("static uint8_t Steering_PositionAtExpectedNc(")
 guard=body("static uint8_t Steering_Voice45RawBoundaryReached(")
 axis=body("static void Steering_PositionAxisUpdate(")
 update=body("static void Steering_PositionUpdate(")
-expected_mask=body("static uint8_t Steering_SafetyExpectedNcMask(")
+expected_mask=body("static uint8_t Steering_SafetyExpectedNcMask(void)\n{")
 stage=body("static void Voice_S154StageSteerAngle(")
 # Static wiring of REAL control paths. A pure helper test is not sufficient.
 assert "STEER_POS_VOICE45_NC 5U" in SRC
