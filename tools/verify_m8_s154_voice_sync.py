@@ -99,7 +99,6 @@ static uint16_t debug_as5600_left_raw=0,debug_as5600_right_raw=0;
 static uint32_t steer_pos_left_last_sample_ms=0,steer_pos_right_last_sample_ms=0;
 static uint32_t steer_angle_wp_frames=0,steer_voice_s154_frames=0,steer_voice_s154_skipped_frames=0;
 static uint16_t steer_angle_wp_progress_left=0,steer_angle_wp_progress_right=0;
-static uint16_t steer_voice_s154_start_l=0,steer_voice_s154_start_r=0;
 static uint16_t steer_voice_s154_progress_l=0,steer_voice_s154_progress_r=0;
 static uint16_t steer_voice_s154_gap_permille=0,steer_voice_s154_peak_gap_permille=0;
 static uint16_t steer_voice_s154_pwm_l=0,steer_voice_s154_pwm_r=0;
