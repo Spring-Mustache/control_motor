@@ -109,6 +109,9 @@ jobs:
       - name: Verify actual C RIGHT Voice RAW-rise late fine handoff and unchanged safety
         run: python3 tools/verify_m8_s154_right_late_fine.py
 
+      - name: Verify guarded PS2 R1/Voice CENTER RIGHT 10RAW fine entry and passive diagnostic
+        run: python3 tools/verify_m8_r1_right_center_late_fine.py
+
       - name: Verify S15.4 fresh post-I2C sample tick and skip telemetry
         run: python3 tools/verify_m8_s154_sync_sample_clock.py
 
@@ -164,6 +167,7 @@ jobs:
           $errors = $null
           foreach ($path in @(".\\tools\\capture_m8_s152.ps1",
                                ".\\tools\\capture_m8_s154_right_fine.ps1",
+                               ".\\tools\\capture_m8_r1_center.ps1",
                                ".\\tools\\stamp_firmware_build.ps1")) {
             $tokens = $null
             $errors = $null

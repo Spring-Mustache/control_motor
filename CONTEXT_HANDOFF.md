@@ -1615,4 +1615,23 @@ END OF CONTEXT HANDOFF
 [15] Read docs/M8_S156_VOICE15_LEFT_START_CAP_2026_11_05.md for rationale, uncertainty and acceptance. Preserve original 386-line spec, historical 17-section handoff and roadmap.
 [16] Explicit stages: SOURCE COMMITTED -> HOST CI -> CubeIDE BUILD -> FLASH -> physical PASS; only assert stage with actual evidence.
 
+## 2026-11-05 — R1/CENTER RIGHT hunting improvement experiment after S15.4 PASS
+[0] USER explicitly marked M8 S15.4/S15.6 PASS after new private 20261105_205603.txt at MCU 9db12228f38c1589bc6229409e3e210f598561ed; LEFT/RIGHT15,30,40 all 6 correct, peakGap28/41/45/47/51/56 => worst-point 97.2/95.9/95.5/95.3/94.9/94.4%, all DONE2, RIGHT pulses0, errors <=5. Do not claim 45/STOP/NC covered by this file. Original TXT remains private.
+[1] New user problem: PS2 R1 AND voice standalone CENTER cause RIGHT to repeatedly oscillate/correct until target. Both use steer_pos_command1 and same RIGHT center662 RAW. This is operator observation; NO R1-specific hardware trace yet.
+[2] Source original mode1 RIGHT minimum coarse->fine cutoff15 RAW, fine85CCR/12ms, bounded 8 pulses, ±5 tolerance, wait 200/100/120ms. Other successful Voice4 RIGHT10 cut and coast6..8 suggests test later handoff RIGHT R1 only; not proven identical coast at center.
+[3] Isolated feature/m8-r1-voice-center-right-late-fine-10raw forks exact tested 9db12228..., default ON new steer_r1_right_late_fine_enable=1U. Eligibility: RIGHT only, mode1 (both PS2 R1 and Voice B0), valid RIGHT runtime calibration, RIGHT center >=30RAW from BOTH NC ends. Then entry10; otherwise fallback old15.
+[4] RIGHT Voice4 two-way10RAW is explicitly unchanged, LEFT R1 and all R2/Voice45 physical NC unchanged, safety/STOP/PS2/owner, cap300/100, fine85/12ms, max8, ±5 and timeouts unchanged.
+[5] Passive new mode1 R1 snapshot M8R1_FINE auto logs BOTH origins source1 PS2/source2 VoiceB0 on safe idle UART3 using existing nonblocking sender. Entry limit latched at first RIGHT fine; includes progress times, pulses/reversals, short-pulse evidence and final outcomes. Prior automatic M8S154_FINE unchanged. Script tools/capture_m8_r1_center.ps1 max8, no command injection/Live Expressions.
+[6] Existing source R1 right error fields are not sufficient to prove cause; no physical pass for NEW branch until user tests with protected rig and sends new private log. New HOST helper tests actual C, route exclusions, geometry and UART guards; WindowsPowerShell parser CI must pass exact SHA.
+[7] User next: local worktree protect; git fetch/switch trial; CubeIDE Clean Build, Flash matching SHA; NC/STOP unpowered preflight; secured motor test with independent supply cut; PS2 R1 from moderate offset first, then Voice CENTER, then return from MIN/MAX in each direction if safe; max8 serial lines. STOP immediately on unsafe jitter/NC/overshoot.
+[8] Desired success: resultL=resultR=finish2, RIGHT error±5, significant reduction in pulses/reversals vs real R1 prior; no lengthening or new fault/NC event. If no historical R1 counts, compare physical response and repeated trials before claiming improvement.
+[9] Baseline rollback exact physical 9db12228f38c1589bc6229409e3e210f598561ed preserved. Do not modify tested branch.
+[10] New doc docs/M8_R1_VOICE_CENTER_RIGHT_LATE_FINE_2026_11_05.md, actual-C tool tools/verify_m8_r1_right_center_late_fine.py.
+[11] 386-line original requirements unchanged, append history under original 17-section handoff.
+[12] SOURCE COMMITTED / HOST CI PASS / CubeIDE BUILD / FLASH / HARDWARE PASS are separate.
+[13] No manual debug flags; new boot flag ON but does not grant motor power or bypass NC.
+[14] R1 right from MIN/MAX safety guards also unchanged, separate per-motor escape and NC release debounce preserved.
+[15] Source pass doesn't ensure hardware smoothness; only user physical data adjudicates next step.
+[16] The user explicitly asked to improve both trigger origins, so one common center-mode patch avoids treating voice misrecognition as the cause of this R1 hunting.
+
 END OF CONTEXT HANDOFF
