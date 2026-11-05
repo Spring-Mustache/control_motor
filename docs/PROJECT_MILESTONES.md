@@ -1202,3 +1202,6 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [NEW BRANCH] feature/m8-s154-right-voice-rise-late-fine-10raw from exact logged baseline a47d7e7fb057a9b817c64a4c2eb99c82cf30125e. Voice4 RIGHT with RAW increasing, clear own NC and voice goal >=30 RAW from R_MAX uses 10 RAW for coarse->fine handoff instead of 15, boot default ON. ALL other directions/modes and S15.4 coordinator, LEFT, 45NC, R1/R2, PWM/fine pulse/tolerance, STOP, NC and PS2 unchanged.
 - [DIAGNOSTIC] M8S154_FINE adds entryLimit,syncFrames,leftDoneMs,rightDoneMs,rightFineMs automatically over idle USART3; test flags boot 1. Existing PowerShell collector, no manual vars or USER button.
 - [TEST] HOST helper from actual C and static safety regressions in tools/verify_m8_s154_right_late_fine.py; exact-SHA CI needed. Physical efficacy and target CubeIDE build unverified until user repeats six safe test commands and sends private log.
+
+## 2026-11-05 — S15.4F first HOST harness fix
+- New read-only sync run counter introduced on trial required adding corresponding declaration to preexisting extracted-C HOST fixture in tools/verify_m8_s154_voice_sync.py. First SHA ad15c893 failed this test-only fixture, not an STM32 motor-run result. No core motor-control/NC/fine threshold correction here; re-run entire exact-SHA CI before operator build.

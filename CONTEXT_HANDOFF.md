@@ -1515,4 +1515,10 @@ END OF CONTEXT HANDOFF
 [15] Next assistant MUST read new branch HEAD, 17-section handoff and roadmap; preserve original 386-line spec, no public log upload.
 [16] State layers: SOURCE-STAGED pending, HOST CI pending until workflow confirms, CubeIDE BUILD pending, FLASH pending, HARDWARE PASS pending. Release optional.
 
+## 2026-11-05 — S15.4F exact-source extracted HOST harness update
+[0] First new trial SHA ad15c89371c2629f9ba6ad3256c65fb64edf6bd8 failed at existing tools/verify_m8_s154_voice_sync.py: its isolated C fixture must explicitly declare the newly added read-only steer_voice_s154_run_sync_frames, just as it declares prior global counters. Core source code compiles in its normal translation unit, but extracted HOST test failed from missing fixture declaration.
+[1] Add only fixture declaration (zero initialized) to S15.4 actual C extracted test. No motor algorithm, PWM timing, LEFT, Voice45 NC, STOP/PS2 or new right-late-fine change; preserve original 386-line handoff and run whole exact-SHA CI before operator build/flash.
+[2] DO NOT call previous run PASS. Wait for new exact-SHA full SUCCESS. The physical log remains prior baseline SHA a47d7e7 and private.
+[3] CubeIDE target build/flash and new physical right fine experiment still pending.
+
 END OF CONTEXT HANDOFF
