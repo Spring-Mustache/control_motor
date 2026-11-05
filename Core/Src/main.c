@@ -5336,9 +5336,8 @@ static void Steering_PositionUpdate(void)
   {
     if (Steering_PositionOwnEscapeIrq(1U, pending) != 0U)
       left_escape_irq_hold = 1U;
-    else if ((steer_pos_command == 2U) &&
-             ((pending & STEER_LIMIT_L_MIN_MASK) != 0U) &&
-             ((pending & STEER_LIMIT_L_MAX_MASK) == 0U))
+    else if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
+             (Steering_PositionAtExpectedNc(1U, pending) != 0U))
       Steering_PositionAxisDone(1U, 3U);
     else
       Steering_PositionAxisFault(1U, 9U);
@@ -5347,9 +5346,8 @@ static void Steering_PositionUpdate(void)
   {
     if (Steering_PositionOwnEscapeIrq(0U, pending) != 0U)
       right_escape_irq_hold = 1U;
-    else if ((steer_pos_command == 2U) &&
-             ((pending & STEER_LIMIT_R_MIN_MASK) != 0U) &&
-             ((pending & STEER_LIMIT_R_MAX_MASK) == 0U))
+    else if ((steer_pos_right_state == STEER_AXIS_MOVING) &&
+             (Steering_PositionAtExpectedNc(0U, pending) != 0U))
       Steering_PositionAxisDone(0U, 3U);
     else
       Steering_PositionAxisFault(0U, 9U);
@@ -5478,9 +5476,7 @@ static void Steering_PositionUpdate(void)
     if (Steering_PositionOwnEscapeIrq(1U, late_pending) != 0U)
       left_escape_irq_hold = 1U;
     else if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
-             (steer_pos_command == 2U) &&
-             ((late_pending & STEER_LIMIT_L_MIN_MASK) != 0U) &&
-             ((late_pending & STEER_LIMIT_L_MAX_MASK) == 0U))
+             (Steering_PositionAtExpectedNc(1U, late_pending) != 0U))
       Steering_PositionAxisDone(1U, 3U);
     else
       Steering_PositionAxisFault(1U, 9U);
@@ -5490,9 +5486,7 @@ static void Steering_PositionUpdate(void)
     if (Steering_PositionOwnEscapeIrq(0U, late_pending) != 0U)
       right_escape_irq_hold = 1U;
     else if ((steer_pos_right_state == STEER_AXIS_MOVING) &&
-             (steer_pos_command == 2U) &&
-             ((late_pending & STEER_LIMIT_R_MIN_MASK) != 0U) &&
-             ((late_pending & STEER_LIMIT_R_MAX_MASK) == 0U))
+             (Steering_PositionAtExpectedNc(0U, late_pending) != 0U))
       Steering_PositionAxisDone(0U, 3U);
     else
       Steering_PositionAxisFault(0U, 9U);
@@ -5525,9 +5519,7 @@ static void Steering_PositionUpdate(void)
   if ((steer_pos_left_state == STEER_AXIS_MOVING) &&
       ((raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) != 0U))
   {
-    if ((steer_pos_command == 2U) &&
-        ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U) &&
-        ((raw_mask & STEER_LIMIT_L_MAX_MASK) == 0U))
+    if (Steering_PositionAtExpectedNc(1U, raw_mask) != 0U)
       Steering_PositionAxisDone(1U, 3U);
     else
       Steering_PositionAxisFault(1U, 9U);
@@ -5535,9 +5527,7 @@ static void Steering_PositionUpdate(void)
   if ((steer_pos_right_state == STEER_AXIS_MOVING) &&
       ((raw_mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U))
   {
-    if ((steer_pos_command == 2U) &&
-        ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U) &&
-        ((raw_mask & STEER_LIMIT_R_MAX_MASK) == 0U))
+    if (Steering_PositionAtExpectedNc(0U, raw_mask) != 0U)
       Steering_PositionAxisDone(0U, 3U);
     else
       Steering_PositionAxisFault(0U, 9U);
@@ -5606,6 +5596,10 @@ static void Steering_PositionUpdate(void)
     else if ((steer_pos_left_result == 7U) ||
              (steer_pos_right_result == 7U))
       result = 7U;
+    else if ((steer_pos_command == STEER_POS_VOICE45_NC) &&
+             ((steer_pos_left_result != 3U) ||
+              (steer_pos_right_result != 3U)))
+      result = 8U; /* both expected physical NC required for 45 PASS */
     Steering_PositionFinish(result);
   }
 }
@@ -9386,14 +9380,16 @@ volatile uint32_t steer_cal_endpoint_sync_update_count = 0U;
 static uint8_t Steering_SafetyExpectedNcMask(void)
 {
   uint8_t mask = 0U;
-  if ((steer_pos_active != 0U) && (steer_pos_command == 2U))
+  if ((steer_pos_active != 0U) &&
+      ((steer_pos_command == 2U) ||
+       (steer_pos_command == STEER_POS_VOICE45_NC)))
   {
     if ((steer_pos_left_state == STEER_AXIS_MOVING) ||
         (steer_pos_left_state == STEER_AXIS_DONE))
-      mask |= STEER_LIMIT_L_MIN_MASK;
+      mask |= Steering_PositionExpectedNc(1U);
     if ((steer_pos_right_state == STEER_AXIS_MOVING) ||
         (steer_pos_right_state == STEER_AXIS_DONE))
-      mask |= STEER_LIMIT_R_MIN_MASK;
+      mask |= Steering_PositionExpectedNc(0U);
   }
   if (steer_cal_active != 0U)
   {
