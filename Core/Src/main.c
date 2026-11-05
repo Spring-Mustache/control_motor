@@ -2891,6 +2891,17 @@ volatile uint8_t steer_voice_s154_enable = 1U; /* trial: disable via Live Expres
  * No change to PWM, STOP/NC, fine thresholds or S15.4 coarse pacing.
  */
 volatile uint8_t steer_voice_s154_right_fine_diag_enable = 1U;
+/* Operator six-run log: RIGHT RAW increasing has 6 fine pulses and
+ * one reversal at 30/40; decreasing direction completes in 1-2.
+ * Try a later COARSE->FINE handoff ONLY for Voice4 RIGHT RAW increase.
+ * Existing 15 RAW handoff is the fallback; no PWM/cap or pulse change.
+ * New trial defaults ON, but never starts motion or bypasses NC guards.
+ */
+#define STEER_VOICE_S154_RIGHT_RISE_FINE_ENTRY_RAW 10U
+#define STEER_VOICE_S154_RIGHT_MAX_CLEARANCE_RAW 30U
+volatile uint8_t steer_voice_s154_right_late_fine_enable = 1U;
+volatile uint16_t steer_voice_s154_right_fine_entry_used = STEER_POS_FINE_RIGHT_MIN_RAW;
+volatile uint32_t steer_voice_s154_run_sync_frames = 0U;
 volatile uint32_t steer_voice_s154_right_fine_enter_ms = 0U;
 volatile uint8_t steer_voice_s154_right_fine_reversals = 0U;
 volatile uint32_t steer_voice_s154_right_fine_log_count = 0U;
@@ -2898,7 +2909,8 @@ volatile uint32_t steer_voice_s154_right_fine_drop_count = 0U;
 volatile uint32_t steer_voice_s154_right_fine_tx_count = 0U;
 typedef struct {
   uint32_t seq, total_ms, fine_ms, skew_ms, dropped;
-  uint16_t start, goal, entry, quiet, end, gap, pulse_max_ms;
+  uint32_t left_done_ms, right_done_ms, right_fine_ms, sync_frames;
+  uint16_t start, goal, entry, quiet, end, gap, pulse_max_ms, entry_limit;
   int16_t error, last_move;
   uint8_t angle, turn, pulses, reversals, weak, good, back;
   uint8_t quiet_valid, phase, result_l, result_r, result_total;
@@ -4187,6 +4199,8 @@ static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
     return;
   }
   steer_voice_s154_active = 1U;
+  if (steer_voice_s154_run_sync_frames != 0xffffffffUL)
+    steer_voice_s154_run_sync_frames++;
   steer_voice_s154_status = 1U;
   steer_voice_s154_progress_l = steer_angle_wp_progress_left;
   steer_voice_s154_progress_r = steer_angle_wp_progress_right;
@@ -4412,6 +4426,16 @@ static void Steering_VoiceRightFineCapture(uint8_t result)
   d->fine_ms = (steer_voice_s154_right_fine_enter_ms != 0U) ?
       (uint32_t)(now - steer_voice_s154_right_fine_enter_ms) : 0U;
   d->skew_ms = steer_voice_s154_arrival_skew_ms;
+  d->left_done_ms = (steer_voice_s154_done_l_ms != 0U) ?
+      (uint32_t)(steer_voice_s154_done_l_ms - steer_pos_start_ms) : 0U;
+  d->right_done_ms = (steer_voice_s154_done_r_ms != 0U) ?
+      (uint32_t)(steer_voice_s154_done_r_ms - steer_pos_start_ms) : 0U;
+  d->right_fine_ms = ((steer_voice_s154_done_r_ms != 0U) &&
+                      (steer_voice_s154_right_fine_enter_ms != 0U)) ?
+      (uint32_t)(steer_voice_s154_done_r_ms -
+                 steer_voice_s154_right_fine_enter_ms) : 0U;
+  d->sync_frames = steer_voice_s154_run_sync_frames;
+  d->entry_limit = steer_voice_s154_right_fine_entry_used;
   d->dropped = steer_voice_s154_right_fine_drop_count;
   d->start = steer_voice_s154_start_r;
   d->goal = voice_pos_goal_r;
@@ -4953,6 +4977,30 @@ static void Steering_PositionFineUpdate(uint8_t left,
   }
 }
 
+/* M8 S15.4 RIGHT Voice4-only fine handoff experiment.
+ * Six-run physical log showed +6..7 RAW coast after right coarse PWM
+ * cut at error ~14-15. A bounded 10-RAW entry can leave ~3-4 RAW
+ * after coast, allowing the EXISTING 200ms quiet / +/-5 RAW rules
+ * to succeed without 6 correction pulses. Prediction, NOT hardware PASS.
+ * All faults, NC direction and atomic CCR guards remain authoritative.
+ */
+static uint16_t Steering_VoiceRightLateFineEntry(uint8_t left,
+                                                 int16_t err,
+                                                 uint16_t normal_entry)
+{
+  int32_t clearance;
+  if ((left != 0U) ||
+      (steer_voice_s154_right_late_fine_enable != 1U) ||
+      (voice_pos_owned == 0U) || (steer_pos_command != 4U) ||
+      (err <= 0))
+    return normal_entry;
+  clearance = (int32_t)STEER_POS_RIGHT_MAX_RAW -
+              (int32_t)voice_pos_goal_r;
+  if (clearance < (int32_t)STEER_VOICE_S154_RIGHT_MAX_CLEARANCE_RAW)
+    return normal_entry;
+  return STEER_VOICE_S154_RIGHT_RISE_FINE_ENTRY_RAW;
+}
+
 /* Independent axis servo. No checks on the other side's limit inputs.
  * Uses actual observed progress, not only encoder noise / timeout.
  */
@@ -5169,6 +5217,13 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
     if ((left != 0U) && (err < 0) &&
         (steer_pos_left_fine_late_from_min_enable == 1U))
       fine_enter = STEER_POS_FINE_LEFT_FROM_MIN_RAW;
+    /* Apply only to Voice 5..40 RIGHT toward MAX (RAW increasing).
+     * Fall back to proven normal threshold if near hard MAX.
+     */
+    fine_enter = Steering_VoiceRightLateFineEntry(left, err, fine_enter);
+    if ((left == 0U) && (voice_pos_owned != 0U) &&
+        (steer_pos_command == 4U))
+      steer_voice_s154_right_fine_entry_used = fine_enter;
     if ((axis->fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
         (abs_error <= fine_enter))
     {
@@ -5417,6 +5472,8 @@ static void Steering_PositionUpdate(void)
       steer_voice_s154_r_eta_ms = 0U;
       steer_voice_s154_common_eta_ms = 0U;
       steer_voice_s154_arrival_skew_ms = 0U;
+      steer_voice_s154_run_sync_frames = 0U;
+      steer_voice_s154_right_fine_entry_used = STEER_POS_FINE_RIGHT_MIN_RAW;
       steer_voice_s154_right_fine_enter_ms = 0U;
       steer_voice_s154_right_fine_reversals = 0U;
       steer_voice_s154_done_l_ms = 0U;
@@ -7117,7 +7174,9 @@ static void M8S11_StreamUpdate(void)
         "quiet=%u,end=%u,error=%d,pulses=%u,reversals=%u,"
         "weak=%u,good=%u,back=%u,lastMove=%d,maxPulseMs=%u,"
         "quietValid=%u,phase=%u,resultL=%u,resultR=%u,"
-        "finish=%u,peakGap=%u,skewMs=%lu,dropped=%lu\r\n",
+        "finish=%u,peakGap=%u,skewMs=%lu,dropped=%lu,"
+        "entryLimit=%u,syncFrames=%lu,leftDoneMs=%lu,"
+        "rightDoneMs=%lu,rightFineMs=%lu\r\n",
         FW_BUILD_GIT_SHA,(unsigned long)d->seq,
         (unsigned)d->angle,(unsigned)d->turn,
         (unsigned long)d->total_ms,(unsigned long)d->fine_ms,
@@ -7129,7 +7188,11 @@ static void M8S11_StreamUpdate(void)
         (unsigned)d->quiet_valid,(unsigned)d->phase,
         (unsigned)d->result_l,(unsigned)d->result_r,
         (unsigned)d->result_total,(unsigned)d->gap,
-        (unsigned long)d->skew_ms,(unsigned long)d->dropped);
+        (unsigned long)d->skew_ms,(unsigned long)d->dropped,
+        (unsigned)d->entry_limit,(unsigned long)d->sync_frames,
+        (unsigned long)d->left_done_ms,
+        (unsigned long)d->right_done_ms,
+        (unsigned long)d->right_fine_ms);
     if (M8S11_SendLine(n) != 0U)
     {
       m8_s154_right_fine_pending = 0U;

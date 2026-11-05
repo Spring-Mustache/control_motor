@@ -1496,4 +1496,23 @@ END OF CONTEXT HANDOFF
 [3] HOST/CI syntax success does not verify actual ST-LINK VCP, COM selection, UART or safe motor functionality. Await operator's physical log before speed/fine actuation changes.
 [4] All 17-section historical handoff content, original 386-line requirements, Voice45 NC, existing S15.4 and STOP/PS2/NC protection unchanged.
 
+## 2026-11-05 — S15.4F REAL 6-run Voice RIGHT fine log and isolated 10RAW handoff trial
+[0] User uploaded private M8S154_right_fine_20261105_190812.txt physically collected from MCU SHA a47d7e7fb057a9b817c64a4c2eb99c82cf30125e. Private data is NOT placed in GitHub.
+[1] Six Voice 15/30/40 two-way runs ALL resultL=2 resultR=2 finish=2, RIGHT final error within +/-5 RAW, dropped0. Qualitative observation LEFT good and RIGHT direction RAW increasing fine oscillation confirmed by 6 pulses/1 reversal for 30 and 40; decreases 1/1/2 pulses, no reversal.
+[2] RIGHT RAW rising first fine at error14..15, first quiet settles approx +6..7 RAW afterward, leaving error ~7..8; hypothesis cutoff later at error10 permits settled error ~3..4 under similar coast. Not physically confirmed.
+[3] Baseline fineMs time is from RIGHT fine entry until WHOLE COMMAND finishes, not true RIGHT-only time. Baseline skewMs loses order. Add rightFineMs, leftDoneMs/rightDoneMs on new log. Baseline peakGap0 all six; add syncFrames to distinguish disabled/fallback S15.4 from genuinely near-zero gap.
+[4] Branch feature/m8-s154-right-voice-rise-late-fine-10raw created from exact known logged SHA a47d7e7fb057a9b817c64a4c2eb99c82cf30125e; baseline untouched.
+[5] New helper Steering_VoiceRightLateFineEntry active ONLY Voice command4 RIGHT RAW increasing (err>0, right axis, voice owner, new flag1), goal at least30 RAW from physical R_MAX. Returns 10 RAW, otherwise original clamped right 15..35 entry; left and RIGHT negative error unchanged.
+[6] Operator requires test flags boot1 without manual edits: existing steer_voice_s154_enable=1, diagnostic=1 and new steer_voice_s154_right_late_fine_enable=1. No bypass of motion permit or implicit auto-driving; rest of auto-ARM guard untouched.
+[7] Coarse motor keeps same PWM and DIR another ~5 RAW before fine cutoff. Fine pulses PWM85/12ms, max8, +/-5 acceptance, 200ms off,100ms quiet,120ms capture, physical NC, STOP, PS2 and stall/timeouts unchanged. Do not claim no physical overshoot from HOST tests.
+[8] S15.4 coordinator code and LEFT, R1/R2, Voice45 NC and manual steering untouched; additional S15.4 per-command paced-frames counter is read-only diagnostic.
+[9] Existing automatic nonblocking UART3 M8S154_FINE appends entryLimit,syncFrames,leftDoneMs,rightDoneMs,rightFineMs for post-run data; previous fields same, existing PowerShell collector works and auto waits safe idle.
+[10] Validate exact-SHA HOST actual C helper with test of Voice4/right/err>0/clearance; test fallback at LEFT/R1/Voice45/error negative/disabled/NC-near. Keep Windows PowerShell parser check.
+[11] User next: clean worktree, fetch/switch new branch, inspect SHA, CubeIDE Clean Build/Flash matched ELF, NC/STOP preflight power disconnected, protected rig, same six Voice tests, use existing PowerShell capture, send one TXT privately. No manual var writes.
+[12] Missing new branch target/physical acceptance; no user claim of faster speed yet. Stop on oscillation/NC faults and rebuild baseline SHA a47d7e7 if needed, rather than overriding PWM/safety.
+[13] Logs are single-robot observations, not repeated statistics; six commands enough to target cautious one-variable experiment, not proof of speed improvement.
+[14] Evidence file external/private, code docs/M8_S154_RIGHT_LATE_FINE_2026_11_05.md plus tools/verify_m8_s154_right_late_fine.py; exact commit and CI must be checked.
+[15] Next assistant MUST read new branch HEAD, 17-section handoff and roadmap; preserve original 386-line spec, no public log upload.
+[16] State layers: SOURCE-STAGED pending, HOST CI pending until workflow confirms, CubeIDE BUILD pending, FLASH pending, HARDWARE PASS pending. Release optional.
+
 END OF CONTEXT HANDOFF

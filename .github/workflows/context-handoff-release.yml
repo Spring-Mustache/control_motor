@@ -106,6 +106,9 @@ jobs:
       - name: Verify S15.4 passive Voice RIGHT fine snapshot and safe UART
         run: python3 tools/verify_m8_s154_right_fine_diag.py
 
+      - name: Verify actual C RIGHT Voice RAW-rise late fine handoff and unchanged safety
+        run: python3 tools/verify_m8_s154_right_late_fine.py
+
       - name: Verify VC-02 I1 real C wheel/steering executor safety state machine
         run: python3 tools/verify_m8_vc02_executor.py
 

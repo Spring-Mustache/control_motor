@@ -1196,3 +1196,9 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [OPERATOR TEST] `capture_m8_s154_right_fine.ps1` failed before any COM capture with `InvalidVariableReferenceWithDrive` on `$MaxEvents:` in Write-Host. No measured fine tuning data yet.
 - [FIX] Host-only change to `${MaxEvents}:`; add S15.4 capture to Windows PowerShell 5.1 parser CI list so exact SHA validates the newly added script. No firmware rebuild/flash needed, only pull script from branch.
 - [PENDING] Actual COM capture and user private log, hardware A/B, possible subsequent fine tuning (after real data only).
+
+## 2026-11-05 — S15.4F RIGHT RAW-rise Voice fine-entry 10RAW A/B trial
+- [REAL PRIVATE LOG] MCU SHA a47d7e7... six Voice 15/30/40 across both directions, all result=2 and ±5 RAW; RAW increase (right turns) requires 1/6/6 pulses with 0/1/1 reversals vs decreasing 1/1/2 without reversals. First fine error14..15, first quiet coast +6..7 RAW. Original fineMs ends at entire command finish; do NOT interpret it as right-only, and old peakGap=0 needs active-frames corroboration.
+- [NEW BRANCH] feature/m8-s154-right-voice-rise-late-fine-10raw from exact logged baseline a47d7e7fb057a9b817c64a4c2eb99c82cf30125e. Voice4 RIGHT with RAW increasing, clear own NC and voice goal >=30 RAW from R_MAX uses 10 RAW for coarse->fine handoff instead of 15, boot default ON. ALL other directions/modes and S15.4 coordinator, LEFT, 45NC, R1/R2, PWM/fine pulse/tolerance, STOP, NC and PS2 unchanged.
+- [DIAGNOSTIC] M8S154_FINE adds entryLimit,syncFrames,leftDoneMs,rightDoneMs,rightFineMs automatically over idle USART3; test flags boot 1. Existing PowerShell collector, no manual vars or USER button.
+- [TEST] HOST helper from actual C and static safety regressions in tools/verify_m8_s154_right_late_fine.py; exact-SHA CI needed. Physical efficacy and target CubeIDE build unverified until user repeats six safe test commands and sends private log.
