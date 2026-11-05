@@ -1208,3 +1208,6 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 ## 2026-11-05 — S15.4F right passive HOST fixture extension
 - New fields for individual motor finish timestamps and run sync frames require the existing extracted actual-C capture test's fixture struct/globals to match production. Add fixture and assertions; no additional motor-code changes. Exact-SHA CI again required.
+
+## 2026-11-05 — S15.4F entryLimit telemetry latch correction
+- Review found later sign reversal in RIGHT fine could rewrite entryLimit from 10 to 15 in a completed log. Fix passive assignment at the first IDLE->FINE entry only, preserving actual motor PWM, thresholds and all safety logic. Original exact-SHA 946adba8 passed CI but is superseded by this log correctness change; run CI again.

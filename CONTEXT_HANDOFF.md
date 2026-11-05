@@ -1525,4 +1525,8 @@ END OF CONTEXT HANDOFF
 [0] At first fixture correction a1b6450a, existing RIGHT passive capture HOST test failed because its isolated C typedef and globals did not include five newly captured read-only fields/timestamp globals in production source. Extend only the test C struct and fixture variables plus test assertions for leftDoneMs,rightDoneMs,rightFineMs,syncFrames,entryLimit. No changes to production firmware or safety/actuation. This is HOST harness upkeep, not CubeIDE or hardware validation.
 [1] Re-run full exact-SHA CI and only deliver a verified success SHA. Previously observed private six-run log remains baseline a47d7e7 and is not published.
 
+## 2026-11-05 — S15.4F entryLimit first-transition latch (post-CI diagnostic review)
+[0] Exact-SHA 946adba8f02bca91627acc7583ac3ef45a863687 passed all GitHub Actions, but a new telemetry review found the reported fine entry threshold was assigned each frame, allowing later sign-changing error in the fine phase to rewrite measured entryLimit from 10 to 15. Fix assignment only on RIGHT Voice4 IDLE->FINE transition (abs_error<=fine_enter), not on subsequent fine frames. No PWM or direction logic change; repeat exact-SHA full CI.
+[1] This changes telemetry correctness only, preserving safety and trial threshold. The operator should build/flash only the final verified SHA, not intermediate CI SHA. Private prior 6-run TXT remains off GitHub.
+
 END OF CONTEXT HANDOFF

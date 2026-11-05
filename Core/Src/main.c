@@ -5221,8 +5221,13 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
      * Fall back to proven normal threshold if near hard MAX.
      */
     fine_enter = Steering_VoiceRightLateFineEntry(left, err, fine_enter);
+    /* Latch the threshold only when the RIGHT servo FIRST enters fine.
+     * Never overwrite it later if an overshoot changes err sign.
+     */
     if ((left == 0U) && (voice_pos_owned != 0U) &&
-        (steer_pos_command == 4U))
+        (steer_pos_command == 4U) &&
+        (axis->fine_phase == STEER_POS_FINE_PHASE_IDLE) &&
+        (abs_error <= fine_enter))
       steer_voice_s154_right_fine_entry_used = fine_enter;
     if ((axis->fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
         (abs_error <= fine_enter))

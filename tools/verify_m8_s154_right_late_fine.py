@@ -31,6 +31,10 @@ assert "steer_angle_wp_enable = 1U;" in S
 assert "#define STEER_VOICE_S154_RIGHT_RISE_FINE_ENTRY_RAW 10U" in S
 assert "#define STEER_VOICE_S154_RIGHT_MAX_CLEARANCE_RAW 30U" in S
 assert "Steering_VoiceRightLateFineEntry(left, err, fine_enter);" in axis
+assert "(axis->fine_phase == STEER_POS_FINE_PHASE_IDLE) &&" in axis
+assert "(abs_error <= fine_enter))" in axis
+assert axis.index("steer_voice_s154_right_fine_entry_used = fine_enter;") < axis.index(
+ "Steering_PositionFineUpdate(left, axis, raw, err, step, now,")
 assert axis.index("Steering_VoiceRightLateFineEntry(left, err, fine_enter);") < axis.index(
  "Steering_PositionFineUpdate(left, axis, raw, err, step, now,")
 assert "if ((steer_pos_command == 1U) || (steer_pos_command == 4U))" in axis
