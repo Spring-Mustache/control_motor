@@ -5379,7 +5379,11 @@ static void Steering_PositionUpdate(void)
       ((steer_left_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE) ||
        (steer_right_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE)))
     steer_angle_wp_hold_mask = 0U;
+  /* R1/R2 pacing knows only CENTER or both MIN: never override Voice45
+   * left/right NC goals, which can be opposite endpoint types.
+   */
   if ((steer_pos_command != 4U) &&
+      (steer_pos_command != STEER_POS_VOICE45_NC) &&
       (steer_pos_left_state == STEER_AXIS_MOVING) &&
       (steer_pos_right_state == STEER_AXIS_MOVING) &&
       (steer_left_axis.fine_phase == STEER_POS_FINE_PHASE_IDLE) &&
