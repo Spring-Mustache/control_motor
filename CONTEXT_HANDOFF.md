@@ -1461,4 +1461,10 @@ END OF CONTEXT HANDOFF
 [5] New tools/verify_m8_s154_voice_sync.py extracts and HOST compiles production C normalized stroke progress/speed observer/sync wrapper, and static-checks real wiring, NC guards, pause-independent UART parser, range caps, and R1/R2 unaffected. Exact SHA Actions CI needed.
 [6] Detailed design and safe A/B physical acceptance in docs/M8_S154_VOICE_DUAL_SYNC_2026_11_05.md; append-only project milestones updated.
 [7] IMPORTANT: S15.4 actual powered MOTOR sync NOT hardware-tested. CubeIDE Clean Build and flash matching ELF, no-power NC preflight, supported chassis with emergency power cut, A/B enabled-vs-disabled measured phase gap and arrival skew required. Preserve fail-closed and do not tune PWM/NC thresholds simply to force skew.
+
+
+## 2026-11-05 — S15.4 HOST strict compilation and exact-SHA handoff update
+[0] The first new Voice S15.4 test compile under HOST gcc -Werror failed on two unused TEST STUB start-observation globals (not production firmware). Removed unused fixture-only variables; actual production S15.4 coordinator unchanged.
+[1] GitHub exact-SHA workflow enforces updating this append-only handoff and docs/PROJECT_MILESTONES.md after any source or test change. These entries record that final additional test modification. Re-run full CI on the completed SHA.
+[2] Final CI may verify HOST extraction/decoding/NC/STOP, but not ARM target build or physical synchronization. Keep all safety and existing operator-proven Voice45 behavior unchanged.
 END OF CONTEXT HANDOFF
