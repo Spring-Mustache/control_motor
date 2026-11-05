@@ -1529,4 +1529,23 @@ END OF CONTEXT HANDOFF
 [0] Exact-SHA 946adba8f02bca91627acc7583ac3ef45a863687 passed all GitHub Actions, but a new telemetry review found the reported fine entry threshold was assigned each frame, allowing later sign-changing error in the fine phase to rewrite measured entryLimit from 10 to 15. Fix assignment only on RIGHT Voice4 IDLE->FINE transition (abs_error<=fine_enter), not on subsequent fine frames. No PWM or direction logic change; repeat exact-SHA full CI.
 [1] This changes telemetry correctness only, preserving safety and trial threshold. The operator should build/flash only the final verified SHA, not intermediate CI SHA. Private prior 6-run TXT remains off GitHub.
 
+## 2026-11-05 — S15.4 sample clock bug hypothesis after actual RIGHT10 fine log
+[0] User provided private 6-line file M8S154_right_fine_20261105_192543.txt, firmware-stamped SHA 699932abbe09e875a776f53403a18d7743171b9f; do not publish raw data publicly.
+[1] Real RIGHT RAW-increasing Voice15/30/40 fine-entry=10; RIGHT pulses=0/0/0, reversals all0, rightFineMs205, end error +4/+1/+2, both servo result2, no dropped. Previous 15RAW baseline pulses 1/6/6, reversals0/1/1. Total command time 3159/3710/4226 -> 1563/2319/2835 ms. This supports preserving RIGHT10 but does not prove causal generality from single sequences.
+[2] RIGHT RAW-decreasing Voice15/30/40 retains entryLimit15; pulses1/2/3, right error -4/-5/-5, leftDoneMs1155/1887/2919, rightDoneMs1167/2427/3387. No tuning for this direction yet.
+[3] All six recent hardware logs show syncFrames=0 and peakGap=0. This means no actively applied S15.4 pacing recorded, regardless of visually synchronized coarse travel. Do not report S15.4 sync as hardware-PASS.
+[4] SOURCE hypothesis: Steering_PositionUpdate takes now=HAL_GetTick before both axis I2C reads. Each Steering_PositionReadOne saves last_sample_ms at later tick. Old Steering_VoiceS154Sync(now,... ) unsigned age check rejects future sample stamps as stale. Actual reason not proven without skip counters.
+[5] New isolated branch feature/m8-s154-fresh-tick-sync-telemetry forks exact 699932abbe09e875a776f53403a18d7743171b9f; call VoiceS154Sync(HAL_GetTick(), ...) AFTER both per-axis reads, leaving all other original now uses unchanged. This may activate formerly inert pacing; cautious motor bench, explicit NC/STOP and power cut required.
+[6] Auto-boot flags existing steer_voice_s154_enable=1, steer_angle_wp_enable=1, RIGHT10 and fine diag=1. No manual variable setting, no new grant.
+[7] Add per-run read-only syncDisabled/syncPhase/syncStale/syncNc/syncWaypoint counters and append to existing auto M8S154_FINE UART line; syncFrames remains actual active count.
+[8] Preserve RIGHT10 handoff, LEFT, Voice45 NC, R1/R2, fine PWM85/12ms, 200ms off, <=8 pulses, tolerance +/-5, 300/100 caps, STOP/NC/PS2, 650ms stall, global Voice5s.
+[9] Existing Windows PowerShell auto capture script reused, Windows5.1 parser CI preserved; no Live Expressions needed.
+[10] CI status pending until exact pushed SHA and workflow success verified; no CubeIDE target/hardware success claimed.
+[11] Operator next: locally protect edits, fetch/switch new branch SHA, CubeIDE Clean Build/Flash and verify MCU stamp, preflight power-off NC/STOP/AS5600, secured rig, first SMALL angle then gradual tests. Stop if pacing causes unexpected movement.
+[12] One private TXT with six runs is sufficient if safe; compare syncFrames and new rejection counters, completion times, terminal errors. If syncFrames remains0, diagnose which gate without changing PWM.
+[13] No manual enable writes or faked sync. Default1 avoids extra user effort but doesn't bypass motion permit or safe test setup.
+[14] Source docs/M8_S154_SYNC_SAMPLE_CLOCK_2026_11_05.md and tools/verify_m8_s154_sync_sample_clock.py. Original 386-line requirement file unchanged.
+[15] Future chat read new branch HEAD+full handoff, commit SHA+Actions and operator logs privately, not just historical line counts.
+[16] Stages remain SOURCE-STAGED -> HOST PASS -> CubeIDE BUILD -> FLASH -> HARDWARE PASS, all independent.
+
 END OF CONTEXT HANDOFF

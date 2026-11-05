@@ -33,7 +33,7 @@ stage=function("static void Voice_S154StageSteerAngle(")
 # Ensure the exact production wiring, not a host-implemented surrogate.
 assert 'Steering_PositionAxisUpdate(1U, raw_mask, now, &left_cmd, &left_dir);' in position
 assert 'Steering_PositionAxisUpdate(0U, raw_mask, now, &right_cmd, &right_dir);' in position
-assert 'Steering_VoiceS154Sync(now, raw_mask, &left_cmd, &right_cmd);' in position
+assert 'Steering_VoiceS154Sync(HAL_GetTick(), raw_mask, &left_cmd, &right_cmd);' in position
 assert position.index("Steering_PositionAxisUpdate(0U") < position.index(
     "Steering_VoiceS154Sync(") < position.index("late_pending = steer_pos_irq_pending_mask;")
 assert "Steering_PositionAtExpectedNc(1U, late_pending)" in position

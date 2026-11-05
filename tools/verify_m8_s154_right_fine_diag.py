@@ -43,7 +43,7 @@ for guard in ("steer_pos_active == 0U","steer_manual_active == 0U",
 assert "M8S154_FINE,sha=%s" in uart and "M8S11_SendLine(n)" in uart
 assert "HAL_UART_Transmit(" not in uart
 assert "Steering_AngleWaypointApply(mode," in sync
-assert "Steering_VoiceS154Sync(now, raw_mask, &left_cmd, &right_cmd)" in pos
+assert "Steering_VoiceS154Sync(HAL_GetTick(), raw_mask, &left_cmd, &right_cmd)" in pos
 assert "verify_m8_s154_right_fine_diag.py" in ci
 assert "M8S154_FINE," in ps and "SerialPort" in ps
 cc=shutil.which("gcc") or shutil.which("cc") or shutil.which("clang")
@@ -55,6 +55,7 @@ top=r"""
 typedef struct {
 uint32_t seq,total_ms,fine_ms,skew_ms,dropped;
 uint32_t left_done_ms,right_done_ms,right_fine_ms,sync_frames;
+uint32_t sync_disabled,sync_phase,sync_stale,sync_nc,sync_waypoint;
 uint16_t start,goal,entry,quiet,end,gap,pulse_max_ms,entry_limit;
 int16_t error,last_move;
 uint8_t angle,turn,pulses,reversals,weak,good,back;
@@ -80,6 +81,11 @@ static uint32_t steer_voice_s154_arrival_skew_ms=12;
 static uint32_t steer_voice_s154_done_l_ms=698;
 static uint32_t steer_voice_s154_done_r_ms=700;
 static uint32_t steer_voice_s154_run_sync_frames=8;
+static uint32_t steer_voice_s154_run_sync_disabled=0;
+static uint32_t steer_voice_s154_run_sync_phase=0;
+static uint32_t steer_voice_s154_run_sync_stale=10;
+static uint32_t steer_voice_s154_run_sync_nc=0;
+static uint32_t steer_voice_s154_run_sync_waypoint=5;
 static uint16_t steer_voice_s154_right_fine_entry_used=10;
 static uint16_t steer_voice_s154_peak_gap_permille=36;
 static uint16_t steer_voice_s154_start_r=662,voice_pos_goal_r=850;
@@ -111,6 +117,8 @@ assert(m8_s154_right_fine_last.right_done_ms==600);
 assert(m8_s154_right_fine_last.right_fine_ms==250);
 assert(m8_s154_right_fine_last.sync_frames==8);
 assert(m8_s154_right_fine_last.entry_limit==10);
+assert(m8_s154_right_fine_last.sync_stale==10);
+assert(m8_s154_right_fine_last.sync_waypoint==5);
 Steering_VoiceRightFineCapture(2);
 assert(steer_voice_s154_right_fine_drop_count==1);
 printf("PASS actual C passive Voice4 RIGHT fine snapshot\n");

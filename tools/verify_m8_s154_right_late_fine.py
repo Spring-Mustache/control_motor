@@ -43,7 +43,7 @@ assert "Steering_PositionNcDirectionAllowed" in S
 assert "STEER_POS_FINE_OFF_MIN_MS" in fine
 assert "STEER_POS_FINE_MAX_PULSES" in fine
 assert "STEER_POS_FINE_CAPTURE_MS" in fine
-assert "Steering_VoiceS154Sync(now, raw_mask, &left_cmd, &right_cmd);" in position
+assert "Steering_VoiceS154Sync(HAL_GetTick(), raw_mask, &left_cmd, &right_cmd);" in position
 assert position.index("Steering_PositionAxisUpdate(0U") < position.index(
  "Steering_VoiceS154Sync(") < position.index("late_pending = steer_pos_irq_pending_mask;")
 assert "steer_voice_s154_run_sync_frames = 0U;" in position

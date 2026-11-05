@@ -2902,6 +2902,14 @@ volatile uint8_t steer_voice_s154_right_fine_diag_enable = 1U;
 volatile uint8_t steer_voice_s154_right_late_fine_enable = 1U;
 volatile uint16_t steer_voice_s154_right_fine_entry_used = STEER_POS_FINE_RIGHT_MIN_RAW;
 volatile uint32_t steer_voice_s154_run_sync_frames = 0U;
+/* Read-only per-Voice run coordinator rejection counters. Auto-captured
+ * on completion, no manual debug flag required, no actuator writes.
+ */
+volatile uint32_t steer_voice_s154_run_sync_disabled = 0U;
+volatile uint32_t steer_voice_s154_run_sync_phase = 0U;
+volatile uint32_t steer_voice_s154_run_sync_stale = 0U;
+volatile uint32_t steer_voice_s154_run_sync_nc = 0U;
+volatile uint32_t steer_voice_s154_run_sync_waypoint = 0U;
 volatile uint32_t steer_voice_s154_right_fine_enter_ms = 0U;
 volatile uint8_t steer_voice_s154_right_fine_reversals = 0U;
 volatile uint32_t steer_voice_s154_right_fine_log_count = 0U;
@@ -2910,6 +2918,7 @@ volatile uint32_t steer_voice_s154_right_fine_tx_count = 0U;
 typedef struct {
   uint32_t seq, total_ms, fine_ms, skew_ms, dropped;
   uint32_t left_done_ms, right_done_ms, right_fine_ms, sync_frames;
+  uint32_t sync_disabled, sync_phase, sync_stale, sync_nc, sync_waypoint;
   uint16_t start, goal, entry, quiet, end, gap, pulse_max_ms, entry_limit;
   int16_t error, last_move;
   uint8_t angle, turn, pulses, reversals, weak, good, back;
@@ -4153,6 +4162,8 @@ static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
       (steer_angle_wp_enable != 1U))
   {
     steer_voice_s154_status = 2U;
+    if (steer_voice_s154_run_sync_disabled != 0xffffffffUL)
+      steer_voice_s154_run_sync_disabled++;
     return;
   }
   if ((steer_pos_left_state != STEER_AXIS_MOVING) ||
@@ -4161,6 +4172,8 @@ static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
       (steer_right_axis.fine_phase != STEER_POS_FINE_PHASE_IDLE))
   {
     steer_voice_s154_status = 3U;
+    if (steer_voice_s154_run_sync_phase != 0xffffffffUL)
+      steer_voice_s154_run_sync_phase++;
     return;
   }
   /* On any asserted physical NC the existing position owner alone
@@ -4170,6 +4183,8 @@ static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
              STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) != 0U)
   {
     steer_voice_s154_status = 5U;
+    if (steer_voice_s154_run_sync_nc != 0xffffffffUL)
+      steer_voice_s154_run_sync_nc++;
     return;
   }
   if ((*pwm_l == 0U) || (*pwm_r == 0U) ||
@@ -4180,6 +4195,8 @@ static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
       (floor_l > *pwm_l) || (floor_r > *pwm_r))
   {
     steer_voice_s154_status = 4U;
+    if (steer_voice_s154_run_sync_stale != 0xffffffffUL)
+      steer_voice_s154_run_sync_stale++;
     return;
   }
 
@@ -4194,6 +4211,8 @@ static void Steering_VoiceS154Sync(uint32_t now, uint8_t nc,
   if (steer_angle_wp_frames == before)
   {
     steer_voice_s154_status = 3U;
+    if (steer_voice_s154_run_sync_waypoint != 0xffffffffUL)
+      steer_voice_s154_run_sync_waypoint++;
     if (steer_voice_s154_skipped_frames != 0xffffffffUL)
       steer_voice_s154_skipped_frames++;
     return;
@@ -4435,6 +4454,11 @@ static void Steering_VoiceRightFineCapture(uint8_t result)
       (uint32_t)(steer_voice_s154_done_r_ms -
                  steer_voice_s154_right_fine_enter_ms) : 0U;
   d->sync_frames = steer_voice_s154_run_sync_frames;
+  d->sync_disabled = steer_voice_s154_run_sync_disabled;
+  d->sync_phase = steer_voice_s154_run_sync_phase;
+  d->sync_stale = steer_voice_s154_run_sync_stale;
+  d->sync_nc = steer_voice_s154_run_sync_nc;
+  d->sync_waypoint = steer_voice_s154_run_sync_waypoint;
   d->entry_limit = steer_voice_s154_right_fine_entry_used;
   d->dropped = steer_voice_s154_right_fine_drop_count;
   d->start = steer_voice_s154_start_r;
@@ -5478,6 +5502,11 @@ static void Steering_PositionUpdate(void)
       steer_voice_s154_common_eta_ms = 0U;
       steer_voice_s154_arrival_skew_ms = 0U;
       steer_voice_s154_run_sync_frames = 0U;
+      steer_voice_s154_run_sync_disabled = 0U;
+      steer_voice_s154_run_sync_phase = 0U;
+      steer_voice_s154_run_sync_stale = 0U;
+      steer_voice_s154_run_sync_nc = 0U;
+      steer_voice_s154_run_sync_waypoint = 0U;
       steer_voice_s154_right_fine_entry_used = STEER_POS_FINE_RIGHT_MIN_RAW;
       steer_voice_s154_right_fine_enter_ms = 0U;
       steer_voice_s154_right_fine_reversals = 0U;
@@ -5702,7 +5731,14 @@ static void Steering_PositionUpdate(void)
    * Runs AFTER independent AS5600 + NC + stall checks, BEFORE the
    * original atomic late-NC/CCR guards. It cannot grant motor power.
    */
-  Steering_VoiceS154Sync(now, raw_mask, &left_cmd, &right_cmd);
+  /* Take a FRESH tick after both axis I2C reads. Earlier 'now' was
+   * captured before AS5600 timestamps were saved; on a millisecond
+   * boundary they can lie in the future relative to that stale tick.
+   * Unsigned stale-sample subtraction then rejects every sync frame.
+   * Only the S15.4 eligibility tick changes; original stall/timeout,
+   * NC, PWM and per-axis motion references keep their existing tick.
+   */
+  Steering_VoiceS154Sync(HAL_GetTick(), raw_mask, &left_cmd, &right_cmd);
   /* Both samples are validated by their per-axis NC/AS5600 checks.
    * Speed feedback is coarse-only; never override R1 fine PWM/quiet.
    * R2 still only declares DONE at its OWN physical MIN contact.
@@ -7181,7 +7217,9 @@ static void M8S11_StreamUpdate(void)
         "quietValid=%u,phase=%u,resultL=%u,resultR=%u,"
         "finish=%u,peakGap=%u,skewMs=%lu,dropped=%lu,"
         "entryLimit=%u,syncFrames=%lu,leftDoneMs=%lu,"
-        "rightDoneMs=%lu,rightFineMs=%lu\r\n",
+        "rightDoneMs=%lu,rightFineMs=%lu,"
+        "syncDisabled=%lu,syncPhase=%lu,syncStale=%lu,"
+        "syncNc=%lu,syncWaypoint=%lu\r\n",
         FW_BUILD_GIT_SHA,(unsigned long)d->seq,
         (unsigned)d->angle,(unsigned)d->turn,
         (unsigned long)d->total_ms,(unsigned long)d->fine_ms,
@@ -7197,7 +7235,12 @@ static void M8S11_StreamUpdate(void)
         (unsigned)d->entry_limit,(unsigned long)d->sync_frames,
         (unsigned long)d->left_done_ms,
         (unsigned long)d->right_done_ms,
-        (unsigned long)d->right_fine_ms);
+        (unsigned long)d->right_fine_ms,
+        (unsigned long)d->sync_disabled,
+        (unsigned long)d->sync_phase,
+        (unsigned long)d->sync_stale,
+        (unsigned long)d->sync_nc,
+        (unsigned long)d->sync_waypoint);
     if (M8S11_SendLine(n) != 0U)
     {
       m8_s154_right_fine_pending = 0U;

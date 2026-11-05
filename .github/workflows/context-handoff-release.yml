@@ -109,6 +109,9 @@ jobs:
       - name: Verify actual C RIGHT Voice RAW-rise late fine handoff and unchanged safety
         run: python3 tools/verify_m8_s154_right_late_fine.py
 
+      - name: Verify S15.4 fresh post-I2C sample tick and skip telemetry
+        run: python3 tools/verify_m8_s154_sync_sample_clock.py
+
       - name: Verify VC-02 I1 real C wheel/steering executor safety state machine
         run: python3 tools/verify_m8_vc02_executor.py
 
