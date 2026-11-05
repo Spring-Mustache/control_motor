@@ -5,9 +5,11 @@
 /*
  * VC-02 integration I1 (pre-S15.4 synchronization).
  * PURE C route arithmetic only: no CCR writes, no motor power grants.
- * "degrees" here are voice steering SETPOINT units, linearly mapped
- * between calibrated CENTER and conservative manual SOFT endpoints.
- * NOT a certified physical wheel angle / Ackermann conversion.
+ * Voice setpoint degrees are linearly interpolated between calibrated
+ * CENTER and physical MIN/MAX sensor landmarks. For an explicit 45,
+ * these RAW landmarks are only APPROACH BOUNDS: the position owner
+ * in main.c MUST see each expected physical NC to declare arrival.
+ * This is not a certified wheel angle / Ackermann conversion.
  * Physical actuation is separately opt-in and safety-gated in main.c.
  */
 typedef struct {
@@ -41,18 +43,21 @@ static inline uint8_t VoiceS154_PivotNcReady(
 static inline VoiceS154Goals_t VoiceS154_AngleGoals(
  int8_t turn,uint8_t angle,
  uint16_t left_center,uint16_t right_center,
- uint16_t left_soft_max,uint16_t right_soft_min,
- uint16_t left_soft_min,uint16_t right_soft_max)
+ uint16_t left_max,uint16_t right_min,
+ uint16_t left_min,uint16_t right_max)
 {
  VoiceS154Goals_t g={0};
  int32_t end_l,end_r,gl,gr;
  if((turn!=-1)&&(turn!=1))return g;
  if((angle<5U)||(angle>45U)||((angle%5U)!=0U))return g;
- if(!(left_soft_max<left_center && left_center<left_soft_min &&
-      right_soft_min<right_center && right_center<right_soft_max))
+ if(!(left_max<left_center && left_center<left_min &&
+      right_min<right_center && right_center<right_max))
    return g;
- end_l=(turn<0)?left_soft_max:left_soft_min;
- end_r=(turn<0)?right_soft_min:right_soft_max;
+ /* 5..40: interpolate relative to physical NC endpoints.
+  * At 45: targets are bounded NC approach landmarks, not completion.
+  */
+ end_l=(turn<0)?left_max:left_min;
+ end_r=(turn<0)?right_min:right_max;
  gl=(int32_t)left_center+
     ((end_l-(int32_t)left_center)*(int32_t)angle)/45L;
  gr=(int32_t)right_center+
