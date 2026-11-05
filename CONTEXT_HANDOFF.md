@@ -1421,4 +1421,20 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [1] Updated only the static test predicates to match `duration_valid = 0U;` and `angle_valid = 0U;`. No motor behavior, parser semantics or safety gates changed in this follow-up.
 [2] Keep strict movement-first TIME and turn-first ANGLE semantics, missing primary parameter discarded, independent owners, F0/FF and guarded auto-ARM.
 [3] Exact SHA HOST CI still required. Do not claim target STM32 build/flash or real motion tests.
+
+
+## 2026-11-05 — LATEST USER: Voice 45 MUST reach physical NC; 5–40 interpolate full calibrated stroke
+
+[0] Requirement confirmed: 0=existing CENTER, 5/10/.../40 uses linear fraction of CENTER->calibrated physical MIN/MAX, 45 uses the corresponding own physical NC endstop for each steering motor. Do NOT call the manual soft endpoint 45° anymore.
+[1] Voice LEFT45 (A5 B9) expected L_MAX + R_MIN. Voice RIGHT45 (A6 B9) expected L_MIN + R_MAX. This is a convention that NC marks ±45, not a separate physical angle measurement.
+[2] New feature/m8-vc02-45deg-nc-endstops branch rooted at b407c0dbb9f40c2843763483f55ce5bee936990b; prior strict-parser, auto-ARM and brake-swap commits/branches preserved.
+[3] Source Core/Inc/voice_s154_route.h maps angles 5–45 to CENTER + scaled delta toward runtime CALIBRATED MAX/MIN raw landmarks. For 45, target raw is approach safety BOUND only; actual completion requires own expected NC, never merely target RAW.
+[4] New STEER_POS_VOICE45_NC=5 is only for Voice45; steering angle5..40 stays command4, B0 CENTER stays command1, Rotate/R2 stays command2. No alteration of voice UART grammar.
+[5] Steering_PositionExpectedNc/Steering_PositionAtExpectedNc reject wrong/dual/absent NC. All initialization, early IRQ, late IRQ and interrupt-masked GPIO checks use the same decision. Each side immediately cuts its own PWM; both left_result and right_result must be 3 for successful Voice45.
+[6] Steering_Voice45RawBoundaryReached fails CLOSED if AS5600 reaches calibrated end before NC, no driving beyond potentially failed endstop. Ordinary 5s timeout/stall/sensor envelope and NC EXTI unchanged; no PWM/power cap increases.
+[7] Voice45 physical seek requires wheels stopped, unlike 5..40. STOP/PS2 cancellation and physical safety latch retain existing priority.
+[8] R2 still accepts own MIN only, not MAX. Ordinary 5..40 still reports failure if unexpectedly touching NC. Unexpected NC never becomes a safe arrival.
+[9] Test tools/verify_m8_vc02_45_nc.py compiles real C NC helper functions and checks actual main.c wiring; test tools/verify_m8_vc02_command_core.py and tools/verify_m8_vc02_i1.py updated. Exact SHA PASS required; HOST tests do not equal target build, flash or powered hardware.
+[10] Physical commissioning risk: NC may be after an outdated runtime landmark or mechanically too late to prevent coast; do not loosen limits, disable EXTI or increase drive just to force switch. Validate switch and position with motor power removed before a controlled supported bench test.
+[11] Prior C1..C5 live wheel speed, strict primary-then-parameter parser, FF soft STOP, first PS2 takeover hard STOP, guarded auto-ARM and START logging TODO remain untouched.
 END OF CONTEXT HANDOFF
