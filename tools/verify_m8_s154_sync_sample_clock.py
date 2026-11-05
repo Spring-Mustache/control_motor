@@ -29,10 +29,9 @@ assert first < second < fresh < guard
 assert "Steering_VoiceS154Sync(now, raw_mask, &left_cmd, &right_cmd);" not in pos
 assert "(uint32_t)(now - steer_pos_left_last_sample_ms) > 40U" in sync
 assert "(uint32_t)(now - steer_pos_right_last_sample_ms) > 40U" in sync
-for field in ("sync_disabled","sync_phase","sync_stale","sync_nc","sync_waypoint"):
- assert f"d->{field} = steer_voice_s154_run_{field if field!='waypoint' else 'sync_waypoint'}" not in cap or field=="not_necessary"
+for field in ("disabled","phase","stale","nc","waypoint"):
  # All new snapshots must be emitted and reset on each new Voice4 run.
- assert f"d->{field} = steer_voice_s154_run_sync_{field};" in cap
+ assert f"d->sync_{field} = steer_voice_s154_run_sync_{field};" in cap
  assert f"steer_voice_s154_run_sync_{field} = 0U;" in pos
 assert "Steering_PositionWheelsStopped() != 0U" in uart
 assert "huart3.gState == HAL_UART_STATE_READY" in uart

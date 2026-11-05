@@ -1548,4 +1548,8 @@ END OF CONTEXT HANDOFF
 [15] Future chat read new branch HEAD+full handoff, commit SHA+Actions and operator logs privately, not just historical line counts.
 [16] Stages remain SOURCE-STAGED -> HOST PASS -> CubeIDE BUILD -> FLASH -> HARDWARE PASS, all independent.
 
+## 2026-11-05 — S15.4 fresh-tick first HOST fixture correction
+[0] Initial source SHA 1ece00ae9ccac2316d3b357b4ad89fa40cbc6c83 passed Windows PowerShell syntax but failed extracted real-C S15.4 HOST compilation: the fixture lacked five new passive gate counters. Add only C fixture globals and correct a malformed assertion in the new skip-counter verifier. No firmware/source, motor/NC, fine, or UART changes, and no hardware PASS claimed.
+[1] Exact latest SHA and full CI success required before CubeIDE Build/Flash and user log.
+
 END OF CONTEXT HANDOFF
