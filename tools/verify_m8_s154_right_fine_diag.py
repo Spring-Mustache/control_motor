@@ -54,7 +54,8 @@ top=r"""
 #include <stdio.h>
 typedef struct {
 uint32_t seq,total_ms,fine_ms,skew_ms,dropped;
-uint16_t start,goal,entry,quiet,end,gap,pulse_max_ms;
+uint32_t left_done_ms,right_done_ms,right_fine_ms,sync_frames;
+uint16_t start,goal,entry,quiet,end,gap,pulse_max_ms,entry_limit;
 int16_t error,last_move;
 uint8_t angle,turn,pulses,reversals,weak,good,back;
 uint8_t quiet_valid,phase,result_l,result_r,result_total;
@@ -76,6 +77,10 @@ static uint8_t steer_voice_s154_right_fine_reversals=2;
 static uint8_t voice_pos_owned=1,steer_pos_command=5;
 static uint32_t steer_pos_start_ms=100;
 static uint32_t steer_voice_s154_arrival_skew_ms=12;
+static uint32_t steer_voice_s154_done_l_ms=698;
+static uint32_t steer_voice_s154_done_r_ms=700;
+static uint32_t steer_voice_s154_run_sync_frames=8;
+static uint16_t steer_voice_s154_right_fine_entry_used=10;
 static uint16_t steer_voice_s154_peak_gap_permille=36;
 static uint16_t steer_voice_s154_start_r=662,voice_pos_goal_r=850;
 static uint16_t debug_as5600_right_raw=847;
@@ -101,6 +106,11 @@ assert(m8_s154_right_fine_last.pulses==3);
 assert(m8_s154_right_fine_last.reversals==2);
 assert(m8_s154_right_fine_last.back==1);
 assert(m8_s154_right_fine_last.result_r==2);
+assert(m8_s154_right_fine_last.left_done_ms==598);
+assert(m8_s154_right_fine_last.right_done_ms==600);
+assert(m8_s154_right_fine_last.right_fine_ms==250);
+assert(m8_s154_right_fine_last.sync_frames==8);
+assert(m8_s154_right_fine_last.entry_limit==10);
 Steering_VoiceRightFineCapture(2);
 assert(steer_voice_s154_right_fine_drop_count==1);
 printf("PASS actual C passive Voice4 RIGHT fine snapshot\n");

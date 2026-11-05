@@ -1521,4 +1521,8 @@ END OF CONTEXT HANDOFF
 [2] DO NOT call previous run PASS. Wait for new exact-SHA full SUCCESS. The physical log remains prior baseline SHA a47d7e7 and private.
 [3] CubeIDE target build/flash and new physical right fine experiment still pending.
 
+## 2026-11-05 — S15.4F second actual-C HOST fixture extension
+[0] At first fixture correction a1b6450a, existing RIGHT passive capture HOST test failed because its isolated C typedef and globals did not include five newly captured read-only fields/timestamp globals in production source. Extend only the test C struct and fixture variables plus test assertions for leftDoneMs,rightDoneMs,rightFineMs,syncFrames,entryLimit. No changes to production firmware or safety/actuation. This is HOST harness upkeep, not CubeIDE or hardware validation.
+[1] Re-run full exact-SHA CI and only deliver a verified success SHA. Previously observed private six-run log remains baseline a47d7e7 and is not published.
+
 END OF CONTEXT HANDOFF

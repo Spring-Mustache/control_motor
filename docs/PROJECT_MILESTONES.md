@@ -1205,3 +1205,6 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 ## 2026-11-05 — S15.4F first HOST harness fix
 - New read-only sync run counter introduced on trial required adding corresponding declaration to preexisting extracted-C HOST fixture in tools/verify_m8_s154_voice_sync.py. First SHA ad15c893 failed this test-only fixture, not an STM32 motor-run result. No core motor-control/NC/fine threshold correction here; re-run entire exact-SHA CI before operator build.
+
+## 2026-11-05 — S15.4F right passive HOST fixture extension
+- New fields for individual motor finish timestamps and run sync frames require the existing extracted actual-C capture test's fixture struct/globals to match production. Add fixture and assertions; no additional motor-code changes. Exact-SHA CI again required.
