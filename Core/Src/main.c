@@ -5050,7 +5050,9 @@ static void Steering_PositionUpdate(void)
      (steer_test_running==0U) &&
      (steer_test_request==0U) &&
      (steer_test_arm==0U) &&
-     ((buttons!=2U)||(Steering_PositionWheelsStopped()!=0U))) ||
+     /* Physical NC seek (R2 or Voice 45) requires stopped wheels. */
+     (((buttons!=2U)&&(buttons!=STEER_POS_VOICE45_NC))||
+       (Steering_PositionWheelsStopped()!=0U))) ||
     ((from_voice==0U) &&
      (PS2_Pad.Connected==1U)&&(PS2_Pad.Mode==0x73U) &&
      (control_mode==CONTROL_MODE_PS2) &&
@@ -5219,7 +5221,8 @@ static void Steering_PositionUpdate(void)
       Steering_PositionAxisFault(1U, 9U);
     else if ((raw_mask & STEER_LIMIT_L_MIN_MASK) != 0U)
     {
-      if (buttons == 2U) Steering_PositionAxisDone(1U, 3U);
+      if (Steering_PositionAtExpectedNc(1U, raw_mask) != 0U)
+          Steering_PositionAxisDone(1U, 3U);
       else
       {
         steer_left_axis.escape_origin = STEER_LIMIT_L_MIN_MASK;
@@ -5228,8 +5231,13 @@ static void Steering_PositionUpdate(void)
     }
     else if ((raw_mask & STEER_LIMIT_L_MAX_MASK) != 0U)
     {
-      steer_left_axis.escape_origin = STEER_LIMIT_L_MAX_MASK;
-      steer_pos_left_state = STEER_AXIS_ESCAPING;
+      if (Steering_PositionAtExpectedNc(1U, raw_mask) != 0U)
+        Steering_PositionAxisDone(1U, 3U);
+      else
+      {
+        steer_left_axis.escape_origin = STEER_LIMIT_L_MAX_MASK;
+        steer_pos_left_state = STEER_AXIS_ESCAPING;
+      }
     }
 
     if ((raw_mask & (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK)) ==
@@ -5237,7 +5245,8 @@ static void Steering_PositionUpdate(void)
       Steering_PositionAxisFault(0U, 9U);
     else if ((raw_mask & STEER_LIMIT_R_MIN_MASK) != 0U)
     {
-      if (buttons == 2U) Steering_PositionAxisDone(0U, 3U);
+      if (Steering_PositionAtExpectedNc(0U, raw_mask) != 0U)
+          Steering_PositionAxisDone(0U, 3U);
       else
       {
         steer_right_axis.escape_origin = STEER_LIMIT_R_MIN_MASK;
@@ -5246,8 +5255,13 @@ static void Steering_PositionUpdate(void)
     }
     else if ((raw_mask & STEER_LIMIT_R_MAX_MASK) != 0U)
     {
-      steer_right_axis.escape_origin = STEER_LIMIT_R_MAX_MASK;
-      steer_pos_right_state = STEER_AXIS_ESCAPING;
+      if (Steering_PositionAtExpectedNc(0U, raw_mask) != 0U)
+        Steering_PositionAxisDone(0U, 3U);
+      else
+      {
+        steer_right_axis.escape_origin = STEER_LIMIT_R_MAX_MASK;
+        steer_pos_right_state = STEER_AXIS_ESCAPING;
+      }
     }
 
     steer_pos_escape_mask = (uint8_t)(
