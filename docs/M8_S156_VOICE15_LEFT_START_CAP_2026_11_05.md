@@ -1,0 +1,16 @@
+# M8 S15.6 — Voice LEFT 15-degree leading-RIGHT start cap trial
+
+Created 2026-11-05 from physical source SHA 2f3b3a250601d77add3bdab219e6385a98e4456d on an isolated branch. Preserve previous tested firmware; do not upload the operator's original private UART text to public GitHub.
+
+## Evidence
+The S15.5 six-line private physical file showed LEFT15 peakGap201permille (79.9% worst-point tracking, only +1.3 percentage points over prior 78.6%). PeakLeader2 proves RIGHT ahead at worst moment, peakAtMs245 means mismatch occurs early, and earlyTaperFrames17 means previous reactive reduction actually ran. Remaining rows were RIGHT15 gap56, LEFT30 gap37, RIGHT30 gap20, LEFT40 gap47, repeated RIGHT30 gap55. No RIGHT40 row in this particular six-line file. All rows resultL=resultR=finish=2 and RIGHT fine pulses0, syncFrames>0. Six-distinct coverage and strict >90% have not yet been verified.
+
+## One bounded additional intervention
+New boot-on steer_voice_s156_start_cap_enable=1U. At S15.4's existing post-sample, pre-atomic safety output, when Voice owner mode4, 15-degree LEFT, both axes in eligible coarse phase, within 350ms of command start, RIGHT normalized progress >= LEFT, reduce RIGHT final PWM to the existing nonzero right PWM floor (normally 50CCR). If RIGHT falls behind, >350ms, not owned or other mode/angle/turn, output is bit-exact normal S15.4/S15.5. No PWM increase, extra motor permission, direction change, zero-duty hold, new stall override, motor cap change or alteration of LEFT. Existing RIGHT10 RAW both-direction fine-entry, ±5 tolerance, Voice45 own physical NC, R1/R2, STOP, PS2, IRQ/late CCR recheck, independent stall/timeout, auto-ARM guards remain untouched. This may change motor start dynamics and could worsen time to finish; >90% is a target, NOT a known result.
+
+Existing read-only per-run auto UART M8S154_FINE adds startCapFrames, representing number of S15.6 frames actually reducing RIGHT proposal. Previous peakGap, peakLeader, peakAtMs, earlyTaperFrames, syncFrames, timing and error remain. Native PowerShell receiver tools/capture_m8_s154_right_fine.ps1 is unchanged; no manual debugger flags.
+
+## Test
+Exact-SHA GitHub CI must PASS compiled real-C helper gate and bounds, older isolated-C S15.4 and snapshot regressions, Windows PowerShell syntax. This is not an MCU build or motor safety certification. After operator's clean local worktree, fetch/switch branch and CubeIDE Clean Build/Flash matched SHA, verify NC/STOP/AS5600 unpowered, secure chassis with independent motor cutoff, begin Voice15 LEFT. Stop early for under-speed, stalls, unexpected NC, overshoot or other faults, keeping any partial TXT. If safe, test LEFT15, RIGHT15, LEFT30, RIGHT30, LEFT40, RIGHT40 exactly once each and send private original TXT (not public GitHub).
+
+Physical acceptance: all six distinct rows, peakGap strictly below 100, syncFrames>0, resultL/resultR/finish2, RIGHT abs error <=5 RAW, no new correction pulses/reversal, no faults and no unsafe skew/time regression. Repeat after initial success to assess consistency. Fallback to already physically tested 9cd6067cf9e7a9885ee4c36121e3912e80956860 or S15.5 2f3b3a when needed; always Clean Build/Flash proper code.

@@ -1596,4 +1596,23 @@ END OF CONTEXT HANDOFF
 [2] Firmware control, NC/STOP, UART protocol, PWM and S15.5 ramp untouched in this follow-up. Full exact-SHA CI must PASS before CubeIDE.
 [3] Physical >90% still pending on trial hardware. Known tested rollback 9cd6067c, never force reset user's local worktree.
 
+## 2026-11-05 — S15.6 Voice LEFT15 startup RIGHT cap from actual S15.5 log
+[0] Operator supplied private TXT M8S154_right_fine_20261105_203007.txt with flashed physical SHA 2f3b3a250601d77add3bdab219e6385a98e4456d. Do not upload original private TXT publicly.
+[1] Actual S15.5 LEFT15 peakGap201permille = 79.9% worst-point (baseline 9cd6067c peak214=78.6); peakLeader2 means RIGHT was ahead, peakAtMs245, earlyTaperFrames17. Reactive early taper ran but only improved 1.3 percentage points, insufficient for strict >90 target.
+[2] Other five logged commands: RIGHT15 peakGap56 (94.4%), LEFT30 37 (96.3%), RIGHT30 20 (98%), LEFT40 47 (95.3%), and RIGHT30 repeated peakGap55 (94.5%). Sixth item is NOT RIGHT40; true six-distinct cases not yet completed for S15.5. Prior 9cd6067c had RIGHT40 peak62 (93.8%).
+[3] All logged commands in latest file resultL=resultR=finish=2, RIGHT fine pulses0/reversals0 and errors within +-5 RAW, syncFrames>0, no stale/NC/waypoint failures. Do not change fine thresholds.
+[4] New isolated S15.6 branch feature/m8-s156-voice15-left-start-right-cap from tested 2f3b3a2, no baseline overwritten. New global steer_voice_s156_start_cap_enable=1U at boot, does not ARM motors or override safety.
+[5] After actual Voice S15.4 normal two-axis fresh AS5600 coarse waypoint and other eligibilities, and BEFORE existing atomic late NC/CCR commit: only Voice4 15deg LEFT, when elapsed<=350ms and RIGHT normalized progress >= LEFT, reduce final RIGHT proposed PWM to existing nonzero clamp floor50CCR; if behind, elapsed>350, invalid mode/ownership or no headroom, preserve original proposed PWM. Never increases duty or goes below floor.
+[6] Existing S15.5 leader ramp70 remains, as do S15.4 normalized coordinator math/post-I2C sample tick, RIGHT10RAW fine entry both directions, all caps300/100, NC/STOP/PS2, Voice45 expected NC, R1/R2, stall and 5s timeout.
+[7] Existing safe-idle automatic UART M8S154_FINE appends startCapFrames (only frames actually reduced). Retains peakGap,peakLeader,peakAtMs,earlyTaperFrames and sync fields. Windows PowerShell collector unchanged; no Live Expressions edits.
+[8] HOST actual-C helper tests cover 15 LEFT only, active window 0..350ms, RIGHT>=LEFT, mode/angle/turn/owner/flag exclusions, not below nonzero floor, never above proposed duty. Older extracted real-C sync and snapshot fixtures adjusted to include helper/new telemetry.
+[9] CI initial SHA 659758fe1ca387c5b2fd25ed24b6c9e8b58b1d8f failed the CONTEXT_HANDOFF/PROJECT_MILESTONES contract because documentation update had not yet been committed, not an STM32 build error; follow-up commit updates both, full exact SHA CI then required.
+[10] S15.6 physical tracking goal ALL six distinct (15LEFT/RIGHT, 30LEFT/RIGHT, 40LEFT/RIGHT) peakGap<100permille (strictly >90%), resultL/resultR/finish=2, syncFrames>0, RIGHT fine0, no reversal/fault, acceptable completion/skew. One 6-run sample is preliminary; repeat if passes.
+[11] RIGHT cap could cause mechanical under-speed/stall; protected fixed rig, NC and STOP power-off preflight, independent motor cutoff; Voice15LEFT first and stop if irregular, then 5 remaining only if safe.
+[12] Operator does not manually edit flags; all required new and old trials boot1. Sender is passive and deferred to safe UART idle; capture script defaults 6 rows.
+[13] No confirmation >90 until user returns exact-SHA physical TXT. Do not claim real-world pass from HOST CI.
+[14] Physically tested reliable fallback source SHA 9cd6067cf9e7a9885ee4c36121e3912e80956860. S15.5 SHA 2f3b3a2 also physically ran five distinct commands, but not RIGHT40 in newest log.
+[15] Read docs/M8_S156_VOICE15_LEFT_START_CAP_2026_11_05.md for rationale, uncertainty and acceptance. Preserve original 386-line spec, historical 17-section handoff and roadmap.
+[16] Explicit stages: SOURCE COMMITTED -> HOST CI -> CubeIDE BUILD -> FLASH -> physical PASS; only assert stage with actual evidence.
+
 END OF CONTEXT HANDOFF

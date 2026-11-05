@@ -1233,3 +1233,9 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 ## 2026-11-05 — S15.5 first CI HOST test fixtures
 - First trial 2d486d... failed old isolated-C S15.4 test due to missing three new read-only peak diagnostic globals and start timestamp. Add fixture globals, extend passive capture test struct/fixtures and assertions, correct new verifier assert. No production firmware modification. Re-run complete CI.
+
+## 2026-11-05 — S15.6 voice15 LEFT early leading-RIGHT startup cap hardware A/B
+- [PRIVATE PHYSICAL LOG] S15.5 exact SHA 2f3b3a250601d77add3bdab219e6385a98e4456d still only 79.9% at LEFT15 worst point (peakGap201, RIGHT leads at245ms, earlyTaperFrames17). Other recorded cases >=94.4%, but sixth command repeated RIGHT30 rather than RIGHT40, so S15.5 six-case coverage incomplete. All six terminal result2, fine pulses0, sync active.
+- [NEW ISOLATED BRANCH] feature/m8-s156-voice15-left-start-right-cap, fork from S15.5 tested source. Boot1 steer_voice_s156_start_cap_enable limits ONLY RIGHT final coarse PWM to existing nonzero floor50 when Voice4 LEFT15, RIGHT progress>=LEFT, first350ms of run, after existing S15.4 sample/NC eligibility and before atomic safety. Immediately release when RIGHT falls behind or time expires; never increase PWM, touch LEFT, or bypass STOP/NC/PS2.
+- [TELEMETRY] Append startCapFrames to auto idle M8S154_FINE; previous peak gap leader, atMs, earlyTaper and other fields unchanged. Native PowerShell collector as before.
+- [VERIFY] Full exact-SHA CI including compiled production C gate/bounds, existing actual-C sync, passive snapshots, and Windows PowerShell 5.1 parser. Operator must Clean Build/Flash the verified SHA, safe static rig Voice15LEFT first, then all SIX DISTINCT angle/turn pairs if safe. Require peakGap<100 every case, result2, ±5 final error and no faults/reverse; otherwise inspect and return to known physical baseline SHA 9cd6067c. Source-only is NOT hardware >90 proof.
