@@ -2019,7 +2019,11 @@ volatile uint8_t steer_pos_left_fine_adapt_enable = 1U;
 volatile uint8_t voice_pos_enable = 1U; /* Voice enabled; master steering permit boots OFF */
 volatile uint8_t voice_angle_mapping_enable = 1U; /* target RAW proxy, not physical degrees */
 volatile uint8_t voice_pivot_enable = 1U; /* guarded R2 + NC + spin */
-volatile uint8_t voice_pos_request = 0U; /* 1 CENTER; 2 R2; 4 angle */
+/* Voice 45 seeks the own physical NC. 5..40 use RAW position owner 4.
+ * This separate request mode never treats RAW target alone as arrival.
+ */
+#define STEER_POS_VOICE45_NC 5U
+volatile uint8_t voice_pos_request = 0U; /* 1 CENTER; 2 R2; 4 <45; 5 =45 NC */
 volatile uint8_t voice_pos_owned = 0U;
 volatile uint8_t voice_pos_rejected = 0U;
 volatile uint8_t voice_pos_last_result = 0U;
@@ -2631,6 +2635,51 @@ static uint16_t Steering_PositionClampDuty(uint16_t value)
  * DIR1=away from MIN and DIR0=away from MAX on BOTH axes.
  * This never overrides ISR PWM cut, sensor limits or motion permit.
  */
+/* Which physical NC can signal a successful ARRIVAL for this owner?
+ * Voice LEFT 45 -> L_MAX + R_MIN; RIGHT 45 -> L_MIN + R_MAX.
+ * Do not treat any unexpected NC or dual contradictory input as arrival.
+ */
+static uint8_t Steering_PositionExpectedNc(uint8_t left)
+{
+  if (steer_pos_command == 2U)
+    return left ? STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_R_MIN_MASK;
+  if ((steer_pos_command != STEER_POS_VOICE45_NC) ||
+      (voice_pos_owned == 0U) || (voice_pos_last_angle_deg != 45U))
+    return 0U;
+  if (voice_pos_last_turn < 0)
+    return left ? STEER_LIMIT_L_MAX_MASK : STEER_LIMIT_R_MIN_MASK;
+  if (voice_pos_last_turn > 0)
+    return left ? STEER_LIMIT_L_MIN_MASK : STEER_LIMIT_R_MAX_MASK;
+  return 0U;
+}
+
+static uint8_t Steering_PositionAtExpectedNc(uint8_t left, uint8_t nc)
+{
+  uint8_t own = left ?
+      (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK) :
+      (STEER_LIMIT_R_MIN_MASK | STEER_LIMIT_R_MAX_MASK);
+  uint8_t expected = Steering_PositionExpectedNc(left);
+  return ((expected != 0U) && ((nc & own) == expected)) ? 1U : 0U;
+}
+
+/* Fail CLOSED at the calibrated 45 endpoint if no expected NC arrived.
+ * Do not drive farther into a possibly broken/unplugged limit switch.
+ * Preserve existing hardware EXTI cut and timeout/stall controls.
+ */
+static uint8_t Steering_Voice45RawBoundaryReached(uint8_t left,
+                                                 uint16_t raw,
+                                                 uint16_t target)
+{
+  uint8_t expected = Steering_PositionExpectedNc(left);
+  if ((expected == STEER_LIMIT_L_MIN_MASK) ||
+      (expected == STEER_LIMIT_R_MAX_MASK))
+    return (raw >= target) ? 1U : 0U;
+  if ((expected == STEER_LIMIT_L_MAX_MASK) ||
+      (expected == STEER_LIMIT_R_MIN_MASK))
+    return (raw <= target) ? 1U : 0U;
+  return 1U; /* no physical target NC -> never power the axis */
+}
+
 static uint8_t Steering_PositionNcDirectionAllowed(uint8_t left,
                                                    uint8_t nc,
                                                    GPIO_PinState dir)
@@ -11369,9 +11418,9 @@ static void Voice_SetStraight(void)
  * Nếu chuỗi chưa hợp lệ: không thực thi, không lưu TIME,
  * và giữ pending để người dùng có thể bổ sung hoặc Clear command.
  */
-/* VC-02 steering command is a separate owner from wheel TIME.
- * B0 alone = R1 CENTER; A5/A6+B1..B9 = 2 independent RAW targets.
- * Mapping is a normalized shaft proxy, not a measured wheel angle.
+/* B0 CENTER. B1..B8 -> RAW servo via calibrated MIN/MAX interpolation.
+ * B9 (45) -> physical expected NC on EACH axis; RAW is bound only.
+ * Voice wheel owner and steering owner remain independent.
  */
 /* Steering completes only for A5/A6 followed by B1..B9.
  * Bn without a preceding direction is ignored; B0 independently centers.
@@ -11414,8 +11463,8 @@ static void Voice_S154StageSteerAngle(uint8_t angle)
     }
     goals=VoiceS154_AngleGoals(dir,angle,
         STEER_POS_LEFT_CENTER_RAW,STEER_POS_RIGHT_CENTER_RAW,
-        STEER_MANUAL_LEFT_SOFT_MAX,STEER_MANUAL_RIGHT_SOFT_MIN,
-        STEER_MANUAL_LEFT_SOFT_MIN,STEER_MANUAL_RIGHT_SOFT_MAX);
+        STEER_POS_LEFT_MAX_RAW,STEER_POS_RIGHT_MIN_RAW,
+        STEER_POS_LEFT_MIN_RAW,STEER_POS_RIGHT_MAX_RAW);
     if(goals.valid==0U)
     {
       voice_invalid_count++;
@@ -11434,7 +11483,8 @@ static void Voice_S154StageSteerAngle(uint8_t angle)
   voice_pos_last_turn=dir;
   voice_pos_rejected=0U;
   voice_pos_last_result=0U;
-  voice_pos_request=(angle==0U)?1U:4U;
+  voice_pos_request=(angle==0U)?1U:
+      ((angle==45U)?STEER_POS_VOICE45_NC:4U);
   voice_pos_request_count++;
   voice_pending_command.turn=VOICE_TURN_NONE;
   voice_pending_command.turn_valid=0U;
