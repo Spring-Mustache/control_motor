@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **M9-H1 CHECKPOINT 2026-11-06:** SOURCE + exact-SHA **HOST CI PASS** tại commit `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b`, GitHub Actions run `42237917589`: Linux `verify_m9_h1_shadow.py` biên dịch C thật + mô phỏng load-release PASS, hồi quy H0/M8 và workflow handoff PASS; Windows PowerShell syntax PASS. **Chưa có CubeIDE Clean Build/Flash hoặc log MCU H1**, càng không có mô-men HOLD ACTIVE. Nhánh hiện hành `feature/m9-steering-active-position-hold` cần kiểm tra HEAD sau commit docs. Lệnh và evidence: `docs/M9_H1_PD_SHADOW_2026_11_06.md`.
+
 > **HIỆN HÀNH — 2026-11-06 M9-H1:** Người dùng yêu cầu **triển khai M9-H1 PD SHADOW**. Nhánh `feature/m9-steering-active-position-hold` lấy nền `d367618d`; H0 đã có 4/4 cửa sổ private MCU 3 giây **DATA CAPTURE PASS giới hạn** ở SHA `8c2b3fe7` (trôi đỉnh ≤1 RAW). **H1 SOURCE-STAGED, cần kiểm tra exact-SHA HOST CI rồi CubeIDE Build/Flash/MCU log riêng**; tính PD tham khảo trong bộ nhớ, không ghi PWM, không có HOLD_ACTIVE. Bảo toàn STOP, NC, PS2, VC-02, M8 đã nghiệm thu. Xem `docs/M9_H1_PD_SHADOW_2026_11_06.md`; đừng nhầm các dòng M8 “LATEST” lịch sử bên dưới với HEAD.
 
 > **TRẠNG THÁI HIỆN HÀNH 2026-11-06 — M9:** **H0 SOURCE + exact-SHA HOST CI PASS** tại `8c2b3fe7d57154db7d11f8abca40351c4753d362`; **người dùng đã cung cấp 4 dòng UART MCU H0**, mỗi cửa sổ 3 giây hoàn tất, **DATA CAPTURE PASS trong phạm vi quan sát tĩnh**, drift đỉnh ≤1 AS5600 RAW/trục, không có bad/jump/drop; chưa thử ngoại lực, không có mô-men HOLD. CubeIDE build/flash log độc lập chưa được cung cấp. Các cập nhật M8 cũ vẫn là lịch sử, H1/H2/H3 chưa viết.  Người dùng đã chọn phát triển **bộ điều khiển phần mềm giữ góc lái Active Position Hold**, **không đầu tư thêm phần cứng**. Nhánh công việc hiện tại: `feature/m9-steering-active-position-hold`, tách từ đúng `d367618d4d9c4c382a9a7208f9b878dfefa21ace`. M9-H0 đã triển khai mã **read-only**, H1/H2/H3 vẫn PLANNED; chưa có mã HOLD ACTIVE hay powered-hold PASS. H0 passive drift → H1 PD shadow → H2 opt-in bounded active → H3 integration; đọc `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`. **Không nhầm nhánh thử M8 R1 10RAW chưa có physical PASS với M9 đã nghiệm thu.** Các ghi chú “CURRENT/LATEST” M8 bên dưới là lịch sử theo thời điểm ghi, không phải HEAD M9.
@@ -75,7 +77,9 @@ B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports Cube
 
 ## 1. Đọc mục này để tiếp tục ngay
 
-### TIẾN ĐỘ 2026-11-06 — M9-H1 PD SHADOW (chưa cấp điện giữ góc)
+### TIẾN ĐỘ 2026-11-06 — M9-H1 PD SHADOW (SOURCE + HOST CI PASS; chưa cấp điện giữ góc)
+
+- [CI CONFIRMED] Sau sửa signedness, exact SHA `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b` GitHub Actions `42237917589` **SUCCESS**. Linux GCC pure-C load-release tests và wiring/no-actuator-write checks PASS, Windows PowerShell 5.1 parser PASS, context contract + M8/H0 regressions PASS; không chứng minh CubeIDE target, flash hay motor.
 
 - [USER REQUEST] Triển khai bước H1 sau khi đã nhận và giải thích 4 log H0 thực (độ trôi đỉnh ≤1RAW, peakVel90RAW/s có thể do 1RAW/11ms).
 - [SOURCE] Thêm `Core/Inc/m9_h1_shadow.h` + `Core/Src/m9_h1_shadow.c`, nối vào đúng cửa sổ H0 3s chỉ khi cả hai trục DONE2 của R1/Voice5..40, dùng cache AS5600 hiện hữu, không thêm I2C.
@@ -1636,6 +1640,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [1] Corrected by explicitly casting the threshold and e_eff arithmetic to `int32_t`, preserving negative-error behavior without relying on unsigned wrap.
 [2] This was an **HOST GCC compiler finding**, not a result of STM32 motor/servo test. Other Windows PowerShell parser and handoff contract jobs succeeded at first SHA. Full new SHA CI is still required before any on-target test.
 [3] No motor output was introduced; no H2 active hold. Existing 17-section historical handoff preserved.
+
+## 2026-11-06 — M9-H1 kết quả HOST CI sau sửa sign-compare (17 mục)
+
+[0] Ghi nhận kiểm tra trên đúng GitHub SHA 7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b, Actions 42237917589 completed success, không có mới MCU log.
+[1] Mốc bàn giao: nhánh feature/m9-steering-active-position-hold, H1 SOURCE + HOST CI PASS, chờ CubeIDE/Flash/private UART; kiểm tra HEAD commit docs mới.
+[2] Mục tiêu giữ góc chống lực vẫn chưa nghiệm thu: software-only PD SHADOW, H2/H3 chưa code.
+[3] User yêu cầu triển khai H1, đã được thực hiện đúng phạm vi không cấp lực. Không hỏi lại H0 log 4 dòng đã có.
+[4] Roadmap H0 static data PASS giới hạn, H1 HOST CI PASS, H1 on-target pending; H2 ACTIVE/H3 integration future.
+[5] Chạy C thật với GCC -Wall/-Wextra/-Werror, synthetic load-release sign reversal/damping PASS, PowerShell syntax và workflow context PASS.
+[6] CubeIDE target build/flash, H1 MCU telemetry, tốc độ thực under load/ngoại lực release, current/thermal/PWM0 coast/brake vẫn chưa có bằng chứng.
+[7] Source exact 7d8c98e, workflow run 42237917589, docs/M9_H1_PD_SHADOW_2026_11_06.md, tools/verify_m9_h1_shadow.py, tools/capture_m9_h1_shadow.ps1.
+[8] Không biến shadow units thành PWM vật lý. Giữ Kp/Kd là giả định simulation, không sử dụng qua driver.
+[9] Rủi ro lượng tử 1RAW/11ms, derivative window100ms, dynamics chưa đo, delay ACCE/DECCE, NC/STOP kiểm chứng vật lý còn thiếu.
+[10] Sensor H0 tần suất ~89Hz/trục lúc permit1, không bảo đảm fixed sampling hay safe H2 realtime.
+[11] Next: bảo vệ local files, fetch/switch M9, CubeIDE Clean Build/Flash và NC/STOP preflight nếu operator muốn; dùng PowerShell capture M9H0+M9H1, so SHA và gửi riêng TXT.
+[12] Câu hỏi thực nghiệm: real load-release effect, torque/current/thermal, sensor ratio/backlash và driver PWM0; không cần trả lời trước khi có H1 passive log.
+[13] Timeline: H0 4 static real records; H1 first CI 524ab68 failed compiler signedness; 7d8c98e fixed and full CI success.
+[14] PD shadow Kp_q8=256, Kd_q8=128, hyst 8/4 RAW, deadband5 RAW, speed window100ms/1RAW suppression, stale250ms, cap±40 arbitrary units.
+[15] Chat mới tiếp tục từ HEAD M9 và H1 code; không chốt hardware PASS từ CI hoặc tư vấn powered H2 khi chưa có bảo vệ thực nghiệm.
+[16] Đúng bằng chứng: SOURCE + HOST CI PASS, hardware HOLD PASS chưa có; original 386-line source và 17 section/footer vẫn được giữ.
 
 END OF CONTEXT HANDOFF
 

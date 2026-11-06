@@ -2,7 +2,7 @@
 
 ## HIỆN HÀNH 2026-11-06 — M9 Steering Active Position Hold (H0 dữ liệu tĩnh, H1 SHADOW source)
 
-**M9-H1 source mới (2026-11-06):** Đã chuẩn bị mô-đun tính PD SHADOW trên branch M9, chưa cấp điện hay giữ trục; 100ms velocity window lọc nhiễu 1RAW, e deadband/hysteresis, stale/jump/STOP/owner interlocks theo H0, kết quả UART idle `M9H1_SHADOW`. [Xem H1 chi tiết](M9_H1_PD_SHADOW_2026_11_06.md). HOST exact-SHA/target phải xác minh sau commit.
+**M9-H1 SOURCE + HOST CI PASS (2026-11-06):** GitHub Actions `42237917589` **SUCCESS** trên exact `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b` (Linux GCC C thật + H0/M8 regression + Windows PowerShell). Target CubeIDE/Flash/real MCU H1 log vẫn chưa có. Đã chuẩn bị mô-đun tính PD SHADOW trên branch M9, chưa cấp điện hay giữ trục; 100ms velocity window lọc nhiễu 1RAW, e deadband/hysteresis, stale/jump/STOP/owner interlocks theo H0, kết quả UART idle `M9H1_SHADOW`. [Xem H1 chi tiết](M9_H1_PD_SHADOW_2026_11_06.md). HOST exact-SHA/target phải xác minh sau commit.
 
 **M9-H0 KẾT QUẢ 2026-11-06:** SOURCE + exact SHA CI PASS tại `8c2b3fe7`; người dùng cung cấp **4/4 dòng MCU UART** đủ 3s (seq1..4, reason1) và valid AS5600 cả hai trục. Độ trôi đỉnh tối đa 1 RAW mỗi trục, peakErr ≤5 RAW, invalid/jump/drop=0. Đánh dấu **H0 DATA CAPTURE PASS GIỚI HẠN** cho dữ liệu tĩnh, **không** coi là HOLD chịu ngoại lực, không có H1/H2/H3 motor. Bản ghi private không đưa lên repo. Kết quả được giải thích trong H0 doc.
 
@@ -13,7 +13,7 @@
 | ID | Kết quả cần có | Trạng thái 2026-11-06 |
 |---|---|---|
 | **M9-H0** | Giám sát 3s sau DONE, không phát lực; 4 bản ghi MCU với cảm biến hợp lệ, lệch đỉnh ≤1 RAW | **SOURCE + HOST CI PASS; on-MCU UART DATA CAPTURE PASS giới hạn** |
-| **M9-H1** | Đã code PD shadow Q8, 100ms filtered velocity, stale/jump/noise guard, HOST load-release simulation và safe-idle UART | **SOURCE-STAGED; exact CI/target/real log chưa xác minh khi lập hồ sơ** |
+| **M9-H1** | PD shadow Q8, filtered velocity 100ms, stale/jump/noise, GCC load-release simulation, safe-idle UART | **SOURCE + exact HOST CI PASS (7d8c98e); CubeIDE/Flash/MCU log chưa có** |
 | **M9-H2** | HOLD_ACTIVE opt-in boot OFF, giới hạn lực/thời gian, thử gá có NC/STOP và ngắt nguồn motor độc lập | **PLANNED / chưa powered test** |
 | **M9-H3** | Tích hợp HOLD với PS2, VC-02 và chạy bánh, nghiệm thu safety/gá/tải riêng | **PLANNED** |
 
@@ -1313,3 +1313,9 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 - First H1 CI run `42237554302` on `524ab68`: Windows PowerShell parser **PASS**, handoff contract **PASS**, Linux M9-H0 **PASS**; H1 GCC build failed `-Werror=sign-compare` on the new int32 error-vs-unsigned RAW threshold. This is **not** a CubeIDE/motor defect or hardware result.
 - Fix: explicit int32 cast on deadband threshold and positive/negative e_eff arithmetic in `m9_h1_shadow.c`. No PWM/I2C/NC/STOP code changed. Full CI must PASS at new exact SHA before any target claim.
+
+## 2026-11-06 — H1 exact-SHA HOST CI VERIFIED PASS
+
+- Commit source `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b`, Actions run `42237917589` **COMPLETED/SUCCESS**: Linux GCC H1 actual C PD release-load, strict source no-motor-write; H0 and old M8 regression; Windows PowerShell syntax; full context contract.
+- Initial CI on `524ab68` failed signed/unsigned type in `M9H1_Candidate`, fixed in `7d8c98e`. Distinguish compiler fix from any STM32 motor defect.
+- Milestone H1 evidence upgraded to **HOST CI PASS**, **NOT target Build/Flash/bench/HOLD PASS**. No H2 PWM/driver output changed; next receive `M9H1_SHADOW` private on-MCU UART if operator chooses.
