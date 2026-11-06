@@ -112,6 +112,9 @@ jobs:
       - name: Verify guarded PS2 R1/Voice CENTER RIGHT 10RAW fine entry and passive diagnostic
         run: python3 tools/verify_m8_r1_right_center_late_fine.py
 
+      - name: Verify M9-H0 passive drift actual-C HOST tracker and no motor output
+        run: python3 tools/verify_m9_h0_drift.py
+
       - name: Verify S15.4 fresh post-I2C sample tick and skip telemetry
         run: python3 tools/verify_m8_s154_sync_sample_clock.py
 
@@ -168,6 +171,7 @@ jobs:
           foreach ($path in @(".\\tools\\capture_m8_s152.ps1",
                                ".\\tools\\capture_m8_s154_right_fine.ps1",
                                ".\\tools\\capture_m8_r1_center.ps1",
+                               ".\\tools\\capture_m9_h0_drift.ps1",
                                ".\\tools\\stamp_firmware_build.ps1")) {
             $tokens = $null
             $errors = $null

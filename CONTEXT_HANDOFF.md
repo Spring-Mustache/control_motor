@@ -1,6 +1,6 @@
 # CONTEXT HANDOFF
 
-> **TRẠNG THÁI HIỆN HÀNH 2026-11-06 — M9:** Người dùng đã chọn phát triển **bộ điều khiển phần mềm giữ góc lái Active Position Hold**, **không đầu tư thêm phần cứng**. Nhánh công việc hiện tại: `feature/m9-steering-active-position-hold`, tách từ đúng `d367618d4d9c4c382a9a7208f9b878dfefa21ace`. Đây là **milestone PLANNED/docs-only**, chưa có HOLD code, Build/Flash hay powered PASS. H0 passive drift → H1 PD shadow → H2 opt-in bounded active → H3 integration; đọc `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`. **Không nhầm nhánh thử M8 R1 10RAW chưa có physical PASS với M9 đã nghiệm thu.** Các ghi chú “CURRENT/LATEST” M8 bên dưới là lịch sử theo thời điểm ghi, không phải HEAD M9.
+> **TRẠNG THÁI HIỆN HÀNH 2026-11-06 — M9:** **H0 đã được đưa vào source trên nhánh M9 (thụ động, không cấp PWM HOLD); các cổng HOST CI đúng SHA/CubeIDE Build/Flash/log thực tế phải xác minh riêng.** Người dùng đã chọn phát triển **bộ điều khiển phần mềm giữ góc lái Active Position Hold**, **không đầu tư thêm phần cứng**. Nhánh công việc hiện tại: `feature/m9-steering-active-position-hold`, tách từ đúng `d367618d4d9c4c382a9a7208f9b878dfefa21ace`. Đây là **milestone PLANNED/docs-only**, chưa có HOLD code, Build/Flash hay powered PASS. H0 passive drift → H1 PD shadow → H2 opt-in bounded active → H3 integration; đọc `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`. **Không nhầm nhánh thử M8 R1 10RAW chưa có physical PASS với M9 đã nghiệm thu.** Các ghi chú “CURRENT/LATEST” M8 bên dưới là lịch sử theo thời điểm ghi, không phải HEAD M9.
 
 > **HỒ SƠ SỐNG 17 MỤC:** Giữ nguyên dữ kiện và quyết định lịch sử A, đồng thời **cập nhật lớp hiện hành** sau thay đổi code/nhận định/lần đo. **Không lấy SHA hoặc trạng thái ở ảnh chụp gốc làm HEAD.** Người tiếp quản phải xác minh nhánh người dùng đang làm (hiện tại `feature/m9-steering-active-position-hold`) và HEAD SHA thực tế ở GitHub, rồi đọc mục 1 hiện hành, toàn bộ 0–16 và roadmap cùng SHA. Nhánh M7-S15 cũ là mốc rollback trước PI, không phải nơi tiếp tục M8-S15. Git commit là nguồn chính, Actions kiểm tra mỗi push; Release chỉ theo milestone/yêu cầu.
 
@@ -72,6 +72,14 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+### TIẾN ĐỘ M9-H0 — source read-only drift monitor (2026-11-06)
+
+- Implemented `Core/Inc/m9_h0_drift.h`, `Core/Src/m9_h0_drift.c` và wiring thụ động trong `Core/Src/main.c`; `tools/verify_m9_h0_drift.py` + GCC host test + PowerShell collector `tools/capture_m9_h0_drift.ps1`.
+- Khi cả hai Position axis DONE2 và toàn lệnh result2, chỉ R1 CENTER (PS2/Voice B0) hoặc Voice5..40 position-mode4, source snapshots goals/raw khi cả hai PWM đã OFF; quan sát **3 giây** sau DONE bằng dữ liệu AS5600 cache từ polling idle gốc, không thêm I2C/đổi CCR/DIR.
+- Kết thúc cửa sổ (reason1), lệnh mới (reason2), STOP/fault (reason3). Theo dõi drift/peak error/max raw/s, samples/invalid/jump/zero dt, wheel activity và dropped; UART3 IRQ chỉ lúc motor+serial idle. Không giữ khi NC endpoint R2/Voice45.
+- Trạng thái H0 tại source commit: **SOURCE-STAGED**, thử GCC unit có thể PASS, CI exact SHA phải kiểm tra GitHub; **CubeIDE Build/Flash/MCU/UART/độ trôi thật CHƯA xác minh**. H1/H2/H3 chưa viết. Xem `docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md`.
+- Các mẫu M8 Voice15/30/40 USER PASS trên SHA 9db12228 khác M9 H0. Chưa phát lực giữ/servo PD.
 
 ### CHUYỂN MILESTONE 2026-11-06 — M9 Steering Active Position Hold (USER xác nhận, docs-only)
 
@@ -1494,6 +1502,42 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] **Chỉ dẫn tiếp quản:** Lấy HEAD nhánh M9 thật, không dùng mặc định HEAD main/M8; đọc 17 mục và cập nhật cuối, roadmap M9, M9 plan và diff/CI đúng SHA. Không mặc nhận yêu cầu cũ đã biến mất: NC/STOP/PS2/VC02/motor arbitration phải giữ; user chỉ muốn đầu tư phần mềm.
 
 [16] **Kiểm tra/giới hạn:** M8 6-case USER PASS khác với M9 chưa triển khai. Bản MD cập nhật chỉ là tài liệu. Chưa bằng chứng CubeIDE/Flash/HOLD/current/stall/load; thiếu log riêng tư của trial R1. Original `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md` 386 dòng/SHA phải giữ bất biến, footer giữ nguyên. Nếu CI docs PASS, nó chỉ xác thực source/regression/contract ở SHA đó, không chứng minh giữ góc trên xe.
+
+## 2026-11-06 — M9-H0 implementation handoff, đủ khung mục 0–16
+
+[0] **Nguồn:** USER yêu cầu thực hiện mốc tiếp theo M9-H0; repo HEAD nền bbfff0699f7473d6b6dbc45bc28c3d6fd56ef237. Code mới chỉ tạo quan sát sau position DONE, không thay đổi bộ điều khiển vị trí, quyền motor, giới hạn NC/STOP hay dòng điện.
+
+[1] **Tiếp quản ngay:** Branch feature/m9-steering-active-position-hold, xác minh HEAD mới nhất; H0 source đã được triển khai, CI đúng SHA cần xem, chưa có MCU Build/Flash/UART logfile. Hành động gần nhất: CI, rà source grep motor-write exclusions, bảo vệ local worktree khi CubeIDE Clean Build/Flash.
+
+[2] **Phạm vi:** M9-H0 post-DONE read-only drift, không Active Hold, không motor torque/PWM. Cửa sổ 3000ms chỉ R1 center hoặc Voice mode4 5–40° đều hai motor result2; NC endpoint/STOP/fault không khởi tạo H0.
+
+[3] **Yêu cầu người dùng:** Chỉ phát triển chương trình STM32/CCS_SHB12/AS5600, không đầu tư phanh mới. Log bằng PowerShell, tránh gán dữ liệu không có. PWM giữ trục luôn OFF ở H0.
+
+[4] **Roadmap:** H0 SOURCE-STAGED / await exact-SHA CI + CubeIDE Build/Flash/log; H1 pure/shadow PD chưa triển khai; H2 ACTIVE bounded boot OFF chưa được phép motor; H3 PS2/Voice/wheels integration chưa triển khai. Đọc docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md và M9 plan.
+
+[5] **Thực hiện:** New pure-C Core/Src/m9_h0_drift.c và header; hooks StartAfterDone và IdleUpdate vào main; new M9H0_DRIFT one-row UART3 safe idle; tools/verify_m9_h0_drift.py GCC exact module, native Windows PowerShell collector + workflow syntax step; tài liệu + roadmap + handoff cập nhật cùng commit.
+
+[6] **Chưa làm:** Không có vòng PD, không H2 PWM, không H3 tích hợp, chưa đo drift thật, chưa Clean Build/Flash hoặc xác minh tác động jitter/độ trễ STM32. Bản H0 không đánh dấu HOLD PASS.
+
+[7] **Tài nguyên:** Core/Src/main.c, Core/Src/m9_h0_drift.c, Core/Inc/m9_h0_drift.h, tools/m9_h0_host_test.c, tools/verify_m9_h0_drift.py, tools/capture_m9_h0_drift.ps1, docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md, docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md, .github/workflows/context-handoff-release.yml; original 386-line source unchanged.
+
+[8] **Quyết định:** Không gọi I2C mới ở H0; dùng dữ liệu cập nhật khi idle (50ms luân phiên ~100ms/side), không live UART khi đang chạy, chỉ một record tổng kết và không overwrite unsent; mở rộng thành time series H1 nếu cần xác định damping, nhưng không tự áp dụng PWM.
+
+[9] **Rủi ro:** Thời gian idle poll/AS5600 không đều, tốc độ delta RAW chỉ là ước lượng tốc độ theo mẫu, chưa đo load; log bị trễ do bánh xe/motor còn chạy, pending có thể drop session sau; ST-LINK UART3 TX không chứng minh driver thật cắt điện hay nhiệt an toàn.
+
+[10] **Giả định:** Cơ cấu sử dụng AS5600 12-bit và các mốc M8 hiện hành; lỗi magnet/status được ghi invalid; packet có MCU SHA. Số count RAW không quy trực tiếp độ lái thực khi chưa biết truyền động.
+
+[11] **Bước kiểm tra:** Chạy CI exact SHA; trên Windows bảo vệ working tree, fetch/switch M9, xác nhận SHA, CubeIDE Clean Build/Flash, preflight NC/STOP ngắt nguồn motor. Chỉ sau khi cơ cấu được bảo vệ, thực hiện lệnh vị trí M8 đã có, chờ ≥3s idle, chạy collector PowerShell để lấy M9H0_DRIFT; không cần tác động ngoại lực cho test đầu tiên.
+
+[12] **Vẫn cần biết:** PWM0 coast/brake? RAW drift khi idle bao nhiêu? Có sample invalid/jump hoặc drop? Clock/sample gap có đủ cho PD? Data chưa có đến khi user gửi private TXT.
+
+[13] **Timeline:** USER tạo branch M9 từ d367618d, commit docs HEAD bbfff069; USER nói 'hãy thực hiện', nghĩa triển khai H0; source H0 thụ động ghi một summary mỗi lệnh DONE, CI và hardware cần xác minh sau commit.
+
+[14] **Giá trị đo:** mode1 CENTER (goalL1886,goalR662 mặc định); Voice mode4 sử dụng mục tiêu `voice_pos_goal_l/r`. `reason=1` hết 3000ms, 2 chủ khác, 3 STOP/fault. `peakDrift{L,R}` là |AS5600 RAW from initial| có wrap 4096; `peakErr` là max |RAW-goal|, `peakVel` là RAW/s từ hai mẫu hợp lệ. Missing-sample age=4294967295, không tự coi bằng0.
+
+[15] **Chuyển sang chat tiếp:** Luôn kiểm tra branch HEAD và Actions SHA, H0 là read-only; chỉ mở H1 sau test data, không cầm nhầm M8-S15.4 USER PASS thành M9. Lệnh PowerShell collector trong docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md, không gửi log private lên GitHub.
+
+[16] **Bằng chứng/giới hạn:** local GCC pure drift tracker có PASS trước GitHub; exact-SHA GitHub CI kiểm tra riêng sau push. Chưa chứng thực CubeIDE target/flash, không có kết quả idle drift, không tăng dòng/khóa trục. Handoff original 386-line giữ nguyên; các 17 section lịch sử và footer vẫn nguyên vẹn.
 
 END OF CONTEXT HANDOFF
 

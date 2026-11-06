@@ -52,7 +52,7 @@ Cần xử lý wrap-around 0..4095 AS5600, hướng tăng/giảm encoder từng 
 
 | Giai đoạn | Thực hiện | Cổng chấp nhận | Trạng thái |
 |---|---|---|---|
-| **M9-H0 — Passive drift baseline** | Chỉ ghi góc mục tiêu/thực, error, tốc độ, tuổi mẫu, state owner, NC, STOP, thời điểm motor PWM về 0 và độ trôi sau DONE; báo log ở UART idle, không thêm PWM | HOST verifier nguồn thực và CI đúng SHA; xác nhận dữ liệu không làm thay đổi timing/owner/motor; nếu làm test vật lý thì log riêng tư nhận được | **PLANNED** |
+| **M9-H0 — Passive drift baseline** | Source post-DONE 3s log AS5600 cached goal/start/end, peak drift/error/velocity, sample/invalid/jump, owners/safety termination; báo một M9H0_DRIFT line khi UART idle; không thêm I2C/PWM | GCC unit + wiring verifier và CI SHA; CubeIDE Build/Flash/log MCU cần bằng chứng riêng | **SOURCE-STAGED; target/hardware pending** |
 | **M9-H1 — HOLD PD shadow** | Tính `Kp*e-Kd*v`, lọc nhiễu, saturate, anti-windup bằng không dùng I; phân tích trường hợp thả tải đột ngột trong unit/simulation; không ghi CCR/DIR | HOST C tests: vượt góc, đảo lực, stale, dt=0, sensor jump, wrap, NC, STOP, owner priority; H1 thực tế vẫn PWM0 | **PLANNED** |
 | **M9-H2 — Bounded active hold** | Opt-in duy nhất sau hoàn thành goal hợp lệ, PWM/DIR hạn chế theo trục; giám sát phản hồi và duration/duty budget, hủy lực khi lỗi/STOP/NC/owner change | CI + CubeIDE Clean Build + flash đúng SHA; bench **có bảo vệ/ngắt nguồn motor độc lập**; xác minh đầu ra CCS_SHB12 PWM0/brake-coast, current/thermal nếu đo được, từng trục trước; test tải và nhả tải đột ngột có quan sát overshoot/reversal | **PLANNED, chưa được phép coi là thử motor** |
 | **M9-H3 — Integration** | Phối hợp HOLD với R1/Voice CENTER, lệnh vị trí Voice5..40, manual PS2, VC-02 và wheel drive; phân tích NC, R2/Voice45, SELECT, STOP, mất nguồn | Nghiệm thu giá treo trước; bài thử có tải riêng, hồi quy M8 và xác minh không phát xung bất ngờ khi STOP/NC hoặc khi lệnh lái mới | **PLANNED** |
@@ -83,4 +83,4 @@ Mỗi H0/H1/H2/H3 phải phân biệt `SOURCE-STAGED -> HOST CI PASS -> CubeIDE 
 - Mức ngoại lực/độ lệch cho phép, độ văng sau khi tải bỏ đột ngột, tần suất và độ trễ vòng lặp phù hợp? **Chưa đo**.
 - M8 R1/Voice CENTER hunting trial 10RAW xuất phát d367 chưa có xác nhận powered improvement; phải tách riêng với kết quả M9.
 
-**Nhánh M9 tại thời điểm lập kế hoạch:** chỉ có commit tài liệu; *không có HOLD firmware, không có Build/Flash và không có hardware HOLD PASS*.
+**Cập nhật 2026-11-06:** M9-H0 SOURCE-STAGED có firmware **chỉ quan sát thụ động**, không phải bộ điều khiển HOLD chủ động. Đọc `docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md`. Chưa CubeIDE Build/Flash và chưa có hardware H0 logs; H1/H2/H3 chưa code và **không có HARDWARE HOLD PASS**.

@@ -2,11 +2,13 @@
 
 ## HIỆN HÀNH 2026-11-06 — M9 Steering Active Position Hold (quyết định USER / chưa có firmware HOLD)
 
+**M9-H0 đã có source:** `Core/Src/m9_h0_drift.c` + `main.c` read-only post-DONE, `tools/verify_m9_h0_drift.py` GCC test, `tools/capture_m9_h0_drift.ps1` UART idle. Đây không phải HOLD ACTIVE; trước khi kết luận PASS cần xác minh CI SHA, CubeIDE build/flash và log. [Chi tiết H0](M9_H0_PASSIVE_DRIFT_2026_11_06.md).
+
 **Milestone hiện hành M9:** `feature/m9-steering-active-position-hold` xuất phát đúng từ `d367618d4d9c4c382a9a7208f9b878dfefa21ace` (branch được tạo, đã kiểm tra HEAD trước commit tài liệu). **Người dùng chọn phương án CHỈ PHẦN MỀM**, giữ góc bằng mô-men motor DC, đọc AS5600, điều khiển PWM/DIR qua CCS_SHB12. Không đầu tư thêm phanh hoặc driver. Chưa có logic HOLD, CubeIDE Build, Flash hoặc nghiệm thu HOLD.
 
 | ID | Kết quả cần có | Trạng thái 2026-11-06 |
 |---|---|---|
-| **M9-H0** | Telemetry thụ động đo độ trôi góc sau DONE, PWM giữ 0, read-only với motor hiện hữu | **PLANNED** |
+| **M9-H0** | Source thụ động: đo drift/velocity 3s sau DONE qua AS5600 cache và UART idle, PWM HOLD luôn 0 | **SOURCE-STAGED; CI/Build/Flash/hardware chưa xác minh tại thời điểm viết** |
 | **M9-H1** | PD position+velocity, shadow output only, unit test thả tải/tốc độ và arbitration | **PLANNED** |
 | **M9-H2** | HOLD_ACTIVE opt-in boot OFF, giới hạn lực/thời gian, thử gá có NC/STOP và ngắt nguồn motor độc lập | **PLANNED / chưa powered test** |
 | **M9-H3** | Tích hợp HOLD với PS2, VC-02 và chạy bánh, nghiệm thu safety/gá/tải riêng | **PLANNED** |
@@ -1276,3 +1278,12 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - **[M9-H3 ACCEPT]** Kiểm tra chuyển quyền mới, R1 CENTER, Voice B0/5..40, manual, NC R2/45, STOP, mất sensor, wheel-drive khi chạy và bài thử tải riêng, không suy PASS giá treo là PASS tải mặt đất.
 - **[TEST STATE]** Hiện chỉ M9 docs/roadmap được viết; **H0/H1/H2/H3 đều PLANNED**, không có HOLD firmware, HOST/HARDWARE pass. M8 sáu lệnh Voice đã PASS tại SHA 9db12228, M8 R1 10RAW chưa có hardware pass.
 - **[NEXT]** Rà soát `Core/Src/main.c` thật tại HEAD M9: `Steering_PositionFinish`, `Steering_PositionAxisDone`, `Steering_PositionTelemetryIdleUpdate`, PWM/NC/STOP/owner; dựng H0 passive với tests; M8 source tests và 386-line requirement bất biến. Xem `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`.
+
+## 2026-11-06 — M9-H0 passive post-DONE drift: SOURCE-STAGED (không phát PWM HOLD)
+
+- **[DONE SOURCE]** Tạo `Core/Inc/m9_h0_drift.h`, `Core/Src/m9_h0_drift.c`; đưa read-only `M9H0_StartAfterDone` / `M9H0_IdleUpdate` vào `main.c` và nhánh UART3 `M9H0_DRIFT` an toàn sau stop; không gọi AS5600 I2C mới, không ghi PWM/DIR/owner.
+- **[SCOPE]** Chỉ bắt đầu khi cả LEFT/RIGHT result=2 và command tổng DONE2; R1 CENTER PS2/Voice hoặc Voice5..40 mode4. Không bắt đầu R2/Voice45 NC, fault/STOP; window 3000ms rồi gửi summary lúc safe idle, không đè pending. New owner hoặc STOP/safety tạo trạng thái ended reason2/3.
+- **[METRICS]** source/mode/goal/start/end, peakDrift, peakError, peakVel RAW/s, valid/invalid/jump/zeroDt counts, sample age, wheelsMoved, dropped, MCU build SHA. AS5600 12-bit shortest delta; raw/s đo bằng mẫu ~100ms mỗi bên, chưa phải speed wheel degrees/s.
+- **[HOST]** Pure C GCC host test + wiring verifier `tools/verify_m9_h0_drift.py` đưa vào Linux CI, PowerShell5.1 parser mới trên Windows CI; không dùng HOST PASS thay CubeIDE target build.
+- **[PENDING]** Đúng commit CI, CubeIDE Clean Build, Flash, test trên giá treo và PowerShell `tools/capture_m9_h0_drift.ps1`; không có kết quả của motor/chống tải. H1 PD shadow chưa triển khai.
+- **[RISK]** Pending log chờ motor/wheels idle, preemption / sensor failure làm giảm giá trị mẫu; dữ liệu không chứng minh PWM0 CCS_SHB12 short-brake hay motor stalled thermal. Giữ nguyên M8 user PASS Voice6 và M8 RIGHT CENTER trial unresolved. Đọc `docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md`.
