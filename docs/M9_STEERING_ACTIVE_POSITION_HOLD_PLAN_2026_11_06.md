@@ -83,4 +83,4 @@ Mỗi H0/H1/H2/H3 phải phân biệt `SOURCE-STAGED -> HOST CI PASS -> CubeIDE 
 - Mức ngoại lực/độ lệch cho phép, độ văng sau khi tải bỏ đột ngột, tần suất và độ trễ vòng lặp phù hợp? **Chưa đo**.
 - M8 R1/Voice CENTER hunting trial 10RAW xuất phát d367 chưa có xác nhận powered improvement; phải tách riêng với kết quả M9.
 
-**Cập nhật 2026-11-06:** M9-H0 SOURCE-STAGED có firmware **chỉ quan sát thụ động**, không phải bộ điều khiển HOLD chủ động. Đọc `docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md`. Chưa CubeIDE Build/Flash và chưa có hardware H0 logs; H1/H2/H3 chưa code và **không có HARDWARE HOLD PASS**.
+**Cập nhật 2026-11-06 sau dữ liệu người dùng:** H0 SOURCE + HOST CI PASS và người dùng đã gửi 4 UART MCU log đầy đủ (mỗi bên peak drift ≤1 RAW trong 3s, sensor invalid=0). **H0 DATA CAPTURE PASS giới hạn tĩnh**, không chứng minh giữ góc trước tải. Bộ đo thực tế ~89Hz/trục do vòng safety hiện có đọc 2 AS5600, ngoài idle poll 50ms luân phiên; đỉnh vận tốc 90 RAW/s có thể chỉ 1 RAW/11ms, nên H1 phải lọc derivative. Đọc `docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md`. CubeIDE Build/Flash log độc lập chưa có; H1/H2/H3 chưa code, **không có HARDWARE HOLD PASS**.

@@ -1,5 +1,13 @@
 # M9-H0 — Passive post-DONE Steering Drift (source implementation, 2026-11-06)
 
+## Báo cáo nhận log H0 lần đầu (2026-11-06) — SOURCE + HOST CI + MCU DATA CAPTURE PASS giới hạn
+
+- [USER-SUPPLIED PRIVATE UART] Bốn bản ghi đầy đủ từ MCU mang SHA nguồn `8c2b3fe7d57154db7d11f8abca40351c4753d362`, seq1..4, tất cả `reason=1` và `durationMs=3002..3003`. Ba lệnh `source=3` (Voice vị trí) và một `source=2` (Voice B0 CENTER), chưa có source1 PS2 R1.
+- [MEASUREMENT] Cả 4 khoảng nghỉ: **peakDriftL/R không vượt 1 RAW**, **peakErrL/R không vượt 5 RAW**, `samplesL/R` mỗi bên 268..269, `ageL/R=1ms`, `bad/jump/zeroDt/dropped=0`, `wheelsMoved=0`. Độ trôi có thể là rung/độ lượng tử cảm biến; chưa có thử tải ngoài được mô tả.
+- [CHECK ON SOURCE] Khi permit=1 và no trip, vòng an toàn ở `Core/Src/main.c` đọc cả hai AS5600 mỗi lượt lặp, ngoài idle 50ms alternating. Vì vậy ~89.2..89.6 mẫu/s/trục trong 4 records là **phù hợp source**, không do H0 gọi thêm I2C; không phải thời gian lấy mẫu đảm bảo dưới mọi owner.
+- [CONTROL DESIGN] Giá trị `peakVel=90 RAW/s` có thể đến từ một bước **1 RAW / 11ms**, không phải bánh quay duy trì 90 RAW/s. H1 cần tốc độ lọc có window, chống nhiễu lượng tử, stale/dt/owner guards, chạy shadow trước.
+- [EVIDENCE BOUNDARY] UART do người dùng cung cấp và stamp SHA khớp code/CI; **H0 DATA CAPTURE PASS (4 cửa sổ tĩnh, giới hạn)**, chưa có log CubeIDE Build/Flash độc lập, không chứng minh PWM0 brake/coast, chống ngoại lực hay HOLD ACTIVE. Không đăng TXT riêng tư vào repository.
+
 ## Phạm vi / bằng chứng
 
 **Giai đoạn H0 chỉ ghi dữ liệu và KHÔNG tạo lực giữ trục.** User chọn giải pháp software-only cho STM32F767ZI + hai AS5600 + CCS_SHB12. H0 nằm trên `feature/m9-steering-active-position-hold`, fork từ d367618d và kế thừa M8 CENTER trial chưa có physical PASS. Thử GCC HOST của thuật toán thuần không thay CubeIDE Build/Flash/hardware.
@@ -10,7 +18,7 @@
 
 - Tại `Steering_PositionFinish(result=2)` **sau** `Steering_PositionLeftOff()` và `Steering_PositionRightOff()`, nếu hai axis thực sự `STEER_AXIS_DONE` và `resultL=resultR=2`, không có trip: bắt đầu quan sát.
 - Chỉ mode1 `R1 CENTER` (source1 PS2, source2 VC-02 B0) hoặc mode4 Voice5–40 (source3), mục tiêu đọc đúng từ runtime mode. Không quan sát mode2 R2 NC / mode5 Voice45 NC; không tự kết luận trạng thái NC an toàn từ góc RAW.
-- Phần sampling `M9H0_IdleUpdate()` chạy sau `Steering_PositionTelemetryIdleUpdate()` trong main superloop, dùng **cache** của I2C polling có sẵn (~mỗi 50ms xen kẽ, mỗi trục có thể ~100ms khi đủ điều kiện). Không tự gọi `AS5600_ReadRawAndStatus` hoặc HAL I2C mới. Nếu idle polling tắt/bị chặn, log có ít/0 valid samples.
+- Phần sampling `M9H0_IdleUpdate()` chạy sau `Steering_PositionTelemetryIdleUpdate()` trong main superloop, dùng **cache** của I2C polling có sẵn (nhánh idle riêng ~50ms xen kẽ, nhưng khi permit=1 vòng safety còn đọc hai AS5600 mỗi pass; log H0 thực tế ~89Hz/trục). Không tự gọi `AS5600_ReadRawAndStatus` hoặc HAL I2C mới. Nếu idle polling tắt/bị chặn, log có ít/0 valid samples.
 - Cửa sổ **3000ms**: reason1=window elapsed; reason2=new steering owner/output/debug transaction; reason3=STOP/trip/safety. H0 chỉ quan sát đến lúc kết thúc; nếu record trước chưa gửi thì bỏ record mới và tăng `dropped`, không ghi đè record chưa phát.
 - UART3 ST-LINK VCP (115200) xuất **một dòng** `M9H0_DRIFT` qua IRQ nonblocking dùng chung buffer cũ, chỉ khi cả motor/steer owner/wheel đã dừng, không có stream hoặc log dump khác, và UART sẵn sàng. Nếu wheels chạy, observer có thể ghi `wheelsMoved=1`, nhưng chưa gửi đến khi idle.
 
@@ -55,7 +63,7 @@ Nếu `git status --short` cho thấy sửa đổi local, **dừng thao tác chu
 
 1. **SOURCE**: logic H0 có trong GitHub branch và docs; **HOST CI**: xác minh PASS đúng SHA.
 2. **CUBEIDE BUILD / FLASH**: riêng, chưa thể xác nhận từ GitHub. Đối chiếu stamp MCU SHA.
-3. **H0 on-target OBSERVED**: log có `reason=1`, valid samples ở cả hai bên, thời gian hợp lý, không phát thêm PWM/không can thiệp M8; chỉ khi người vận hành cung cấp bằng chứng mới gọi H0 DATA CAPTURE PASS.
+3. **H0 on-target OBSERVED**: đã nhận 4 bản ghi người dùng cung cấp với `reason=1`, thời gian 3s, mẫu hợp lệ ở hai bên; **DATA CAPTURE PASS giới hạn cho bốn lượt tĩnh**. Chưa có bằng chứng độc lập khẳng định không ảnh hưởng timing mọi đường đi hoặc có phản lực tải.
 4. **H1**: sau khi có baseline và giới hạn lấy mẫu, xây PD shadow với giả lập bỏ tải; **không tự bật HOLD ACTIVE**.
 
 **Lưu ý:** Source/CI không thể chứng minh CCS_SHB12 thật sự brake hay coast khi PWM0. H0 không tác động đến motor, nên mọi kết quả về holding torque vẫn là CHƯA CÓ BẰNG CHỨNG.

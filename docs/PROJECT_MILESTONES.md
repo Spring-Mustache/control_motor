@@ -2,13 +2,15 @@
 
 ## HIỆN HÀNH 2026-11-06 — M9 Steering Active Position Hold (quyết định USER / chưa có firmware HOLD)
 
+**M9-H0 KẾT QUẢ 2026-11-06:** SOURCE + exact SHA CI PASS tại `8c2b3fe7`; người dùng cung cấp **4/4 dòng MCU UART** đủ 3s (seq1..4, reason1) và valid AS5600 cả hai trục. Độ trôi đỉnh tối đa 1 RAW mỗi trục, peakErr ≤5 RAW, invalid/jump/drop=0. Đánh dấu **H0 DATA CAPTURE PASS GIỚI HẠN** cho dữ liệu tĩnh, **không** coi là HOLD chịu ngoại lực, không có H1/H2/H3 motor. Bản ghi private không đưa lên repo. Kết quả được giải thích trong H0 doc.
+
 **M9-H0 đã có source:** `Core/Src/m9_h0_drift.c` + `main.c` read-only post-DONE, `tools/verify_m9_h0_drift.py` GCC test, `tools/capture_m9_h0_drift.ps1` UART idle. Đây không phải HOLD ACTIVE; trước khi kết luận PASS cần xác minh CI SHA, CubeIDE build/flash và log. [Chi tiết H0](M9_H0_PASSIVE_DRIFT_2026_11_06.md).
 
 **Milestone hiện hành M9:** `feature/m9-steering-active-position-hold` xuất phát đúng từ `d367618d4d9c4c382a9a7208f9b878dfefa21ace` (branch được tạo, đã kiểm tra HEAD trước commit tài liệu). **Người dùng chọn phương án CHỈ PHẦN MỀM**, giữ góc bằng mô-men motor DC, đọc AS5600, điều khiển PWM/DIR qua CCS_SHB12. Không đầu tư thêm phanh hoặc driver. Chưa có logic HOLD, CubeIDE Build, Flash hoặc nghiệm thu HOLD.
 
 | ID | Kết quả cần có | Trạng thái 2026-11-06 |
 |---|---|---|
-| **M9-H0** | Source thụ động: đo drift/velocity 3s sau DONE qua AS5600 cache và UART idle, PWM HOLD luôn 0 | **SOURCE-STAGED; CI/Build/Flash/hardware chưa xác minh tại thời điểm viết** |
+| **M9-H0** | Giám sát 3s sau DONE, không phát lực; 4 bản ghi MCU với cảm biến hợp lệ, lệch đỉnh ≤1 RAW | **SOURCE + HOST CI PASS; on-MCU UART DATA CAPTURE PASS giới hạn** |
 | **M9-H1** | PD position+velocity, shadow output only, unit test thả tải/tốc độ và arbitration | **PLANNED** |
 | **M9-H2** | HOLD_ACTIVE opt-in boot OFF, giới hạn lực/thời gian, thử gá có NC/STOP và ngắt nguồn motor độc lập | **PLANNED / chưa powered test** |
 | **M9-H3** | Tích hợp HOLD với PS2, VC-02 và chạy bánh, nghiệm thu safety/gá/tải riêng | **PLANNED** |
@@ -1287,3 +1289,11 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - **[HOST]** Pure C GCC host test + wiring verifier `tools/verify_m9_h0_drift.py` đưa vào Linux CI, PowerShell5.1 parser mới trên Windows CI; không dùng HOST PASS thay CubeIDE target build.
 - **[PENDING]** Đúng commit CI, CubeIDE Clean Build, Flash, test trên giá treo và PowerShell `tools/capture_m9_h0_drift.ps1`; không có kết quả của motor/chống tải. H1 PD shadow chưa triển khai.
 - **[RISK]** Pending log chờ motor/wheels idle, preemption / sensor failure làm giảm giá trị mẫu; dữ liệu không chứng minh PWM0 CCS_SHB12 short-brake hay motor stalled thermal. Giữ nguyên M8 user PASS Voice6 và M8 RIGHT CENTER trial unresolved. Đọc `docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md`.
+
+## 2026-11-06 — M9-H0 UART static observation: 4/4 records, limited DATA CAPTURE PASS
+
+- [USER-PRIVATE UART] 4 dòng hoàn chỉnh M9H0_DRIFT seq1..4 từ MCU tự báo SHA `8c2b3fe7d57154db7d11f8abca40351c4753d362`. Mỗi cửa sổ reason1, 3002–3003ms; ba Voice vị trí source3 và một Voice B0 CENTER source2. Chưa có PS2 R1 source1. **Không commit file TXT riêng tư**.
+- [MEASURED] Với bánh không chạy (`wheelsMoved=0`): peak drift chỉ 0..1 AS5600 RAW mỗi trục, sai số góc so với đích đỉnh ≤5 RAW; 268–269 mẫu/trục/cửa sổ, age1ms, zero bad/jump/zeroDt/dropped.
+- [SOURCE CROSSCHECK] 89.2–89.6 samples/s/axis theo log; khi motion permit1, safety path trong main loop đã đọc cả hai AS5600 trên mỗi pass, xen với 50ms alternating idle polling. Không phải H0 mới tạo I2C. Nhịp sample thực tế không được coi là cam kết 89Hz bất biến.
+- [INTERPRETATION] Peak velocity 90 RAW/s phù hợp 1 RAW trong khoảng 11ms; derivative theo single sample có thể nhiễu, **không được dùng trực tiếp cho H1 KD**. Tĩnh ổn định nhưng **không hề chứng minh moment giữ trục**, tải phản lực, PWM0 brake/coast hoặc nhiệt.
+- [STATUS] H0 SOURCE/HOST CI/MCU DATA CAPTURE PASS đối với bốn cửa sổ tĩnh; CubeIDE Build/Flash logs không được user cung cấp, nên không coi là bằng chứng build/flash độc lập. H1 PD SHADOW là bước nghiên cứu tiếp theo, H2/H3 chưa cấp lực/thử dưới tải.

@@ -1,6 +1,6 @@
 # CONTEXT HANDOFF
 
-> **TRẠNG THÁI HIỆN HÀNH 2026-11-06 — M9:** **H0 đã được đưa vào source trên nhánh M9 (thụ động, không cấp PWM HOLD); các cổng HOST CI đúng SHA/CubeIDE Build/Flash/log thực tế phải xác minh riêng.** Người dùng đã chọn phát triển **bộ điều khiển phần mềm giữ góc lái Active Position Hold**, **không đầu tư thêm phần cứng**. Nhánh công việc hiện tại: `feature/m9-steering-active-position-hold`, tách từ đúng `d367618d4d9c4c382a9a7208f9b878dfefa21ace`. Đây là **milestone PLANNED/docs-only**, chưa có HOLD code, Build/Flash hay powered PASS. H0 passive drift → H1 PD shadow → H2 opt-in bounded active → H3 integration; đọc `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`. **Không nhầm nhánh thử M8 R1 10RAW chưa có physical PASS với M9 đã nghiệm thu.** Các ghi chú “CURRENT/LATEST” M8 bên dưới là lịch sử theo thời điểm ghi, không phải HEAD M9.
+> **TRẠNG THÁI HIỆN HÀNH 2026-11-06 — M9:** **H0 SOURCE + exact-SHA HOST CI PASS** tại `8c2b3fe7d57154db7d11f8abca40351c4753d362`; **người dùng đã cung cấp 4 dòng UART MCU H0**, mỗi cửa sổ 3 giây hoàn tất, **DATA CAPTURE PASS trong phạm vi quan sát tĩnh**, drift đỉnh ≤1 AS5600 RAW/trục, không có bad/jump/drop; chưa thử ngoại lực, không có mô-men HOLD. CubeIDE build/flash log độc lập chưa được cung cấp. Các cập nhật M8 cũ vẫn là lịch sử, H1/H2/H3 chưa viết.  Người dùng đã chọn phát triển **bộ điều khiển phần mềm giữ góc lái Active Position Hold**, **không đầu tư thêm phần cứng**. Nhánh công việc hiện tại: `feature/m9-steering-active-position-hold`, tách từ đúng `d367618d4d9c4c382a9a7208f9b878dfefa21ace`. M9-H0 đã triển khai mã **read-only**, H1/H2/H3 vẫn PLANNED; chưa có mã HOLD ACTIVE hay powered-hold PASS. H0 passive drift → H1 PD shadow → H2 opt-in bounded active → H3 integration; đọc `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`. **Không nhầm nhánh thử M8 R1 10RAW chưa có physical PASS với M9 đã nghiệm thu.** Các ghi chú “CURRENT/LATEST” M8 bên dưới là lịch sử theo thời điểm ghi, không phải HEAD M9.
 
 > **HỒ SƠ SỐNG 17 MỤC:** Giữ nguyên dữ kiện và quyết định lịch sử A, đồng thời **cập nhật lớp hiện hành** sau thay đổi code/nhận định/lần đo. **Không lấy SHA hoặc trạng thái ở ảnh chụp gốc làm HEAD.** Người tiếp quản phải xác minh nhánh người dùng đang làm (hiện tại `feature/m9-steering-active-position-hold`) và HEAD SHA thực tế ở GitHub, rồi đọc mục 1 hiện hành, toàn bộ 0–16 và roadmap cùng SHA. Nhánh M7-S15 cũ là mốc rollback trước PI, không phải nơi tiếp tục M8-S15. Git commit là nguồn chính, Actions kiểm tra mỗi push; Release chỉ theo milestone/yêu cầu.
 
@@ -72,6 +72,14 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+### KẾT QUẢ HIỆN HÀNH — M9-H0 private on-MCU UART 4 cửa sổ (2026-11-06)
+
+- **[USER-PROVIDED MCU UART]** Bốn records M9H0_DRIFT liên tiếp seq1..4, MCU stamp SHA **8c2b3fe7d57154db7d11f8abca40351c4753d362** (trùng SHA GitHub Actions PASS). Cả 4 `reason=1`, duration 3002..3003ms, mỗi trục 268..269 mẫu/cửa sổ, age 1ms, zero bad/jump/zeroDt/drop, wheelsMoved=0. Chỉ lưu **tóm tắt** trong repo, không công khai TXT người dùng.
+- `source=3` Voice position ×3 và `source=2` Voice standalone CENTER ×1; **chưa có sample source=1 PS2 R1**. Peak drift mỗi trục 0..1 RAW, max peakErr 5 RAW; đó là ổn định **đọc AS5600 khi không có tải thử được mô tả**, không phải chứng cứ lực giữ hoặc phanh.
+- `peakVel` tới 90 RAW/s xảy ra khi 1 RAW thay đổi trong khoảng 11ms; là tốc độ vi phân đỉnh nhạy nhiễu/lượng tử. **Không được dùng trực tiếp cho `Kd` H1**. Phải có lọc + deadband/đánh giá sai số và dt.
+- Phân tích SOURCE tại đúng SHA: nhánh kiểm tra an toàn trong main loop gọi `Steering_PositionReadOne(1U)` và `(0U)` mỗi pass khi motion permit1/trip0, ngoài idle poll 50ms xen kẽ. Do vậy ~89 mẫu/s/trục trong 4 records là khả dĩ mà **không cần thêm I2C từ H0**. Không coi đây là bảo đảm control-loop period cố định.
+- **Kết luận bằng chứng:** H0 HOST CI PASS + MCU UART DATA CAPTURE PASS (4 cửa sổ tĩnh giới hạn). Chưa có bằng chứng tác động ngoại lực, đo dòng/nhiệt hoặc HOLD/STOP/NC dưới tải; CubeIDE Clean Build/Flash độc lập không xác nhận chỉ từ tự công bố SHA. **NEXT:** H1 shadow PD với velocity filter, không cấp PWM, và regression owner/safety; H2 ACTIVE vẫn chặn.
 
 ### TIẾN ĐỘ M9-H0 — source read-only drift monitor (2026-11-06)
 
@@ -1538,6 +1546,42 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] **Chuyển sang chat tiếp:** Luôn kiểm tra branch HEAD và Actions SHA, H0 là read-only; chỉ mở H1 sau test data, không cầm nhầm M8-S15.4 USER PASS thành M9. Lệnh PowerShell collector trong docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md, không gửi log private lên GitHub.
 
 [16] **Bằng chứng/giới hạn:** local GCC pure drift tracker có PASS trước GitHub; exact-SHA GitHub CI kiểm tra riêng sau push. Chưa chứng thực CubeIDE target/flash, không có kết quả idle drift, không tăng dòng/khóa trục. Handoff original 386-line giữ nguyên; các 17 section lịch sử và footer vẫn nguyên vẹn.
+
+## 2026-11-06 — M9-H0 có private MCU UART: cập nhật 17 mục theo bằng chứng mới
+
+[0] Nguồn là bốn dòng M9H0_DRIFT người dùng cung cấp trong hội thoại riêng, không phải ảnh/chứng nhận build; không copy raw TXT lên repo. So sánh firmware stamped SHA với source+CI cùng SHA.
+
+[1] Tiếp quản: nhánh feature/m9-steering-active-position-hold, nguồn H0 tại 8c2b3fe7d57154db7d11f8abca40351c4753d362, HEAD sau commit docs phải xác minh lại; H0 thu log trên MCU đã hoạt động bốn cửa sổ.
+
+[2] Mục tiêu vẫn software-only steering Active Hold, mới có H0 passive đo drift sau DONE, chưa có PD/torque.
+
+[3] User gửi log thay vì khẳng định PASS; assistant phân tích có nguồn và phân biệt H0 capture với hiệu quả phanh/giữ lực, giữ private log ngoài public repository.
+
+[4] Roadmap: M9-H0 SOURCE/HOST CI/4-window MCU DATA CAPTURE PASS (giới hạn static); H1 SHADOW PD là bước kế tiếp; H2 ACTIVE opt-in và H3 integration chưa triển khai.
+
+[5] Quan sát xác minh từ file: 4/4 seq1..4, MCU sha 8c2b3fe7..., duration3002..3003ms, source3 ba lượt/source2 một lượt, 268..269 mẫu/trục, peakDrift tối đa1 RAW/trục, max peakErr5 RAW, bad/jump/zeroDt/drop0, wheelsMoved0; không có PS2 source1.
+
+[6] Còn dở: chưa biết ảnh hưởng ngoại lực khi tải tác động/ngắt đột ngột; không có dòng motor, nhiệt, PWM0 coast/brake; không có chứng cứ độc lập CubeIDE Build/Flash hoặc test NC/STOP trong lượt H0 này.
+
+[7] Đọc docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md, docs/PROJECT_MILESTONES.md, Core/Src/m9_h0_drift.c, Core/Src/main.c, tools/capture_m9_h0_drift.ps1. Log đính kèm hội thoại là private, không phải file GitHub.
+
+[8] Quyết định: ghi H0 DATA CAPTURE PASS giới hạn, không nâng thành H0 powered-hold PASS và không tự triển khai H2. H1 phải có đánh giá lượng tử/derivative noise trước khi cấp lực.
+
+[9] Rủi ro mới: peakVel 90 RAW/s có thể do sai biệt 1 RAW qua khoảng11ms; dùng trực tiếp cho PD sẽ gây jitter; không gán thành chuyển động thực lớn.
+
+[10] Tại firmware nguồn, khi motion permit1 và chưa trip, safety loop đọc hai AS5600 mỗi vòng; tốc độ đo ~89Hz/side cao hơn idle-only 50ms alternating. H0 chỉ nhận cached samples, không làm phát sinh I2C.
+
+[11] Kế tiếp: thiết kế H1 SHADOW PD có lọc velocity 50–100ms/differentiator robust, hysteresis, dt/stale guards, wrap-around, test release-load profile bằng HOST, hoàn toàn không ghi CCR/DIR. Phân biệt test điều kiện mới khi có log thích hợp.
+
+[12] Còn mở: độ cứng chịu ngoại lực cần bao nhiêu, trạng thái CCS_SHB12 PWM0, motor current/thermal, vị trí encoder trước/sau backlash, mục tiêu sai số có tải và điều kiện được phép powered.
+
+[13] Dòng thời gian: 2026-11-06 tạo branch/docs M9; 2026-11-06 commit 8c2b3fe7 H0 CI PASS; cùng ngày người dùng gửi bốn bản ghi UART 3s, phân tích static drift.
+
+[14] Tổng hợp gọn: driftL/R tối đa1 RAW, peakErrL/R tối đa5 RAW, seq1..4 reason1, source2/3, không source1; 90 RAW/s peak không phải vận tốc duy trì. Dữ liệu chưa kiểm nghiệm tiêu chí chống ngoại lực.
+
+[15] Chat sau đọc đầu handoff, mục này, roadmap, H0 log summary và exact SHA CI. Đừng yêu cầu lại dữ liệu đã có, nhưng cần proof mới để chốt HOLD ACTIVE.
+
+[16] Giới hạn: 4 static windows và MCU stamped SHA; user-supplied UART chưa là independent proof build/flash or 2-sided load. Bằng chứng không chứng minh NC/STOP, current, actual torque. Đặc tả 386 dòng và hồ sơ 0–16 giữ bất biến.
 
 END OF CONTEXT HANDOFF
 
