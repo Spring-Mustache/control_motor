@@ -1630,6 +1630,13 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 
 [16] **Giới hạn chứng cứ:** HOST synthetic release-load không phải tải thật; H1 output chỉ UART/candidate trong RAM, không chứng minh NC/STOP thực nghiệm, CubeIDE flashed binary, current/thermal hoặc angle lock; original 386 dòng giữ nguyên, không sửa M8 tested branch.
 
+## 2026-11-06 — M9-H1 exact-C CI first attempt: signedness compile fix
+
+[0] Source independent CI run 42237554302 on SHA 524ab68 flagged `-Werror=sign-compare` at `m9_h1_shadow.c:62` in `M9H1_Candidate` when signed `int32_t e` was compared to unsigned `M9H1_DEADBAND_RAW`.
+[1] Corrected by explicitly casting the threshold and e_eff arithmetic to `int32_t`, preserving negative-error behavior without relying on unsigned wrap.
+[2] This was an **HOST GCC compiler finding**, not a result of STM32 motor/servo test. Other Windows PowerShell parser and handoff contract jobs succeeded at first SHA. Full new SHA CI is still required before any on-target test.
+[3] No motor output was introduced; no H2 active hold. Existing 17-section historical handoff preserved.
+
 END OF CONTEXT HANDOFF
 
 

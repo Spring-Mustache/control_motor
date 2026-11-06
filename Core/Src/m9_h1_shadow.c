@@ -59,9 +59,10 @@ static void M9H1_Candidate(M9H1Axis_t *a)
   e_eff = 0;
   if (a->position_engaged != 0U)
   {
-    if (e > M9H1_DEADBAND_RAW) e_eff = e - M9H1_DEADBAND_RAW;
+    if (e > (int32_t)M9H1_DEADBAND_RAW)
+      e_eff = e - (int32_t)M9H1_DEADBAND_RAW;
     else if (e < -(int32_t)M9H1_DEADBAND_RAW)
-      e_eff = e + M9H1_DEADBAND_RAW;
+      e_eff = e + (int32_t)M9H1_DEADBAND_RAW;
   }
   /* Q8 fixed-point PD: Kp*position error - Kd*velocity.
    * Damping remains active inside positional hysteresis if motion is real.

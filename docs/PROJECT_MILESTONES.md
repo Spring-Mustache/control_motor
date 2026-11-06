@@ -1308,3 +1308,8 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [HOST CASE] Synthetic applied disturbance pushes RAW away; after sudden release, RAW speed toward target causes proposal sign reverse BEFORE target crossing. Other tests: quantization jitter, wrap4096, stall/stale invalid, zeroDt, sensor jump, cap and no owner/NC/STOP bypass. No physical load test.
 - [OUTPUT] New `M9H1_SHADOW` UART3 record safe-idle, after M8/H0 priority; `tools/capture_m9_h1_shadow.ps1` captures both H0 and H1 without sending any serial commands; workflow Linux GCC actual-C + Windows parser.
 - [PROOF GATES] SOURCE-STAGED until exact SHA Actions results; CubeIDE Build/Flash/STM32 real H1 logs and any load/thermal checks remain separate and not yet verified. H2/H3 remain PLANNED.
+
+## 2026-11-06 — H1 first exact-C CI signedness fix
+
+- First H1 CI run `42237554302` on `524ab68`: Windows PowerShell parser **PASS**, handoff contract **PASS**, Linux M9-H0 **PASS**; H1 GCC build failed `-Werror=sign-compare` on the new int32 error-vs-unsigned RAW threshold. This is **not** a CubeIDE/motor defect or hardware result.
+- Fix: explicit int32 cast on deadband threshold and positive/negative e_eff arithmetic in `m9_h1_shadow.c`. No PWM/I2C/NC/STOP code changed. Full CI must PASS at new exact SHA before any target claim.
