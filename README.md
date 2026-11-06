@@ -4,7 +4,7 @@ Firmware 4 motor bánh + 2 motor đánh lái, PS2, VC-02, encoder/AS5600, công 
 
 ## Mốc hiện hành (2026-11-06)
 
-**M9 — Steering Active Position Hold**: [nhánh phát triển M9](https://github.com/Spring-Mustache/control_motor/tree/feature/m9-steering-active-position-hold) đã được tạo từ exact `d367618d`; người dùng chọn **software-only** STM32F767ZI + AS5600 + CCS_SHB12, đã có H0 read-only observer (chưa có bộ điều khiển HOLD ACTIVE). H0 **SOURCE-STAGED** (CI/target/hardware cần xác minh); H1/H2/H3 vẫn **PLANNED**. M8 Voice 15°/30°/40° six-case được người dùng xác nhận PASS riêng; M8 RIGHT CENTER R1/Voice trial chưa xác nhận trên motor.
+**M9 — Steering Active Position Hold**: [nhánh phát triển M9](https://github.com/Spring-Mustache/control_motor/tree/feature/m9-steering-active-position-hold) đã được tạo từ exact `d367618d`; người dùng chọn **software-only** STM32F767ZI + AS5600 + CCS_SHB12, đã có H0 read-only observer (chưa có bộ điều khiển HOLD ACTIVE). H0 đã có **4/4 log trên MCU, DATA CAPTURE PASS giới hạn tĩnh**. **H1 PD SHADOW** mới được đưa vào source, cần CI exact SHA/CubeIDE/real log; H2/H3 vẫn **PLANNED**. M8 Voice 15°/30°/40° six-case được người dùng xác nhận PASS riêng; M8 RIGHT CENTER R1/Voice trial chưa xác nhận trên motor.
 
 ## Mở cuộc hội thoại ChatGPT mới
 
@@ -18,7 +18,7 @@ Nguồn chính của dự án là **Git commit + tài liệu được cập nh�
 2. Đọc `CONTEXT_HANDOFF.md` **mục 1 hiện hành**, rồi **toàn bộ 17 mục (0–16) và cập nhật lịch sử**, `docs/PROJECT_MILESTONES.md` ở đầu và cuối, chính sách, đặc tả gốc nguyên văn cùng [kế hoạch M9](docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md) và các tài liệu M7/M8 có liên quan. Tất cả ở cùng SHA.
 3. Xem 20 commit gần đây, diff mới nhất và kết quả [GitHub Actions](https://github.com/Spring-Mustache/control_motor/actions/workflows/context-handoff-release.yml) trên đúng SHA. Phân biệt SOURCE-STAGED, HOST PASS, CubeIDE Build, Flash, giá treo và mặt đất có tải.
 4. Tìm [Release](https://github.com/Spring-Mustache/control_motor/releases) **chỉ nếu muốn gói ZIP/milestone**. Kiểm tra tag `context-<FULL_SHA>`; nếu vắng, tiếp tục trực tiếp từ repository. Không coi bản của commit/nhánh khác là hiện hành.
-5. **M9 đã triển khai H0 thụ động**: observer post-DONE có nguồn, không cấp PWM HOLD; H1 PD shadow → H2 opt-in active giữ góc → H3 tích hợp vẫn chưa triển khai. Không có HOLD ACTIVE hoặc hardware PASS. Bảo toàn M8 Voice 15/30/40 six-case USER PASS tại SHA `9db12228…`; trial M8 RIGHT R1/Voice CENTER nền `d367618d…` chưa có hardware PASS. Sau khi sửa code/ra quyết định mới, cập nhật handoff/roadmap và kiểm tra CI; không mặc nhiên có log riêng từ cuộc trò chuyện khác.
+5. **M9 H0 đã có dữ liệu tĩnh**; **H1 PD shadow đã có code**, tính toán thụ động không ghi motor. H2 opt-in ACTIVE → H3 tích hợp vẫn chưa triển khai. Không có HOLD ACTIVE hoặc hardware PASS. Bảo toàn M8 Voice 15/30/40 six-case USER PASS tại SHA `9db12228…`; trial M8 RIGHT R1/Voice CENTER nền `d367618d…` chưa có hardware PASS. Sau khi sửa code/ra quyết định mới, cập nhật handoff/roadmap và kiểm tra CI; không mặc nhiên có log riêng từ cuộc trò chuyện khác.
 
 ## Tài liệu tham khảo
 
@@ -28,6 +28,7 @@ Nguồn chính của dự án là **Git commit + tài liệu được cập nh�
 - [Roadmap và mốc đã/chưa kiểm chứng](docs/PROJECT_MILESTONES.md)
 - [Milestone M9 — Steering Active Position Hold: thiết kế và acceptance gates](docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md)
 - [M9-H0 — Passive post-DONE drift telemetry, test và collector](docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md)
+- [M9-H1 — PD SHADOW chống nhiễu và mô phỏng thả tải, không cấp PWM](docs/M9_H1_PD_SHADOW_2026_11_06.md)
 - [Chính sách và cách phát hành ZIP tùy chọn](docs/CONTEXT_RELEASE_POLICY.md)
 - [Workflow CI kiểm tra và nút tạo Release thủ công](https://github.com/Spring-Mustache/control_motor/actions/workflows/context-handoff-release.yml)
 

@@ -29,6 +29,7 @@
 #include "vc02.h"
 #include "voice_s154_route.h"
 #include "m9_h0_drift.h"
+#include "m9_h1_shadow.h"
 #include "as5600.h"
 #include "steer_s14_math.h"
 #include "steer_s142_speed.h"
@@ -2170,6 +2171,15 @@ static uint32_t m9_h0_count = 0U;
 static uint32_t m9_h0_dropped = 0U;
 static uint32_t m9_h0_seen_ok_l = 0U, m9_h0_seen_ok_r = 0U;
 static uint32_t m9_h0_seen_fail_l = 0U, m9_h0_seen_fail_r = 0U;
+
+/* M9-H1: shadow ONLY, signed arbitrary-units proposed PD, NEVER CCR/DIR.
+ * 1 = compute/read-only, 0 = disabled. No HOLD_ACTIVE path in H1.
+ */
+volatile uint8_t m9_h1_shadow_enable = 1U;
+static M9H1Shadow_t m9_h1_shadow = {0};
+static uint8_t m9_h1_active = 0U;
+static uint8_t m9_h1_pending = 0U;
+static uint32_t m9_h1_dropped = 0U;
 static uint8_t steer_pos_previous_buttons = 0U;
 static uint32_t steer_pos_start_ms = 0U;
 static uint32_t steer_pos_idle_last_ms = 0U;
@@ -4685,6 +4695,13 @@ static void M9H0_Stop(uint8_t reason)
 {
   if (m9_h0_active == 0U) return;
   M9H0_Finish(&m9_h0_drift, HAL_GetTick(), reason);
+  if (m9_h1_active != 0U)
+  {
+    /* Shadow log is only read after a whole observer window. */
+    M9H1_Finish(&m9_h1_shadow, reason);
+    m9_h1_active = 0U;
+    m9_h1_pending = 1U;
+  }
   m9_h0_active = 0U;
   m9_h0_pending = 1U;
 }
@@ -4738,6 +4755,19 @@ static void M9H0_StartAfterDone(uint8_t result)
   m9_h0_seen_ok_r = steer_pos_right_new_sample_count;
   m9_h0_seen_fail_l = debug_as5600_left_read_fail_count;
   m9_h0_seen_fail_r = debug_as5600_right_read_fail_count;
+  /* An earlier unsent SHADOW record must not be overwritten. H0 still
+   * collects normally; this is a diagnostic dropped session only.
+   */
+  if (m9_h1_shadow_enable == 1U)
+  {
+    if (m9_h1_pending == 0U)
+    {
+      M9H1_Begin(&m9_h1_shadow, m9_h0_count, source, goal_l, goal_r);
+      m9_h1_active = 1U;
+    }
+    else if (m9_h1_dropped != 0xffffffffUL)
+      m9_h1_dropped++;
+  }
   m9_h0_active = 1U;
 }
 
@@ -5681,6 +5711,11 @@ static void M9H0_IdleUpdate(void)
               (uint8_t)((debug_as5600_left_comm_ok != 0U) &&
               (AS5600_DebugReadingValid(1U, debug_as5600_left_status) != 0U)),
               steer_pos_left_last_sample_ms);
+    if (m9_h1_active != 0U)
+      M9H1_Feed(&m9_h1_shadow, 1U, steer_pos_left_raw,
+                (uint8_t)((debug_as5600_left_comm_ok != 0U) &&
+                  (AS5600_DebugReadingValid(1U, debug_as5600_left_status) != 0U)),
+                steer_pos_left_last_sample_ms, now);
   }
   if (steer_pos_right_new_sample_count != m9_h0_seen_ok_r)
   {
@@ -5689,16 +5724,36 @@ static void M9H0_IdleUpdate(void)
               (uint8_t)((debug_as5600_right_comm_ok != 0U) &&
               (AS5600_DebugReadingValid(1U, debug_as5600_right_status) != 0U)),
               steer_pos_right_last_sample_ms);
+    if (m9_h1_active != 0U)
+      M9H1_Feed(&m9_h1_shadow, 0U, steer_pos_right_raw,
+                (uint8_t)((debug_as5600_right_comm_ok != 0U) &&
+                  (AS5600_DebugReadingValid(1U, debug_as5600_right_status) != 0U)),
+                steer_pos_right_last_sample_ms, now);
   }
   if (debug_as5600_left_read_fail_count != m9_h0_seen_fail_l)
   {
     m9_h0_seen_fail_l = debug_as5600_left_read_fail_count;
     M9H0_Feed(&m9_h0_drift, 1U, steer_pos_left_raw, 0U, now);
+    if (m9_h1_active != 0U)
+      M9H1_Feed(&m9_h1_shadow, 1U, steer_pos_left_raw, 0U, now, now);
   }
   if (debug_as5600_right_read_fail_count != m9_h0_seen_fail_r)
   {
     m9_h0_seen_fail_r = debug_as5600_right_read_fail_count;
     M9H0_Feed(&m9_h0_drift, 0U, steer_pos_right_raw, 0U, now);
+    if (m9_h1_active != 0U)
+      M9H1_Feed(&m9_h1_shadow, 0U, steer_pos_right_raw, 0U, now, now);
+  }
+  if (m9_h1_active != 0U)
+  {
+    if (m9_h1_shadow_enable != 1U)
+    {
+      /* Disable request invalidates only the shadow window, never H0. */
+      m9_h1_active = 0U;
+      M9H1_Finish(&m9_h1_shadow, 3U);
+    }
+    else
+      M9H1_Tick(&m9_h1_shadow, now);
   }
   if ((uint32_t)(now - m9_h0_drift.start_ms) >= M9H0_WINDOW_MS)
     M9H0_Stop(1U);
@@ -7750,6 +7805,63 @@ static void M8S11_StreamUpdate(void)
         (unsigned long)age_l,(unsigned long)age_r,
         (unsigned)d->wheels_moved,(unsigned long)m9_h0_dropped);
     if (M8S11_SendLine(n) != 0U) m9_h0_pending = 0U;
+    return;
+  }
+
+  /* M9-H1: a SEPARATE read-only PD candidate summary. M9-H0 and
+   * earlier M8 auto logs have priority. One IRQ UART TX line only
+   * when every steering and wheel source is already idle.
+   * Candidates are intentionally never mapped to motor PWM or DIR.
+   */
+  if ((m9_h1_pending != 0U) && (m9_h1_active == 0U) &&
+      (m9_h0_pending == 0U) &&
+      (m8_s154_right_fine_pending == 0U) &&
+      (m8_r1_right_pending == 0U) &&
+      (m8_s11_stream_state == 0U) &&
+      (m8_s11_stream_enable == 0U) &&
+      (wheel_log_active == 0U) &&
+      (wheel_log_dump_active == 0U) &&
+      (wheel_log_dump_request == 0U) &&
+      (m8_s00_dump_request == 0U) &&
+      (steer_pos_active == 0U) &&
+      (steer_manual_active == 0U) &&
+      (steer_cal_active == 0U) &&
+      (steer_test_running == 0U) &&
+      (steer_test_arm == 0U) &&
+      (steer_test_request == 0U) &&
+      (Steering_PositionWheelsStopped() != 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) == 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) == 0U) &&
+      (huart3.gState == HAL_UART_STATE_READY))
+  {
+    const M9H1Shadow_t *d = &m9_h1_shadow;
+    const M9H1Axis_t *l = &d->left, *r = &d->right;
+    n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+        "M9H1_SHADOW,sha=%s,seq=%lu,source=%u,reason=%u,"
+        "samplesL=%u,samplesR=%u,errL=%d,errR=%d,"
+        "peakVelL=%u,peakVelR=%u,peakCmdL=%u,peakCmdR=%u,"
+        "brakeL=%u,brakeR=%u,reversalL=%u,reversalR=%u,"
+        "noiseL=%u,noiseR=%u,badL=%u,badR=%u,"
+        "staleL=%u,staleR=%u,jumpL=%u,jumpR=%u,"
+        "satL=%u,satR=%u,zeroDtL=%u,zeroDtR=%u,"
+        "dropped=%lu,shadowOnly=1\r\n",
+        FW_BUILD_GIT_SHA,(unsigned long)d->seq,
+        (unsigned)d->source,(unsigned)d->reason,
+        (unsigned)l->samples,(unsigned)r->samples,
+        (int)l->error_raw,(int)r->error_raw,
+        (unsigned)l->peak_velocity,(unsigned)r->peak_velocity,
+        (unsigned)l->peak_candidate,(unsigned)r->peak_candidate,
+        (unsigned)l->brake_frames,(unsigned)r->brake_frames,
+        (unsigned)l->reversals,(unsigned)r->reversals,
+        (unsigned)l->noise_suppressed,(unsigned)r->noise_suppressed,
+        (unsigned)l->invalid,(unsigned)r->invalid,
+        (unsigned)l->stale,(unsigned)r->stale,
+        (unsigned)l->jump_rejected,(unsigned)r->jump_rejected,
+        (unsigned)l->saturated,(unsigned)r->saturated,
+        (unsigned)l->zero_dt,(unsigned)r->zero_dt,
+        (unsigned long)m9_h1_dropped);
+    if (M8S11_SendLine(n) != 0U)
+      m9_h1_pending = 0U;
     return;
   }
 

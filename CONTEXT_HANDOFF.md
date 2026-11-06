@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **HIỆN HÀNH — 2026-11-06 M9-H1:** Người dùng yêu cầu **triển khai M9-H1 PD SHADOW**. Nhánh `feature/m9-steering-active-position-hold` lấy nền `d367618d`; H0 đã có 4/4 cửa sổ private MCU 3 giây **DATA CAPTURE PASS giới hạn** ở SHA `8c2b3fe7` (trôi đỉnh ≤1 RAW). **H1 SOURCE-STAGED, cần kiểm tra exact-SHA HOST CI rồi CubeIDE Build/Flash/MCU log riêng**; tính PD tham khảo trong bộ nhớ, không ghi PWM, không có HOLD_ACTIVE. Bảo toàn STOP, NC, PS2, VC-02, M8 đã nghiệm thu. Xem `docs/M9_H1_PD_SHADOW_2026_11_06.md`; đừng nhầm các dòng M8 “LATEST” lịch sử bên dưới với HEAD.
+
 > **TRẠNG THÁI HIỆN HÀNH 2026-11-06 — M9:** **H0 SOURCE + exact-SHA HOST CI PASS** tại `8c2b3fe7d57154db7d11f8abca40351c4753d362`; **người dùng đã cung cấp 4 dòng UART MCU H0**, mỗi cửa sổ 3 giây hoàn tất, **DATA CAPTURE PASS trong phạm vi quan sát tĩnh**, drift đỉnh ≤1 AS5600 RAW/trục, không có bad/jump/drop; chưa thử ngoại lực, không có mô-men HOLD. CubeIDE build/flash log độc lập chưa được cung cấp. Các cập nhật M8 cũ vẫn là lịch sử, H1/H2/H3 chưa viết.  Người dùng đã chọn phát triển **bộ điều khiển phần mềm giữ góc lái Active Position Hold**, **không đầu tư thêm phần cứng**. Nhánh công việc hiện tại: `feature/m9-steering-active-position-hold`, tách từ đúng `d367618d4d9c4c382a9a7208f9b878dfefa21ace`. M9-H0 đã triển khai mã **read-only**, H1/H2/H3 vẫn PLANNED; chưa có mã HOLD ACTIVE hay powered-hold PASS. H0 passive drift → H1 PD shadow → H2 opt-in bounded active → H3 integration; đọc `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`. **Không nhầm nhánh thử M8 R1 10RAW chưa có physical PASS với M9 đã nghiệm thu.** Các ghi chú “CURRENT/LATEST” M8 bên dưới là lịch sử theo thời điểm ghi, không phải HEAD M9.
 
 > **HỒ SƠ SỐNG 17 MỤC:** Giữ nguyên dữ kiện và quyết định lịch sử A, đồng thời **cập nhật lớp hiện hành** sau thay đổi code/nhận định/lần đo. **Không lấy SHA hoặc trạng thái ở ảnh chụp gốc làm HEAD.** Người tiếp quản phải xác minh nhánh người dùng đang làm (hiện tại `feature/m9-steering-active-position-hold`) và HEAD SHA thực tế ở GitHub, rồi đọc mục 1 hiện hành, toàn bộ 0–16 và roadmap cùng SHA. Nhánh M7-S15 cũ là mốc rollback trước PI, không phải nơi tiếp tục M8-S15. Git commit là nguồn chính, Actions kiểm tra mỗi push; Release chỉ theo milestone/yêu cầu.
@@ -72,6 +74,15 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+### TIẾN ĐỘ 2026-11-06 — M9-H1 PD SHADOW (chưa cấp điện giữ góc)
+
+- [USER REQUEST] Triển khai bước H1 sau khi đã nhận và giải thích 4 log H0 thực (độ trôi đỉnh ≤1RAW, peakVel90RAW/s có thể do 1RAW/11ms).
+- [SOURCE] Thêm `Core/Inc/m9_h1_shadow.h` + `Core/Src/m9_h1_shadow.c`, nối vào đúng cửa sổ H0 3s chỉ khi cả hai trục DONE2 của R1/Voice5..40, dùng cache AS5600 hiện hữu, không thêm I2C.
+- [CONTROL SHADOW] Sai số RAW 12-bit shortest signed, hysteresis vị trí enter8/exit4RAW; deadband5RAW; tốc độ theo chênh lệch trong ≥100ms và loại thay đổi ≤1RAW; stale>250ms và sample jump>90RAW bị loại, unsigned wrap tick được xét. Mô phỏng PD `Kp_q8=256`, `Kd_q8=128`, cap±40 **SHADOW UNITS** (không phải CCR, không phải mô-men đo, không đưa sang driver).
+- [SAFE OUTPUT] `M9H1_SHADOW` xuất một dòng tóm tắt mỗi cửa sổ qua UART3 chỉ khi motor/wheel/serial idle; H0/M8 logs có ưu tiên. `tools/capture_m9_h1_shadow.ps1` chỉ nghe cả H0+H1. H0 history vẫn nguyên, không ghi log riêng tư người dùng lên GitHub.
+- [HOST] `tools/verify_m9_h1_shadow.py` biên dịch GCC module C thật và kiểm tra wiring/safety; `tools/m9_h1_host_test.c` giả lập tải đẩy trục lệch, thả tải làm trục lao về, yêu cầu tín hiệu PD shadow **đổi sang hãm trước khi qua góc đích**, kiểm tra jitter/stale/jump/wrap/cap; CI exact SHA/Windows PowerShell phải xác minh sau push.
+- [TRẠNG THÁI] H1 code chưa Build/Flash/test thật. H2 HOLD_ACTIVE/H3 vẫn chưa triển khai; **không** tự động chuyển shadow proposal thành PWM. Đọc chi tiết `docs/M9_H1_PD_SHADOW_2026_11_06.md`.
 
 ### KẾT QUẢ HIỆN HÀNH — M9-H0 private on-MCU UART 4 cửa sổ (2026-11-06)
 
@@ -1582,6 +1593,42 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] Chat sau đọc đầu handoff, mục này, roadmap, H0 log summary và exact SHA CI. Đừng yêu cầu lại dữ liệu đã có, nhưng cần proof mới để chốt HOLD ACTIVE.
 
 [16] Giới hạn: 4 static windows và MCU stamped SHA; user-supplied UART chưa là independent proof build/flash or 2-sided load. Bằng chứng không chứng minh NC/STOP, current, actual torque. Đặc tả 386 dòng và hồ sơ 0–16 giữ bất biến.
+
+## 2026-11-06 — M9-H1 PD SHADOW SOURCE implementation; cập nhật đầy đủ khung 0–16
+
+[0] **Nguồn:** USER yêu cầu thực hiện H1 sau khi 4 log M9-H0 đã được phân tích; repo base trước thay đổi source là `20bb0a98a06fe422d4933768e5cb0b61f71ff4ff`. Không công khai TXT thực tế, không tự giả mạo load-step on-MCU.
+
+[1] **Mốc hiện hành:** nhánh `feature/m9-steering-active-position-hold`, cần xác minh HEAD sau commit; H0 4-window static MCU capture PASS giới hạn; H1 mới SOURCE-STAGED, H2/H3 pending.
+
+[2] **Mục tiêu:** PD vị trí + tốc độ bằng dữ liệu AS5600 để thiết kế mô-men giữ góc không văng khi tải đột ngột biến mất, nhưng H1 chỉ tính đơn vị SHADOW, không tác động driver CCS_SHB12.
+
+[3] **Ràng buộc USER:** không thêm phần cứng/phanh. Giữ nguyên hành vi M8 vị trí, NC/STOP, bảo vệ motor, quyền PS2/Voice; không cần người dùng điều chỉnh debug flags. H1 bật `m9_h1_shadow_enable=1U` chỉ tính toán, không mở nguồn motor.
+
+[4] **Roadmap:** H0 SOURCE/HOST CI + private 4-log DATA CAPTURE PASS (static); H1 compile pure C / host simulation + safe-idle UART pending exact CI/target. H2 bounded ACTIVE và H3 wheel-drive integration CHƯA triển khai.
+
+[5] **Code triển khai:** pure C `m9_h1_shadow.c/.h`; hook `M9H1_Begin` sau H0 hợp lệ, `M9H1_Feed` sau từng cached sensor success/fail, `M9H1_Tick` stale, `M9H1_Finish` khi hết cửa sổ/bị STOP hoặc owner mới. Log `M9H1_SHADOW` ở `M8S11_StreamUpdate` khi safe idle.
+
+[6] **Việc chưa hoàn thành:** CubeIDE Clean Build, Flash, UART H1 real log chưa có; chưa thử ngoại lực thực, dòng/nhiệt motor hoặc PWM0 coast/brake. H1 không kết luận độ cứng giữ góc.
+
+[7] **Tệp:** Core/Src/main.c, Core/Src/m9_h1_shadow.c, Core/Inc/m9_h1_shadow.h, tools/m9_h1_host_test.c, tools/verify_m9_h1_shadow.py, tools/capture_m9_h1_shadow.ps1, docs/M9_H1_PD_SHADOW_2026_11_06.md, .github/workflows/context-handoff-release.yml, H0 doc/plan/roadmap/handoff/original 386-line req.
+
+[8] **Quyết định thiết kế:** 100ms derivative baseline, ≥2RAW net mới tạo velocity, stale>250ms loại; vị trí enter8/exit4, deadband5RAW, Q8 `Kp=256,Kd=128`, cap ±40 shadow units. Không có integral, không được dùng cap này làm duty H2. Cửa sổ thử H1 chỉ 3s theo H0 và mỗi khi DONE2.
+
+[9] **Rủi ro:** 1 RAW/11ms từ log H0 tạo đỉnh velocity90RAW/s giả; filter 100ms chậm tín hiệu hơn, khó khăn khi tải mất cực nhanh. Encoder wrap/noise/độ rơ và ACCE/DECCE driver chưa đo; shadow thành công không bảo đảm active no-overshoot.
+
+[10] **Phụ thuộc:** sample loop thực ~89Hz trong log H0 khi motion permit1, nhưng có thể thưa hơn; lọc dt và stale nên không giả định 100Hz luôn có. NC/STOP owner guards thừa kế H0, chỉ thêm tính toán và UART idle.
+
+[11] **Kế hoạch kiểm tra:** exact SHA CI Linux GCC actual-C + Windows PowerShell parser; trên STM32 nếu người dùng muốn kiểm chứng, bảo vệ local worktree, git fetch/switch, CubeIDE Clean Build/Flash đúng SHA, NC/STOP preflight ngắt nguồn động lực, chạy lệnh vị trí đã an toàn, thu H0 + H1 3s qua PowerShell; không gây lực ngoài mạnh khi H1 chưa có tác dụng giữ.
+
+[12] **Câu hỏi mở:** độ trễ phản lực, mô-men motor ở stall, phát hiện tải giải phóng trong thực tế, tỷ số RAW→góc bánh, an toàn dòng liên tục; chưa yêu cầu trả lời trước kiểm thử shadow.
+
+[13] **Lịch sử:** 2026-11-05 M8 S15.4/S15.6 6/6 user PASS; 2026-11-06 nhánh M9/H0 và private 4-window static capture; 2026-11-06 USER yêu cầu thực hiện H1, source shadow được bổ sung.
+
+[14] **Số liệu/công thức:** H0 tĩnh peak drift ≤1RAW, peakVel90RAW/s có thể 1RAW/11ms; `e=shortest(measured,goal)`, `v=shortest(ref,now)*1000/dt` với dt≥100ms & |delta|>1; `u_shadow=clamp(Kp*e_eff-Kd*v,±40)`, Q8 256/128. Đơn vị u là **shadow score**, không điện áp/PWM/mô-men.
+
+[15] **Tiếp quản:** không làm lại 4 H0 logs; đọc M9_H1 plan, H0 data summary, CI exact SHA, code và diff; nếu sửa code mới cập nhật cả handoff 0–16 và roadmap. H2 vẫn không được bật.
+
+[16] **Giới hạn chứng cứ:** HOST synthetic release-load không phải tải thật; H1 output chỉ UART/candidate trong RAM, không chứng minh NC/STOP thực nghiệm, CubeIDE flashed binary, current/thermal hoặc angle lock; original 386 dòng giữ nguyên, không sửa M8 tested branch.
 
 END OF CONTEXT HANDOFF
 

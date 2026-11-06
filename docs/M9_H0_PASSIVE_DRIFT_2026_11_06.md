@@ -67,3 +67,7 @@ Nếu `git status --short` cho thấy sửa đổi local, **dừng thao tác chu
 4. **H1**: sau khi có baseline và giới hạn lấy mẫu, xây PD shadow với giả lập bỏ tải; **không tự bật HOLD ACTIVE**.
 
 **Lưu ý:** Source/CI không thể chứng minh CCS_SHB12 thật sự brake hay coast khi PWM0. H0 không tác động đến motor, nên mọi kết quả về holding torque vẫn là CHƯA CÓ BẰNG CHỨNG.
+
+## 2026-11-06 — Lưu ý chuyển H1
+
+H0 đã có 4/4 static data capture PASS giới hạn ở firmware 8c2b3fe7; giữ nguyên tiêu chí này. Firmware M9-H1 mới có thêm `M9H1_SHADOW` theo cùng cửa sổ H0, **không thêm PWM giữ**. Nếu chạy firmware H1, dùng `tools/capture_m9_h1_shadow.ps1` để thu đồng thời H0+H1. H1 không tự xác lập PASS cho H0 dưới tải. Đọc `docs/M9_H1_PD_SHADOW_2026_11_06.md`.

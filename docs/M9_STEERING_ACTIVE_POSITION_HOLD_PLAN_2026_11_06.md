@@ -53,7 +53,7 @@ Cần xử lý wrap-around 0..4095 AS5600, hướng tăng/giảm encoder từng 
 | Giai đoạn | Thực hiện | Cổng chấp nhận | Trạng thái |
 |---|---|---|---|
 | **M9-H0 — Passive drift baseline** | Source post-DONE 3s log AS5600 cached goal/start/end, peak drift/error/velocity, sample/invalid/jump, owners/safety termination; báo một M9H0_DRIFT line khi UART idle; không thêm I2C/PWM | GCC unit + wiring verifier và CI SHA; CubeIDE Build/Flash/log MCU cần bằng chứng riêng | **SOURCE-STAGED; target/hardware pending** |
-| **M9-H1 — HOLD PD shadow** | Tính `Kp*e-Kd*v`, lọc nhiễu, saturate, anti-windup bằng không dùng I; phân tích trường hợp thả tải đột ngột trong unit/simulation; không ghi CCR/DIR | HOST C tests: vượt góc, đảo lực, stale, dt=0, sensor jump, wrap, NC, STOP, owner priority; H1 thực tế vẫn PWM0 | **PLANNED** |
+| **M9-H1 — HOLD PD shadow** | Pure-C SHADOW tính Kp·e−Kd·v với velocity window≥100ms, bỏ 1RAW nhiễu, hysteresis, stale/jump reject, cap ±40 shadow units (không PWM), UART idle summary | GCC HOST load-release/reversal/noise/stale/NC/STOP/owner wiring; CI exact SHA; CubeIDE/real UART cần xác minh riêng | **SOURCE-STAGED, target/real log pending** |
 | **M9-H2 — Bounded active hold** | Opt-in duy nhất sau hoàn thành goal hợp lệ, PWM/DIR hạn chế theo trục; giám sát phản hồi và duration/duty budget, hủy lực khi lỗi/STOP/NC/owner change | CI + CubeIDE Clean Build + flash đúng SHA; bench **có bảo vệ/ngắt nguồn motor độc lập**; xác minh đầu ra CCS_SHB12 PWM0/brake-coast, current/thermal nếu đo được, từng trục trước; test tải và nhả tải đột ngột có quan sát overshoot/reversal | **PLANNED, chưa được phép coi là thử motor** |
 | **M9-H3 — Integration** | Phối hợp HOLD với R1/Voice CENTER, lệnh vị trí Voice5..40, manual PS2, VC-02 và wheel drive; phân tích NC, R2/Voice45, SELECT, STOP, mất nguồn | Nghiệm thu giá treo trước; bài thử có tải riêng, hồi quy M8 và xác minh không phát xung bất ngờ khi STOP/NC hoặc khi lệnh lái mới | **PLANNED** |
 
@@ -84,3 +84,11 @@ Mỗi H0/H1/H2/H3 phải phân biệt `SOURCE-STAGED -> HOST CI PASS -> CubeIDE 
 - M8 R1/Voice CENTER hunting trial 10RAW xuất phát d367 chưa có xác nhận powered improvement; phải tách riêng với kết quả M9.
 
 **Cập nhật 2026-11-06 sau dữ liệu người dùng:** H0 SOURCE + HOST CI PASS và người dùng đã gửi 4 UART MCU log đầy đủ (mỗi bên peak drift ≤1 RAW trong 3s, sensor invalid=0). **H0 DATA CAPTURE PASS giới hạn tĩnh**, không chứng minh giữ góc trước tải. Bộ đo thực tế ~89Hz/trục do vòng safety hiện có đọc 2 AS5600, ngoài idle poll 50ms luân phiên; đỉnh vận tốc 90 RAW/s có thể chỉ 1 RAW/11ms, nên H1 phải lọc derivative. Đọc `docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md`. CubeIDE Build/Flash log độc lập chưa có; H1/H2/H3 chưa code, **không có HARDWARE HOLD PASS**.
+
+## 2026-11-06 — Cập nhật triển khai H1 SHADOW
+
+- Module `m9_h1_shadow.c/.h` đã được ghép vào cửa sổ H0 post-DONE, không thay vòng vị trí hoặc quyền motor.
+- Bộ lọc vận tốc theo chênh lệch >=100ms, <2RAW coi là không chuyển động; position hysteresis 8/4RAW, effective deadband 5RAW; stale sau 250ms và jump >90RAW bị đánh dấu và loại.
+- Cặp tham số `Kp_q8=256`, `Kd_q8=128`, ±40 shadow units là **giả định mô phỏng để kiểm thử**, không được chuyển sang CCR, mô-men hoặc dòng điện. Chưa đủ chứng cứ xác định gain giữ góc thật.
+- `M9H1_SHADOW` xuất log chỉ sau khi H0 kết thúc và mọi motor/UART idle; no motor write/no extra I2C. Simulated release-load in GCC không chứng minh an toàn đẩy ngược trên xe.
+- H2 ACTIVE vẫn chưa được thực hiện; chỉ nghiên cứu tiếp khi có H1 on-MCU data và đánh giá các cổng current/thermal/NC/STOP. Xem `docs/M9_H1_PD_SHADOW_2026_11_06.md`.

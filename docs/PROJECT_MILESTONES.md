@@ -1,6 +1,8 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-## HIỆN HÀNH 2026-11-06 — M9 Steering Active Position Hold (quyết định USER / chưa có firmware HOLD)
+## HIỆN HÀNH 2026-11-06 — M9 Steering Active Position Hold (H0 dữ liệu tĩnh, H1 SHADOW source)
+
+**M9-H1 source mới (2026-11-06):** Đã chuẩn bị mô-đun tính PD SHADOW trên branch M9, chưa cấp điện hay giữ trục; 100ms velocity window lọc nhiễu 1RAW, e deadband/hysteresis, stale/jump/STOP/owner interlocks theo H0, kết quả UART idle `M9H1_SHADOW`. [Xem H1 chi tiết](M9_H1_PD_SHADOW_2026_11_06.md). HOST exact-SHA/target phải xác minh sau commit.
 
 **M9-H0 KẾT QUẢ 2026-11-06:** SOURCE + exact SHA CI PASS tại `8c2b3fe7`; người dùng cung cấp **4/4 dòng MCU UART** đủ 3s (seq1..4, reason1) và valid AS5600 cả hai trục. Độ trôi đỉnh tối đa 1 RAW mỗi trục, peakErr ≤5 RAW, invalid/jump/drop=0. Đánh dấu **H0 DATA CAPTURE PASS GIỚI HẠN** cho dữ liệu tĩnh, **không** coi là HOLD chịu ngoại lực, không có H1/H2/H3 motor. Bản ghi private không đưa lên repo. Kết quả được giải thích trong H0 doc.
 
@@ -11,7 +13,7 @@
 | ID | Kết quả cần có | Trạng thái 2026-11-06 |
 |---|---|---|
 | **M9-H0** | Giám sát 3s sau DONE, không phát lực; 4 bản ghi MCU với cảm biến hợp lệ, lệch đỉnh ≤1 RAW | **SOURCE + HOST CI PASS; on-MCU UART DATA CAPTURE PASS giới hạn** |
-| **M9-H1** | PD position+velocity, shadow output only, unit test thả tải/tốc độ và arbitration | **PLANNED** |
+| **M9-H1** | Đã code PD shadow Q8, 100ms filtered velocity, stale/jump/noise guard, HOST load-release simulation và safe-idle UART | **SOURCE-STAGED; exact CI/target/real log chưa xác minh khi lập hồ sơ** |
 | **M9-H2** | HOLD_ACTIVE opt-in boot OFF, giới hạn lực/thời gian, thử gá có NC/STOP và ngắt nguồn motor độc lập | **PLANNED / chưa powered test** |
 | **M9-H3** | Tích hợp HOLD với PS2, VC-02 và chạy bánh, nghiệm thu safety/gá/tải riêng | **PLANNED** |
 
@@ -1297,3 +1299,12 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [SOURCE CROSSCHECK] 89.2–89.6 samples/s/axis theo log; khi motion permit1, safety path trong main loop đã đọc cả hai AS5600 trên mỗi pass, xen với 50ms alternating idle polling. Không phải H0 mới tạo I2C. Nhịp sample thực tế không được coi là cam kết 89Hz bất biến.
 - [INTERPRETATION] Peak velocity 90 RAW/s phù hợp 1 RAW trong khoảng 11ms; derivative theo single sample có thể nhiễu, **không được dùng trực tiếp cho H1 KD**. Tĩnh ổn định nhưng **không hề chứng minh moment giữ trục**, tải phản lực, PWM0 brake/coast hoặc nhiệt.
 - [STATUS] H0 SOURCE/HOST CI/MCU DATA CAPTURE PASS đối với bốn cửa sổ tĩnh; CubeIDE Build/Flash logs không được user cung cấp, nên không coi là bằng chứng build/flash độc lập. H1 PD SHADOW là bước nghiên cứu tiếp theo, H2/H3 chưa cấp lực/thử dưới tải.
+
+## 2026-11-06 — M9-H1: PD SHADOW no-activation source, HOST load-release harness
+
+- [USER REQUEST] Sau khi H0 4/4 cửa sổ static pass, triển khai H1: tính điều khiển PD chống văng khi tải bị bỏ, **không phát PWM**. Nhánh M9 giữ nguyên từ d367618d, không thay M8 tested firmware.
+- [IMPLEMENTED SOURCE] Pure-C `Core/Src/m9_h1_shadow.c` + header; feed khi H0 đang hoạt động nhờ mẫu AS5600 cache thành công/lỗi, không thêm I2C. START/STOP theo H0, trừ mode R2/Voice45 NC, STOP/trip, owner đổi. H1 mặc định chỉ tính (shadow enable1) không có đường ghi CCR/DIR.
+- [FORMULA] Encoder shortest signed raw, position enter8/exit4RAW/deadband5RAW; speed trong cửa sổ >=100ms, 1RAW suppressed, stale>250ms, jump>90RAW mẫu bị bác; `Kp_q8=256`, `Kd_q8=128`, giới hạn ±40 **shadow units**, KHÔNG phải motor PWM.
+- [HOST CASE] Synthetic applied disturbance pushes RAW away; after sudden release, RAW speed toward target causes proposal sign reverse BEFORE target crossing. Other tests: quantization jitter, wrap4096, stall/stale invalid, zeroDt, sensor jump, cap and no owner/NC/STOP bypass. No physical load test.
+- [OUTPUT] New `M9H1_SHADOW` UART3 record safe-idle, after M8/H0 priority; `tools/capture_m9_h1_shadow.ps1` captures both H0 and H1 without sending any serial commands; workflow Linux GCC actual-C + Windows parser.
+- [PROOF GATES] SOURCE-STAGED until exact SHA Actions results; CubeIDE Build/Flash/STM32 real H1 logs and any load/thermal checks remain separate and not yet verified. H2/H3 remain PLANNED.
