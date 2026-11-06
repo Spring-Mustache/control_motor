@@ -1,6 +1,8 @@
 # CONTEXT HANDOFF
 
-> **HỒ SƠ SỐNG 17 MỤC:** Giữ nguyên dữ kiện và quyết định lịch sử A, đồng thời **cập nhật lớp hiện hành** sau thay đổi code/nhận định/lần đo. **Không lấy SHA hoặc trạng thái ở ảnh chụp gốc làm HEAD.** Người tiếp quản phải xác minh trước nhánh đang làm `feature/m8-s15-dual-target-common-time` và SHA thực tế ở GitHub, rồi đọc mục 1 hiện hành, toàn bộ 0–16 và roadmap cùng SHA. Nhánh M7-S15 cũ là mốc rollback trước PI, không phải nơi tiếp tục M8-S15. Git commit là nguồn chính, Actions kiểm tra mỗi push; Release chỉ theo milestone/yêu cầu.
+> **TRẠNG THÁI HIỆN HÀNH 2026-11-06 — M9:** Người dùng đã chọn phát triển **bộ điều khiển phần mềm giữ góc lái Active Position Hold**, **không đầu tư thêm phần cứng**. Nhánh công việc hiện tại: `feature/m9-steering-active-position-hold`, tách từ đúng `d367618d4d9c4c382a9a7208f9b878dfefa21ace`. Đây là **milestone PLANNED/docs-only**, chưa có HOLD code, Build/Flash hay powered PASS. H0 passive drift → H1 PD shadow → H2 opt-in bounded active → H3 integration; đọc `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`. **Không nhầm nhánh thử M8 R1 10RAW chưa có physical PASS với M9 đã nghiệm thu.** Các ghi chú “CURRENT/LATEST” M8 bên dưới là lịch sử theo thời điểm ghi, không phải HEAD M9.
+
+> **HỒ SƠ SỐNG 17 MỤC:** Giữ nguyên dữ kiện và quyết định lịch sử A, đồng thời **cập nhật lớp hiện hành** sau thay đổi code/nhận định/lần đo. **Không lấy SHA hoặc trạng thái ở ảnh chụp gốc làm HEAD.** Người tiếp quản phải xác minh nhánh người dùng đang làm (hiện tại `feature/m9-steering-active-position-hold`) và HEAD SHA thực tế ở GitHub, rồi đọc mục 1 hiện hành, toàn bộ 0–16 và roadmap cùng SHA. Nhánh M7-S15 cũ là mốc rollback trước PI, không phải nơi tiếp tục M8-S15. Git commit là nguồn chính, Actions kiểm tra mỗi push; Release chỉ theo milestone/yêu cầu.
 
 ---
 
@@ -70,6 +72,14 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+### CHUYỂN MILESTONE 2026-11-06 — M9 Steering Active Position Hold (USER xác nhận, docs-only)
+
+- Branch: `feature/m9-steering-active-position-hold`, fork **exact** `d367618d4d9c4c382a9a7208f9b878dfefa21ace` (M8 RIGHT CENTER trial), branch tạo trước cập nhật docs; M9 commit mới chỉ cập nhật hồ sơ và kế hoạch.
+- Người vận hành muốn **chương trình giữ góc bằng mô-men motor DC có sẵn**, không thêm phần cứng. Không phải khóa trục cơ khi mất điện. Tránh bật ngược khi ngoại lực biến mất: dự kiến PD phản hồi vị trí/tốc độ, giới hạn mô-men gián tiếp qua PWM và thời gian, các cổng NC/STOP/sensor/motor-owner.
+- Lộ trình `H0 MONITOR (PWM0)` → `H1 SHADOW PD (PWM0)` → `H2 ACTIVE opt-in boot OFF, thử trên gá` → `H3 phối hợp wheel/PS2/Voice`. Hiện **chưa triển khai H0 hoặc HOLD firmware**.
+- M8 6/6 Voice15/30/40 của 9db12228 **USER PASS**; trial R1/Voice B0 center10 RAW tại base d367 vẫn **chưa có physical PASS**. Không sửa lịch sử M8 hay nhận lầm kết quả.
+- Đọc chi tiết `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`, `docs/PROJECT_MILESTONES.md` cập nhật 2026-11-06 và toàn bộ hồ sơ 0–16. Hành động tiếp theo: rà soát idle sensor/motor owner, thiết kế H0 read-only, chỉ thay mã khi có nhiệm vụ triển khai. Tách HOST CI, CubeIDE, Flash và hardware.
 
 ### S15.3 proposed RIGHT-only ACTIVE pilot, default OFF (2026-11-02)
 
@@ -1449,6 +1459,42 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 ## 2026-11-05 — HOST test forward declaration extraction correction
 [0] Exact SHA CI test tools/verify_m8_vc02_45_nc.py initially selected the forward declaration of Steering_SafetyExpectedNcMask(), not the later C function definition; assertion therefore checked the wrong body.
 [1] Fixed the test signature to include the opening brace after the full function name, reading only the real implementation. Production motor source unchanged by this follow-up. Re-run exact SHA CI.
+## 2026-11-06 — CHUYỂN M9: active torque hold, cập nhật đầy đủ khung 0–16
+
+[0] **Nguồn/giới hạn:** USER trao đổi 2026-11-06: muốn giữ trục bằng mô-men motor DC chổi than, ngại phanh bật ngược lúc tải mất; không đầu tư thêm phần cứng; yêu cầu branch M9 từ d367618d và cập nhật MD. Repo/firmware M8, manual CCS_SHB12 có sẵn. Chưa có log HOLD hay bằng chứng điện/nhiệt; đây là quyết định phạm vi và docs, không phải biên bản nghiệm thu.
+
+[1] **Điểm tiếp quản:** Repository Spring-Mustache/control_motor, nhánh **feature/m9-steering-active-position-hold**, base **d367618d4d9c4c382a9a7208f9b878dfefa21ace**. Truy vấn HEAD lúc tiếp quản, không dùng base SHA làm HEAD sau khi commit MD. M9 chỉ docs plan; bắt đầu rà soát motor owner/idle sample rồi triển khai H0 passive nếu được giao phát triển.
+
+[2] **Mục tiêu/phạm vi:** Giữ góc đã hoàn tất trước ngoại lực bằng servo PD AS5600 và PWM/DIR CCS_SHB12, trên hai trục lái, tận dụng STM32F767ZI; không thay hardware. Tách giữ góc có cấp mô-men với khóa cơ khí khi mất nguồn; chưa hứa giữ cứng mọi tải.
+
+[3] **Yêu cầu điều khiển:** Không cấp PWM cố định một chiều coi là khóa hai chiều. Phải có phản hồi vị trí + vận tốc, không dùng I trong bản đầu, giảm lực khi tải mất, không tranh PWM/owner M8; user chưa cấp đặc tả sai số/ngoại lực nên thông số PD/duty/time TBD.
+
+[4] **Roadmap:** M9-H0 read-only đo drift, M9-H1 shadow PD PWM0, M9-H2 ACTIVE opt-in giới hạn lực và nghiệm thu giá treo, M9-H3 tích hợp PS2/VC-02/wheel và Gate an toàn/tải. Tất cả **PLANNED**. M8 verified baseline S15.4/S15.6 chỉ sáu Voice 15/30/40, RIGHT CENTER d367 chưa physical pass. Đọc kế hoạch MD chuyên biệt.
+
+[5] **Đã làm thực:** Tạo nhánh M9 từ exact d367, kiểm tra HEAD ban đầu. Cập nhật tài liệu M9, README, startup prompt, handoff, roadmap; không thay `Core/Src/main.c`, PWM/NC/STOP hoặc script thử. Khi ghi lại commit docs mới phải xác nhận GitHub HEAD/CI riêng.
+
+[6] **Đang dở:** H0 chưa code/test; H1/H2/H3 chưa thiết kế/thử nghiệm chi tiết. Không có kết luận driver PWM0 brake hay coast. Chưa số liệu drift, load-step, nhiệt/current; chưa tiêu chí độ cứng cuối cùng. M8 RIGHT CENTER trial tách biệt vẫn pending operator log.
+
+[7] **Tệp:** `CONTEXT_HANDOFF.md`, `docs/PROJECT_MILESTONES.md`, `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`, `docs/CHAT_B_START_PROMPT.md`, `README.md`, `docs/CONTEXT_RELEASE_POLICY.md` và nguyên bản đặc tả 386 dòng; `Core/Src/main.c` read-only khi lên kế hoạch. Source M8 R1 trial `docs/M8_R1_VOICE_CENTER_RIGHT_LATE_FINE_2026_11_05.md`.
+
+[8] **Quyết định:** User chọn phần mềm, không thêm phanh điện từ/cơ khí, không thay driver trong giai đoạn này. Chọn giải pháp servo PD + observer, không PWM cố định; lý do: có thể chống ngoại lực hai hướng và hãm bằng tốc độ, nhưng phải xác minh tính thực dụng. Driver không công bố BRAKE mode; không kết luận driver chắc chắn không thể brake.
+
+[9] **Rủi ro kỹ thuật:** Motor stalled nóng do I²R; PWM không phải cảm biến dòng/mô-men; backlash, độ trễ ACCE/DECCE, AS5600 noise/stale/wrap, bật ngược khi tải đột ngột biến mất, cấp PWM khi đã NC/STOP hoặc cướp quyền manual/voice. Chưa gán nguyên nhân thực nghiệm khi không có log.
+
+[10] **Giả định/phụ thuộc:** Có thể đọc AS5600 trong idle nhưng tốc độ poll hiện ~50ms xen kẽ (~100ms mỗi trục) chưa đủ bảo đảm PD. Cần hiểu điện đầu ra CCS_SHB12 khi CCR0, dải motor an toàn và vị trí lắp encoder. Không dùng trị PWM position M8 làm ngưỡng giữ an toàn mà không đo.
+
+[11] **Hành động ưu tiên:** Rà soát `Steering_PositionFinish`, `Steering_PositionAxisDone`, `Steering_PositionTelemetryIdleUpdate`, NC/STOP arbitration, status I2C; thiết kế dữ liệu H0 + unit test không phát motor; tiến lên H1 shadow sau xác nhận, rồi H2 thử có ngắt nguồn động lực độc lập. Không lập lịch thử chạy powered như đã được phép.
+
+[12] **Câu hỏi mở:** CCS_SHB12 tại PWM0 coast/brake? Có dòng/nhiệt stalled mức nào? RAW tương ứng độ bánh thực và độ rơ bao nhiêu? tải/overshoot cho phép? Dữ liệu này cần đo khi tới cổng H2, không bắt user chẩn đoán trước H0.
+
+[13] **Dòng thời gian:** 2026-11-05 M8 S15.4/S15.6 6/6 user PASS; 2026-11-05 RIGHT R1/Voice CENTER hunting observed và thử 10RAW source d367; 2026-11-06 trao đổi mô-men chống lực, rủi ro bật ngược, chọn chỉ lập trình; 2026-11-06 tạo nhánh M9 exact base và yêu cầu cập nhật roadmap.
+
+[14] **Phụ lục kỹ thuật:** `T≈Kt*I` ở motor đứng yên, `u=Kp*error-Kd*angular_velocity` ở hold. `STEER_POS_TOL_RAW=5` là dung sai position hiện hành, không tự chứng minh dung sai HOLD hay bánh. LEFT CENTER1886, RIGHT CENTER662 RAW mặc định, runtime endpoints có thể cập nhật. H0/H1 không can thiệp PWM.
+
+[15] **Chỉ dẫn tiếp quản:** Lấy HEAD nhánh M9 thật, không dùng mặc định HEAD main/M8; đọc 17 mục và cập nhật cuối, roadmap M9, M9 plan và diff/CI đúng SHA. Không mặc nhận yêu cầu cũ đã biến mất: NC/STOP/PS2/VC02/motor arbitration phải giữ; user chỉ muốn đầu tư phần mềm.
+
+[16] **Kiểm tra/giới hạn:** M8 6-case USER PASS khác với M9 chưa triển khai. Bản MD cập nhật chỉ là tài liệu. Chưa bằng chứng CubeIDE/Flash/HOLD/current/stall/load; thiếu log riêng tư của trial R1. Original `docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md` 386 dòng/SHA phải giữ bất biến, footer giữ nguyên. Nếu CI docs PASS, nó chỉ xác thực source/regression/contract ở SHA đó, không chứng minh giữ góc trên xe.
+
 END OF CONTEXT HANDOFF
 
 

@@ -1,5 +1,24 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
+## HIỆN HÀNH 2026-11-06 — M9 Steering Active Position Hold (quyết định USER / chưa có firmware HOLD)
+
+**Milestone hiện hành M9:** `feature/m9-steering-active-position-hold` xuất phát đúng từ `d367618d4d9c4c382a9a7208f9b878dfefa21ace` (branch được tạo, đã kiểm tra HEAD trước commit tài liệu). **Người dùng chọn phương án CHỈ PHẦN MỀM**, giữ góc bằng mô-men motor DC, đọc AS5600, điều khiển PWM/DIR qua CCS_SHB12. Không đầu tư thêm phanh hoặc driver. Chưa có logic HOLD, CubeIDE Build, Flash hoặc nghiệm thu HOLD.
+
+| ID | Kết quả cần có | Trạng thái 2026-11-06 |
+|---|---|---|
+| **M9-H0** | Telemetry thụ động đo độ trôi góc sau DONE, PWM giữ 0, read-only với motor hiện hữu | **PLANNED** |
+| **M9-H1** | PD position+velocity, shadow output only, unit test thả tải/tốc độ và arbitration | **PLANNED** |
+| **M9-H2** | HOLD_ACTIVE opt-in boot OFF, giới hạn lực/thời gian, thử gá có NC/STOP và ngắt nguồn motor độc lập | **PLANNED / chưa powered test** |
+| **M9-H3** | Tích hợp HOLD với PS2, VC-02 và chạy bánh, nghiệm thu safety/gá/tải riêng | **PLANNED** |
+
+**Bảo toàn bằng chứng M8:** firmware `9db12228f38c1589bc6229409e3e210f598561ed` được user báo **PASS** cho sáu lệnh Voice 15°/30°/40° LEFT/RIGHT, tương quan worst-point 94.4–97.2%; không phải PASS cho Voice45/NC/STOP/có tải. Trial RIGHT CENTER R1/Voice B0 fine-entry10RAW ở base `d367618d` có CI theo báo cáo trước, nhưng **chưa có xác nhận cải thiện trên phần cứng**. Không gộp hai mức kết luận.
+
+**Vật lý/safety:** CCS_SHB12 chưa xác minh chế độ BRAKE cũng như trạng thái PWM0, không có measured stall current/thermal hay motor allowable current. Active torque hold khác khóa cứng cơ khí, có thể bật ngược khi tải biến mất; PD phải có damping, H2 chỉ sau các cổng kiểm tra và giới hạn motor-safe. **Nghiêm cấm tự chạy H2 chỉ vì M9 docs đã commit.**
+
+**Tài liệu chi tiết:** [M9 plan và tiêu chí từng cổng](M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md). Các mục M8 dưới đây là hồ sơ/lịch sử đúng theo thời điểm viết, không phải M9 HEAD. Đọc phần M9 bổ sung ở cuối tài liệu và mục 1 hiện hành của `CONTEXT_HANDOFF.md`. Không tự tạo Release khi push.
+
+---
+
 ## TRẠNG THÁI HIỆN HÀNH để tiếp quản (cập nhật kế hoạch 2026-11-01)
 
 **ĐỊNH HƯỚNG PHẠM VI MỚI NHẤT [USER, 2026-11-01]:** chỉ hoàn thành chặng phát triển M8-S15 đến **S15.4** rồi quay về **tích hợp VC-02 với cơ cấu điều khiển xe**. S15.5 target góc/Ackermann **TẠM HOÃN vì chưa có động học**; S15.6 không còn là giai đoạn ưu tiên trước VC-02, hồi quy sáu motor/Gate A/B vẫn cần nghiệm thu riêng trong chặng tích hợp tiếp theo. VC02 parser/builder đã có nhưng executor hiện chỉ tiến/lùi thẳng; TURN/ANGLE/ROTATE chưa được kết nối thực thi motor. Chi tiết và thứ tự VC02-I1/I2/I3 đề xuất: `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`. Không đụng firmware hoặc kích hoạt RIGHT 300CCR.
@@ -1245,3 +1264,15 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [NEW OPERATOR OBSERVATION] RIGHT cycles forward/back several times when Voice B0 CENTER or PS2 R1, both position-mode1 center target662RAW. Before R1 log, cause not proven. Current center RIGHT entry15RAW whereas proven Voice4 RIGHT fine entry10; hypothesize earlier cutoff leads to extra fine pulses after coast.
 - [ISOLATED A/B] feature/m8-r1-voice-center-right-late-fine-10raw from physical 9db12228..., new default1 flag only RIGHT mode1 after valid calibrated NC geometry => cutoff10RAW, fallback15. LEFT R1, Voice4, R2, Voice45, PWM/fine pulse/tolerance/STOP/PS2/NC unchanged.
 - [AUTO DIAG] M8R1_FINE for both R1 sources, includes trigger origin, last pulse stats, reversals, endpoint precision and timings; native tools/capture_m8_r1_center.ps1 default8. Exact CI compiled actual C/PowerShell then CubeIDE clean Build/Flash + guarded PS2 R1 & Voice CENTER physical log needed. No target/hardware PASS claimed yet. See docs/M8_R1_VOICE_CENTER_RIGHT_LATE_FINE_2026_11_05.md.
+
+## 2026-11-06 — Chính thức mở milestone M9: software-only Steering Active Position Hold
+
+- **[USER REQUEST]** Muốn khóa/giữ trục bằng mô-men ở motor DC kể cả khi đứng yên, có lo hiện tượng tải đột ngột biến mất khiến bánh bị văng góc. Chọn phát triển **chương trình** thay vì đầu tư phanh/driver khác; thống nhất milestone mới **M9** và branch riêng từ đúng `d367618d`.
+- **[COMPLETED REPO ACTION]** Đã tạo và xác minh `feature/m9-steering-active-position-hold` HEAD khởi đầu `d367618d4d9c4c382a9a7208f9b878dfefa21ace`. Commit này kế thừa trial M8 RIGHT CENTER/Voice B0; chưa phải firmware HOLD. Các tài liệu M9 được commit riêng tiếp theo; xác minh HEAD mới qua Git.
+- **[DESIGN DECISION]** Active Position Hold bằng PID không tích phân giai đoạn đầu (PD position+velocity), không cấp PWM cố định, mặc định không bật/không chiếm owner. M9-H0 MONITOR read-only; H1 SHADOW output read-only; H2 bounded ACTIVE thử giá treo sau bảo vệ; H3 integration wheel drive/PS2/VC-02.
+- **[M9-H0 ACCEPT]** Lấy góc/target/sensor age/velocity/owner/NC/STOP/PWM0, tính độ trôi sau DONE và độ nhiễu idle; không thay lệnh motor, không làm tăng UART bận lúc đang chạy; host/CI kiểm tra và ghi nhận baseline nếu có log.
+- **[M9-H1 ACCEPT]** HOST actual-C tests/simulation: PD chống văng khi thả tải, không I windup, lọc noise, wrap, timeout, AS5600 invalid/stale, MC stop/NC/owner arbitration; **shadow không được chuyển CCR khác 0**.
+- **[M9-H2 ACCEPT]** Điều kiện riêng: branch exact-CI, CubeIDE Clean Build/Flash đúng SHA, xác minh driver PWM0/brake-coast và motor thermal/current trong phạm vi thực tế đo được, ngắt nguồn động lực độc lập, NC/STOP preflight, từng trục và góc nhỏ rồi mới tăng phức tạp. ACTIVE opt-in mặc định boot-OFF; không giữ mô-men ép vào NC, không hứa khóa cứng khi tắt nguồn.
+- **[M9-H3 ACCEPT]** Kiểm tra chuyển quyền mới, R1 CENTER, Voice B0/5..40, manual, NC R2/45, STOP, mất sensor, wheel-drive khi chạy và bài thử tải riêng, không suy PASS giá treo là PASS tải mặt đất.
+- **[TEST STATE]** Hiện chỉ M9 docs/roadmap được viết; **H0/H1/H2/H3 đều PLANNED**, không có HOLD firmware, HOST/HARDWARE pass. M8 छह lệnh Voice đã PASS tại SHA 9db12228, M8 R1 10RAW chưa có hardware pass.
+- **[NEXT]** Rà soát `Core/Src/main.c` thật tại HEAD M9: `Steering_PositionFinish`, `Steering_PositionAxisDone`, `Steering_PositionTelemetryIdleUpdate`, PWM/NC/STOP/owner; dựng H0 passive với tests; M8 source tests và 386-line requirement bất biến. Xem `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`.
