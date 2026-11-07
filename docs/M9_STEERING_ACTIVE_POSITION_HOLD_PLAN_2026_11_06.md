@@ -112,3 +112,7 @@ Theo yêu cầu thực hiện H2, tách hai cổng kỹ thuật để không bi�
 H2-A giữ quy tắc: hai trục DONE2 (R1 CENTER hoặc Voice5..40), no NC/STOP, goal hợp lệ; mỗi trục sensor valid/fresh ≤250ms, reject RAW jump, speed 100ms, near-goal deviation ≤32RAW, STOP/mode/owner/NC/wheels đang chạy => mất quyền giám sát hoặc FAULT, post-DONE window ≤3000ms. Tính shadow score riêng `Kp_Q8=128`, `Kd_Q8=32`, score cap ±20 **không phải motor PWM**; khác H1 transit `Kp256/Kd128` đã thấy hãm sớm. `M9H2_POWER_PERMITTED=0U` được hardcode, `dutyL=0`, `dutyR=0`, `powered=0` trên mọi đường đi, bench request không thể bật motor. H2 KHÔNG thay M8 servo, motor arbiter hoặc NC ISR.
 
 **Cổng H2-B còn khóa**: chưa đo dòng stalled/nhiệt motor đánh lái, PWM=0 driver CCS_SHB12 coast/brake, độ trễ ACCE/DECCE, DIR khi đổi lực, giới hạn duty/duration từ dữ liệu thực. Driver manual có bảo vệ over-current/over-temp chung nhưng không chứng nhận an toàn dòng đứng yên của motor này. Phải có gá và nguồn motor ngắt độc lập, powered test từng trục sau review. Chưa đủ quyền kỹ thuật để tự gán cap vật lý. Đọc `docs/M9_H2_GUARD_SOURCE_2026_11_07.md`.
+
+### 2026-11-07 — H2-A SOURCE/HOST CI kết quả xác minh
+
+Source `55db22f67c81517ada48106f5a506b7b367b7e4c` Actions `42370515934` PASS (C-core hard power-off/STOP/NC/owner/stale plus Win PowerShell syntax). Không có target CubeIDE/flash/H2 MCU log nên **H2-A hardware pending**; không có H2-B Active PWM. Bản đầu `b9b75a` Win parser fail dấu `:` sau tên biến rồi đã sửa, không phải lỗi motor.

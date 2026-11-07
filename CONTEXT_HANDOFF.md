@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **M9-H2-A EXACT CI VERIFIED 2026-11-07:** C source guard `55db22f67c81517ada48106f5a506b7b367b7e4c`, GitHub Actions `42370515934` **COMPLETED/SUCCESS**: strict Linux GCC actual-C H2-A monitor/fault and hard power-off, full M8/H0/H1 context regression PASS, Windows PowerShell5.1 H2 capture script syntax PASS. Initial `b9b75a` Windows parser fail due `$MaxEvents:`, fix only PS interpolation, motor source unchanged. Chưa có CubeIDE Clean Build/Flash hoặc `M9H2_GUARD` MCU log. **H2-B ACTIVE not coded/tested, 0 PWM always.** Sau commit docs HEAD mới cần CI riêng.
+
 > **NEWEST M9-H2-A 2026-11-07:** Theo yêu cầu USER triển khai H2, đã viết **bộ giám sát H2-A tách riêng**, chỉ nhận goal sau cả hai trục M8 DONE2, tính near-goal PD shadow và đánh giá STOP/NC/owner/wheel/stale/timeout. Thêm `Core/Src/m9_h2_hold_guard.c`/`.h`, `M9H2_GUARD` UART3 sau idle và `tools/capture_m9_h2_guard.ps1`. Bắt buộc `M9H2_POWER_PERMITTED=0U`, mọi `dutyL=dutyR=0`, **KHÔNG có đường ghi PWM/DIR trong H2-A**. Cần xác minh Actions SHA mới, CubeIDE Build/Flash và MCU guard status; **H2-B ACTIVE CHƯA TRIỂN KHAI** do chưa kiểm chứng current/thermal, PWM0 coast/brake, independent motor E-stop. H0/H1 đã có 130 real motion frames trên SHA `3dbdfaf`. Đọc `docs/M9_H2_GUARD_SOURCE_2026_11_07.md` và các hồ sơ cũ. Không được gọi H2 powered PASS.
 
 > **M9-H1 REAL measured 2026-11-07:** Người dùng gửi `M9H1_REAL_20261107_183513.txt` với **4/4 M8 position DONE**, 130 REAL frames AS5600/CCR (19+37+36+38) hoàn chỉnh ở MCU SHA `3dbdfaf678b700f03f3517cf0e70664c5557f6ba`; tuổi mẫu 0..1ms, no bad/stale/overflow/drop. `u_shadow` **khác0** và thường bão hòa ±40; có trường hợp PD `u` đề xuất **hãm ngược lỗi khi M8 vẫn chạy, còn cách đích 150–180 RAW**, nên gain `Kd/Kp=0.5s` hiện không được đưa sang PWM thật. M8 sai số cuối ≤5RAW; H0 seq3 `reason=3` sau 1180ms (đã abort observer, nguyên nhân chi tiết chưa xác định). **H1 REAL DYNAMIC DATA CAPTURE PASS 4/4**, KHÔNG có HOLD external-force/thermal/current PASS, H2 chưa cấp điện giữ. Đọc `docs/M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md`; raw TXT vẫn private, docs-only commit không cần nạp lại firmware.
@@ -1792,6 +1794,27 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 
 - Commit `b9b75aff0bba91fedf62e4e67b244ad8f91fa1b4`, Actions `42370416232`: Linux exact-C H2-A `verify_m9_h2_guard.py` cùng full context contract **PASS**; Windows PowerShell parser phát hiện biến `$MaxEvents:` trong interpolated string (`:` theo sau tên biến), không phải lỗi motor hay logic NC.
 - Đã đổi thành `${MaxEvents}:` để parser PowerShell 5.1 hiểu chính xác. Mã H2/C motor guard không thay đổi; kiểm tra lại tất cả workflow ở SHA commit mới là bắt buộc.
+
+## 2026-11-07 — H2-A exact-SHA verified PASS (17 handoff points)
+
+[0] CI source SHA55db22f67c81517ada48106f5a506b7b367b7e4c run42370515934 COMPLETE SUCCESS confirmed, not inferred.
+[1] Branch feature/m9-steering-active-position-hold HEAD after docs must be verified; source H2A does not apply power.
+[2] Goal software-only steering HOLD continues but physical H2B pending characterization.
+[3] USER wanted H2 done; shipped guarded H2A rather than arbitrary current/PWM command.
+[4] M9-H0/H1 known static/real-dynamic data, H2A SOURCE/HOST CI PASS, H2A MCU capture pending, H2B/H3 not built.
+[5] All CI checks success: Linux actual-C GCC supervisor NC/STOP/owner/stale/unpowered cases, Windows PowerShell 5.1 parsing, context and M8 regressions.
+[6] No target CubeIDE Clean Build/Flash, H2 UART MCU log or current/thermal/torque/loaded evidence.
+[7] Source docs/M9_H2_GUARD_SOURCE_2026_11_07.md and CI run 42370515934, script tools/capture_m9_h2_guard.ps1, pure C core.
+[8] Boot no H2 actuation and M9H2_POWER_PERMITTED 0, all outputs always0; no enable by Live Expressions.
+[9] No new PWM/driver owner pathways, single safe-idle UART record only after DONE, close NC/safety gates.
+[10] Sensor stale 250ms, 32 RAW max H2 guard error, 3s shadow observation, explanatory blockBits.
+[11] Next target proof requires local source update with dirty worktree preserved, CubeIDE build/flash and passive H2A log; STOP/NC preflight remains.
+[12] H2B still depends on motor current/thermal, PWM0 CCS_SHB12 coast/brake, ACCE/DECCE, independent motor cutoff.
+[13] Initial H2A b9b75a passed C full contract but PS parser failed because MaxEvents-colon; corrected SHA55db22f full CI PASS.
+[14] H2A shadow Kp_Q8=128 Kd_Q8=32 cap20 score arbitrary, not physical CCR.
+[15] New chat should read exact source SHA vs doc HEAD and avoid asking old 130 H1 data again.
+[16] No H2 powered PASS, original requirements unchanged, no user TXT published.
+
 
 END OF CONTEXT HANDOFF
 

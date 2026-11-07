@@ -2,6 +2,8 @@
 
 ## HIỆN HÀNH 2026-11-07 — M9 H2-A supervisor implemented, MOTOR POWER HARD-LOCKED
 
+**M9-H2-A SOURCE + EXACT HOST CI PASS 2026-11-07:** Commit `55db22f67c81517ada48106f5a506b7b367b7e4c` GitHub Actions `42370515934` COMPLETED/SUCCESS, Linux actual-C and Windows PowerShell5.1 parser. Chưa CubeIDE/Flash/MCU real H2A evidence, H2-B ACTIVE chưa có. 
+
 **M9-H2-A SOURCE 2026-11-07:** Guard OFF/MONITOR/SHADOW/FAULT/COMPLETE viết bằng C, chỉ sau M8 DONE2 và goal R1/Voice5..40; màn giám sát STOP/NC/owner/wheel/stale/limit/time, score near-goal PD KHÔNG PWM. `M9H2_POWER_PERMITTED=0U`, dutyL/dutyR=0, `M9H2_GUARD` UART safe idle; target/host CI phải kiểm tra SHA mới. H2-B powered không được thực hiện vì chưa có dòng/nhiệt/PWM0 xác nhận. [Chi tiết H2-A](M9_H2_GUARD_SOURCE_2026_11_07.md).
 
 **M9-H1 REAL ON-MCU DATA 2026-11-07:** Bốn lượt động cơ đánh lái M8 thật `result=2`, 130/130 frames, actual AS5600+CCR+u_shadow, SHA `3dbdfaf`; **dynamic measurement DATA CAPTURE PASS**. Shadow cap ±40 xuất hiện nhiều và dấu u ngược với lỗi khi còn cách đích 150..180RAW, nên không được áp thẳng vào H2; H0 seq3 reason3 after1180ms chứ không hoàn tất 3s. No external load/current/thermal evidence. [Phân tích đầy đủ](M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
@@ -1400,3 +1402,9 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 - Commit `b9b75aff0bba91fedf62e4e67b244ad8f91fa1b4`, Actions `42370416232`: Linux exact-C H2-A `verify_m9_h2_guard.py` cùng full context contract **PASS**; Windows PowerShell parser phát hiện biến `$MaxEvents:` trong interpolated string (`:` theo sau tên biến), không phải lỗi motor hay logic NC.
 - Đã đổi thành `${MaxEvents}:` để parser PowerShell 5.1 hiểu chính xác. Mã H2/C motor guard không thay đổi; kiểm tra lại tất cả workflow ở SHA commit mới là bắt buộc.
+
+## 2026-11-07 — H2-A verified CI PASS at real SHA
+
+- Exact SHA `55db22f67c81517ada48106f5a506b7b367b7e4c` Actions `42370515934` COMPLETED/SUCCESS including Linux GCC real H2 C fault/owner/STOP/NC tests, no actuator-source wiring, M8/H0/H1 regressions and Windows PowerShell 5.1 H2 capture syntax.
+- Initial `b9b75a` Windows parser failed due `$MaxEvents:` in interpolated string; only collector syntax fixed, motor code unchanged. Target Build/Flash/H2-A private MCU logs pending.
+- H2-B physical HOLD still no code/active proof, fixed duty0, no current/thermal and no reliable driver PWM0 behavior.

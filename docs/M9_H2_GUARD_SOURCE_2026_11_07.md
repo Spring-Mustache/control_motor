@@ -33,7 +33,7 @@ Cần xác minh điện và điều khiển: (1) đo dòng motor khi đứng yê
 
 ## Báo cáo chính xác
 
-Đã viết source và test. **HOST CI exact commit chưa được xác minh tại thời điểm tạo tài liệu**; tiếp theo phải kiểm tra Actions SHA. Chưa có CubeIDE Build/Flash hay dữ liệu H2-A MCU. H2-B vẫn cấm cấp điện, H3 chưa làm.
+**HOST CI PASS đã xác minh:** GitHub Actions `42370515934` completed SUCCESS trên commit `55db22f67c81517ada48106f5a506b7b367b7e4c`; Linux GCC H2-A actual C and no motor write tests, Windows PowerShell syntax PASS. Bản `b9b75a` ban đầu fail parser do `$MaxEvents:`, đã sửa thành `${MaxEvents}:`. Motor source không thay đổi.  tiếp theo phải kiểm tra Actions SHA. Chưa có CubeIDE Build/Flash hay dữ liệu H2-A MCU. H2-B vẫn cấm cấp điện, H3 chưa làm.
 
 ## 2026-11-07 — H2-A lần CI đầu: sửa cú pháp PowerShell 5.1
 
