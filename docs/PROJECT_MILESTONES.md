@@ -2,6 +2,8 @@
 
 ## HIỆN HÀNH 2026-11-07 — M9 Steering (H1 static passed, REAL DRIVE capture source added)
 
+**M9-H1 REAL DRIVE (2026-11-07, SOURCE + HOST CI PASS):** Actions `42368389841` SUCCESS đúng source `93551551422559914052ec8b8671a521715714b4` (GCC C thật+no motor write & Windows PowerShell parser). CubeIDE Build/Flash/MCU REAL logs **chưa có**, không được coi dynamic data PASS.
+
 **M9-H1 REAL DRIVE (2026-11-07, SOURCE-STAGED):** Người dùng yêu cầu một bài lấy dữ liệu động từ **motor thật**, không mô phỏng hay Live Expressions. Code đã bổ sung bounded RAM flight recorder 80 frame (≥80ms/frame) khi M8 thực hiện R1/Voice5–40, chụp raw+actual CCR+góc lỗi+vận tốc H1+candidate H1, chỉ gửi `M9H1_REAL_BEGIN/FRAME/END` sau cả owner/wheel dừng. Script `tools/capture_m9_h1_real.ps1` gom 4 lệnh thực cùng H0/H1 3s. **Chưa có log MCU REAL hoặc Build/Flash của firmware này; không được coi H1 dynamics PASS**. Đọc [M9-H1 REAL](M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
 
 **M9-H1 MCU DATA CAPTURE (2026-11-07):** Bốn cặp UART H0/H1 từ MCU SHA `00ccaeace99a6948880ecf85061dea5d2f77514e` đều reason1 và shadowOnly1, H0 peakDrift ≤1RAW, H1 peakVel=0/peakCmd=0, tổng noise28, all bad/stale/jump/drop0. **Đạt static on-MCU telemetry/filtered-noise gate**, chưa chứng minh phản hồi lực khi |error|≥8RAW hoặc release-load thật. Không tự suy H2 powered PASS. Xem [H1 detailed review](M9_H1_PD_SHADOW_2026_11_06.md).
@@ -1349,3 +1351,8 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - **UART:** `M9H1_REAL_BEGIN/FRAME/END` qua UART3 IRQ safe idle, ưu tiên sau M8/H0/H1; `tools/capture_m9_h1_real.ps1` đếm 4 END, lưu cả H0/H1 và chuỗi sample thật vào TXT local. Nếu user phát lệnh mới trước khi trace cũ gửi hết, `dropped` tăng và không ghi đè trace cũ.
 - **CI:** Linux GCC actual-C host only as software safety regression + source wiring verifier `tools/verify_m9_h1_real.py`; Windows syntax parser new collector. Hardware dynamic log PENDING, no external-force release result yet.
 - **NEXT:** exact SHA CI PASS, CubeIDE Clean Build/Flash đúng SHA, NC/STOP preflight on rig, run 4 previously safe Voice position/CENTER commands and collect log; no physical pushing/forcing. Model tuning only after analyzing real measured trace.
+
+## 2026-11-07 — M9-H1 REAL source exact CI PASS
+
+- GitHub Actions run `42368389841` **COMPLETED/SUCCESS** on source `93551551422559914052ec8b8671a521715714b4`, Linux exact-C GCC actual C recorder no actuator and old H0/H1/M8 tests PASS, Windows PowerShell syntax PASS.
+- No firmware target Clean Build/Flash or new REAL motion TXT from MCU. No claims of physical H1 dynamic PASS, external-force release or current/thermal data.

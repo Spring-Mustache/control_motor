@@ -37,3 +37,7 @@
 ## Ranh giới bằng chứng
 
 Source/CI PASS là kiểm tra phần mềm, **không phải** CubeIDE Clean Build/Flash/REAL ON-TARGET PASS. Chưa có file `M9H1_REAL` do người dùng gửi; bộ thu chỉ tạo khi xe thực sự chạy bốn lệnh. Không dùng bài unit test dữ liệu giả làm log đo xe. H0/H1 static 4/4 từ `00ccaeace` đã PASS giới hạn, vẫn lưu lịch sử. Không tạo release, không đụng original 386 dòng hoặc các giới hạn M8 NC/STOP.
+
+## Exact source CI (2026-11-07)
+
+Firmware source commit `93551551422559914052ec8b8671a521715714b4` passed GitHub Actions run `42368389841` (Linux GCC real trace C/wiring + no new motor writes and Windows PowerShell5.1 script syntax). Source milestone **PASS**. **Hardware real-data CAPTURE vẫn PENDING** đến khi STM32 được Clean Build/Flash đúng SHA và gửi file output của `capture_m9_h1_real.ps1`. Logs CSV/TXT cá nhân không xuất hiện trên GitHub.
