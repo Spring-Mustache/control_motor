@@ -118,6 +118,9 @@ jobs:
       - name: Verify M9-H1 PD SHADOW only, filtered velocity, release-load simulation
         run: python3 tools/verify_m9_h1_shadow.py
 
+      - name: Verify M9-H1 REAL drive cached-AS5600 flight recorder with GCC
+        run: python3 tools/verify_m9_h1_real.py
+
       - name: Verify S15.4 fresh post-I2C sample tick and skip telemetry
         run: python3 tools/verify_m8_s154_sync_sample_clock.py
 
@@ -176,6 +179,7 @@ jobs:
                                ".\\tools\\capture_m8_r1_center.ps1",
                                ".\\tools\\capture_m9_h0_drift.ps1",
                                ".\\tools\\capture_m9_h1_shadow.ps1",
+                               ".\\tools\\capture_m9_h1_real.ps1",
                                ".\\tools\\stamp_firmware_build.ps1")) {
             $tokens = $null
             $errors = $null

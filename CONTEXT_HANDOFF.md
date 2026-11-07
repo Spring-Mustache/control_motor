@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **M9-H1 REAL DATA instrumentation, 2026-11-07:** Người dùng **không muốn mô phỏng**, muốn ghi dữ liệu chuyển động thật của xe **trong một lần thử** để cải tiến PD. Đã chuẩn bị bộ ghi RAM-only 80 frame (80ms giữa frame) trên các lệnh M8 đánh lái thật R1 CENTER/Voice5–40; mỗi frame chứa RAW, error, velocity PD filtered, candidate PD SHADOW, **CCR thực tế M8 chỉ đọc** và timestamp/NC/state. H0/H1 static 3s vẫn giữ nguyên; chỉ xuất `M9H1_REAL_BEGIN/FRAME/END` qua UART3 IRQ sau khi cả hai motor đã dừng, và sau các log M8/H0/H1. Công cụ `tools/capture_m9_h1_real.ps1` một lần nghe **4 lượt thực** và gom tất cả file TXT local, không dùng Live Expressions hay tác động tay/hack sensor. **Chưa có CubeIDE build/flash/log REAL và KHÔNG có đo ngoại lực tháo tải**; không suy H2 ACTIVE PASS. Xem `docs/M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md`. Phải kiểm tra exact GitHub CI sau commit.
+
 > **M9-H1 NEWEST 2026-11-07 — ON-MCU STATIC UART:** Người dùng gửi **4/4 cặp M9H0_DRIFT + M9H1_SHADOW**, MCU `sha=00ccaeace99a6948880ecf85061dea5d2f77514e`, mỗi cửa sổ 3000–3010 ms, mỗi trục 294–296 mẫu, H0 peak drift≤1RAW và H1 `peakVel=0`, `peakCmd=0` cả 8 trục-cửa sổ; 28 cửa sổ biến thiên 1RAW bị loại, không có lỗi sensor/stale/drop/đảo dấu. **H1 ON-MCU UART DATA CAPTURE PASS giới hạn tĩnh**, **chưa chứng minh hồi vị/giảm chấn khi ngoại lực** vì |error|≤6RAW dưới ngưỡng kích hoạt8RAW. H1 SOURCE/HOST CI đã PASS, H2 ACTIVE chưa triển khai, không cấp lực HOLD. GitHub branch M9; sau cập nhật tài liệu phải kiểm tra HEAD mới và CI. Đọc `docs/M9_H1_PD_SHADOW_2026_11_06.md`; log gốc vẫn private.
 
 > **M9-H1 CHECKPOINT 2026-11-06:** SOURCE + exact-SHA **HOST CI PASS** tại commit `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b`, GitHub Actions run `42237917589`: Linux `verify_m9_h1_shadow.py` biên dịch C thật + mô phỏng load-release PASS, hồi quy H0/M8 và workflow handoff PASS; Windows PowerShell syntax PASS. **Chưa có CubeIDE Clean Build/Flash hoặc log MCU H1**, càng không có mô-men HOLD ACTIVE. Nhánh hiện hành `feature/m9-steering-active-position-hold` cần kiểm tra HEAD sau commit docs. Lệnh và evidence: `docs/M9_H1_PD_SHADOW_2026_11_06.md`.
@@ -78,6 +80,14 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+### 2026-11-07 — M9-H1 thực hiện yêu cầu USER: đo đường cong M8 thật trên xe
+
+- [USER] Không muốn bài mô phỏng hay phải đo/chỉnh biến Live Expressions, muốn lấy **dữ liệu phần cứng thật** để hiệu chỉnh bộ PD. Không được thay mục tiêu sang H2 active hoặc ép người dùng đẩy bánh cơ học.
+- [IMPLEMENTATION] Thêm `Core/Src/m9_h1_real_trace.c`/`Core/Inc/m9_h1_real_trace.h`, hook trong `Core/Src/main.c` khi bắt đầu/rời owner M8 R1/Voice5–40 và superloop sau cập nhật actual CCR + cached AS5600, không I2C/motor write. Mẫu t=ms, raw L/R, err L/R, filtered vel L/R, candidate u L/R (shadow units), CCR L/R (actual M8 PWM), age, NC/state. 80 frame at minimum80ms. Frame buffer vào RAM, UART3 chỉ sau motor idle.
+- [LOGGING] `M9H1_REAL_BEGIN`, `M9H1_REAL_FRAME`, `M9H1_REAL_END` + H0_DRIFT/H1_SHADOW cũ trong một `tools/capture_m9_h1_real.ps1` chạy cho 4 lệnh thực từ Voice/R1. Không thêm lệnh gửi đi/không tự khởi động trục. Chờ REAL_END trước lệnh sau. On-target firmware build/flash/log pending; CI HOST GCC + wiring/no-actuation and PS parser phải xác minh.
+- [SCOPE] Dữ liệu khi **M8 đang chạy motor thật**, shadow PD không can thiệp. Đây là dynamic tracking thực nhưng **không chứng minh phản ứng khi motor ngắt và ngoại lực biến mất**. H2 ACTIVE vẫn chưa code/bật.
+- [PRIVATE] Chỉ commit mô tả và kết quả tổng hợp; TXT từ xe lưu `logs` local, không đưa lên repository public.
 
 ### Cập nhật kiểm chứng thực tế 2026-11-07 — H1 MCU UART 4 cặp, static-only
 
@@ -1688,6 +1698,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] 4 records: peakDrift 0..1RAW, peakErr0..6RAW, peakVel H1 0, peakCmd0, noise sum28; 8 independent axis windows but not mechanical load tests; enter8/exit4 RAW is current shadow setting.
 [15] Khi chuyển chat, verify branch HEAD, history source firmware SHA different from later docs commit, read H1 plan and raw analysis summary; do not ask data again.
 [16] Evidence SOURCE/HOST CI and MCU UART static capture only; independent CubeIDE/Flash logs absent; no active holding and H2 not allowed to infer PASS. Historical original requirements 386 lines retained, footer unchanged.
+
+## 2026-11-07 — M9-H1 REAL DRIVE CAPTURE development; 17-section trace
+
+[0] USER yêu cầu thực hiện một lần đo dữ liệu thật trên xe để hiệu chỉnh H1, không mô phỏng và không buộc Live Expressions/đẩy cơ cấu.
+[1] HEAD nền `18961493b9a3eb551825e236d46ec9c5f99fca5b`; nhánh feature/m9-steering-active-position-hold. Sau commit phải xác minh HEAD và full Actions. Source H0/H1 predecessor MCU SHA `00ccaeace` đã có 4 lượt static-data pass giới hạn.
+[2] Đáp án thực thi: flight recorder thụ động đo motor M8 đánh lái thật + AS5600, tính u_shadow không áp dụng; không mô phỏng chuyển động bằng dữ liệu giả trong firmware.
+[3] Người dùng chỉ cần giữ project STM32CubeIDE hiện có, bảo vệ local changes trước pull, flash đúng SHA mới, kiểm tra NC/STOP, chạy 4 Voice/R1 commands cũ trong cùng collector PowerShell; không mở Live Expressions hoặc tự sửa flags.
+[4] M9 H0 static 4/4 PASS, H1 static 4/4 PASS, H1 real motion data tool SOURCE-STAGED pending CubeIDE/flash/MCU log, H2 active/H3 chưa làm.
+[5] New `m9_h1_real_trace.c/.h` RAM recorder 80 frames, sampled 80ms while M8 owner1/4 moving, DATA: t/rawL/R/errorL/R/vL/R/uL/R, measured CCR L/R, sample age, NC mask, state; BEGIN/FRAME/END UART3 safe-idle plus H0/H1 logs.
+[6] No extra AS5600 ReadRaw call, no new PWM set, DIR GPIO change, owner command or delays. UART only after physical motors/wheels stopped, prior M8/H0/H1 summaries priority. CubeIDE/Flash logs and actual M9H1_REAL records unavailable until operator runs.
+[7] files: Core/Src/main.c, Core/Src/m9_h1_real_trace.c, Core/Inc/m9_h1_real_trace.h, tools/m9_h1_real_host_test.c, tools/verify_m9_h1_real.py, tools/capture_m9_h1_real.ps1, docs/M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md, workflow and original H0/H1 docs.
+[8] H1 u not motor PWM; telemetry uses real M8 CCR but no force applied by H1. High u during moving measures hypothetical PD, not actual hold behavior.
+[9] Bounded 80 samples captures first ~6.4sec movement; overflow counter exposes longer runs. Sample timestamp/age reveals stale/cached values and I2C variability. Large serial output happens only after idle.
+[10] Run gates: STEER Axis M8 owner command1 or4, arm from already-authorized start; excludes R2/Voice45 NC, shadow monitor enable1, refuses pending overwritten. STOP/fault records result and safe-serial idle. Keep NC/STOP checked at bench.
+[11] First check exact GitHub CI + Windows PS parse; on hardware PowerShell -MaxRuns4. Commands already safe: Voice15/30/40 and CENTER with wait REAL_END/3sec each. No manual force/stress test.
+[12] Later data need mapping of observed dynamics to safe H2 design and distinct external-load-release trials if permitted. No measured stall current/thermal/brake type currently.
+[13] 2026-11-06 M9-H0/H1 source and host CI; 2026-11-07 private static H1 4/4 logs; 2026-11-07 user requests real drive trace without simulation.
+[14] Sample format frame record includes signed err, vel, u in raw/s and shadow units, actual timer CCR from M8, raw from real AS5600. Verify sha/reason/event seq/overflow and sample age; do not treat 0 shadow as failure in idle.
+[15] Next chat verify exact SHA CI and inspect real TXT data privately if provided. Do not require prior H0/H1 static logs again.
+[16] No H2 CURRENT HOLD PASS, no artificial stimulation in firmware, no commit of private traces; original 386-line requirements and all prior history preserved.
 
 END OF CONTEXT HANDOFF
 

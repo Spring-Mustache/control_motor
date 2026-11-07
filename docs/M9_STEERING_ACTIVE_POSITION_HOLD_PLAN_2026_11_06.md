@@ -96,3 +96,7 @@ Mỗi H0/H1/H2/H3 phải phân biệt `SOURCE-STAGED -> HOST CI PASS -> CubeIDE 
 ### Cập nhật chứng cứ M9-H1 — 2026-11-07
 
 Người dùng cung cấp 4 cặp UART H0/H1 trên MCU `sha=00ccaeace99a6948880ecf85061dea5d2f77514e`: 3 Voice vị trí và 1 Voice CENTER, mỗi window 3000–3010ms, peak drift≤1RAW/trục, H1 peakVel0, peakCmd0, noise-suppressed tổng 28, không có error/stale/jump/drop. **H1 SHADOW static on-MCU data capture PASS giới hạn**; các err đo |e|≤6RAW thấp hơn ngưỡng engage8RAW nên không tạo candidate. Vì vậy chưa có bằng chứng motor damping/load release hoặc giữ góc khi có ngoại lực. H2 ACTIVE vẫn PENDING; `docs/M9_H1_PD_SHADOW_2026_11_06.md` chứa bảng kết quả.
+
+## 2026-11-07 — Quyết định đo động học H1 bằng motor thật
+
+Theo yêu cầu người dùng, H1 bổ sung `M9H1_REAL_BEGIN/FRAME/END` khi *M8 thực sự lái bánh* (không injection AS5600/sim); raw, error, filtered velocity, shadow candidate và actual M8 CCR/time/NC được lưu vào RAM và gửi chỉ khi an toàn đứng yên. Một script `tools/capture_m9_h1_real.ps1` thu bốn lệnh trong cùng một lần. Chờ log MCU thật và phân tích đáp ứng trước khi đổi thông số PD. H2 vẫn chưa cấp lực, không có H1 loaded release test. [Hướng dẫn](M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
