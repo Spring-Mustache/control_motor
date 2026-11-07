@@ -8,6 +8,8 @@ Firmware 4 motor bánh + 2 motor đánh lái, PS2, VC-02, encoder/AS5600, công 
 
 **M9-H1 REAL data recorder (source 2026-11-07):** Đã thêm bộ chụp chuyển động thật của M8 khi chạy lệnh vị trí, lưu RAW + measured CCR + PD SHADOW trong RAM rồi xuất UART chỉ khi idle, không mô phỏng/chỉnh Live Expressions/đổi motor control. Thu 4 lượt với `tools/capture_m9_h1_real.ps1`. **SOURCE + HOST CI PASS và đã có 4/4 lượt REAL trên MCU** tại `3dbdfaf`, đủ130 frame AS5600/CCR/u_shadow; chưa thử ngoại lực hoặc giữ góc powered H2; không phải H2 HOLD ACTIVE. [Hướng dẫn một lượt REAL](docs/M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
 
+**M9-H2-A GUARD (source 2026-11-07):** Đã thêm supervisor OFF/MONITOR/SHADOW/FAULT chỉ sau M8 DONE hợp lệ, kiểm tra STOP/NC/owner/sensor/wheel, near-goal PD score; **duty=0 và compile hard lock M9H2_POWER_PERMITTED=0U**, không HOLD cấp lực. H2-B powered chưa có vì chưa đo dòng/nhiệt/PWM0 driver. [M9-H2-A hướng dẫn](docs/M9_H2_GUARD_SOURCE_2026_11_07.md).
+
 ## Mở cuộc hội thoại ChatGPT mới
 
 **[Sao chép lời nhắn khởi đầu tại đây](docs/CHAT_B_START_PROMPT.md)** vào hội thoại mới. Bạn không cần tải lại file nếu AI có quyền đọc repository.

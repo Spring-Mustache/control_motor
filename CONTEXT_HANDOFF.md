@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **NEWEST M9-H2-A 2026-11-07:** Theo yêu cầu USER triển khai H2, đã viết **bộ giám sát H2-A tách riêng**, chỉ nhận goal sau cả hai trục M8 DONE2, tính near-goal PD shadow và đánh giá STOP/NC/owner/wheel/stale/timeout. Thêm `Core/Src/m9_h2_hold_guard.c`/`.h`, `M9H2_GUARD` UART3 sau idle và `tools/capture_m9_h2_guard.ps1`. Bắt buộc `M9H2_POWER_PERMITTED=0U`, mọi `dutyL=dutyR=0`, **KHÔNG có đường ghi PWM/DIR trong H2-A**. Cần xác minh Actions SHA mới, CubeIDE Build/Flash và MCU guard status; **H2-B ACTIVE CHƯA TRIỂN KHAI** do chưa kiểm chứng current/thermal, PWM0 coast/brake, independent motor E-stop. H0/H1 đã có 130 real motion frames trên SHA `3dbdfaf`. Đọc `docs/M9_H2_GUARD_SOURCE_2026_11_07.md` và các hồ sơ cũ. Không được gọi H2 powered PASS.
+
 > **M9-H1 REAL measured 2026-11-07:** Người dùng gửi `M9H1_REAL_20261107_183513.txt` với **4/4 M8 position DONE**, 130 REAL frames AS5600/CCR (19+37+36+38) hoàn chỉnh ở MCU SHA `3dbdfaf678b700f03f3517cf0e70664c5557f6ba`; tuổi mẫu 0..1ms, no bad/stale/overflow/drop. `u_shadow` **khác0** và thường bão hòa ±40; có trường hợp PD `u` đề xuất **hãm ngược lỗi khi M8 vẫn chạy, còn cách đích 150–180 RAW**, nên gain `Kd/Kp=0.5s` hiện không được đưa sang PWM thật. M8 sai số cuối ≤5RAW; H0 seq3 `reason=3` sau 1180ms (đã abort observer, nguyên nhân chi tiết chưa xác định). **H1 REAL DYNAMIC DATA CAPTURE PASS 4/4**, KHÔNG có HOLD external-force/thermal/current PASS, H2 chưa cấp điện giữ. Đọc `docs/M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md`; raw TXT vẫn private, docs-only commit không cần nạp lại firmware.
 
 > **M9-H1 REAL capture HOST CI PASS 2026-11-07:** Source commit `93551551422559914052ec8b8671a521715714b4`, Actions `42368389841` completed SUCCESS: Linux GCC exact-C test for REAL trace + wiring/forbidden motor writes, old H0/H1/M8 regressions and full context contract PASS; native PowerShell 5.1 parser PASS. Đây **không phải CubeIDE Build/Flash hay log chuyển động trên xe**. HEAD sau commit chỉ sửa docs cần verify CI riêng; H2 ACTIVE vẫn chưa có.
@@ -1765,6 +1767,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] H0 static reason1 for seq1/2/4, reason3 for seq3; H1 idle peakCmd0 all four, moving peakCmd40 both axes in four runs.
 [15] Next chat answer from existing real data first; do not ask new hardware test unless a specific remaining safety gate cannot be addressed offline.
 [16] No HOLD torque applied, H2 not active; source/CI vs MCU hardware evidence separated, original requirements untouched.
+
+## 2026-11-07 — M9-H2-A GUARD SOURCE (17 checkpoints)
+
+[0] USER yêu cầu triển khai H2 ngay sau 4-run H1 real trace, không chấp nhận bịa current/stall torque.
+[1] Parent branch M9 exact HEAD fffea1bd6fe3b616e28a0e31190ced70adbb0f4f trước H2 source. HEAD sau commit phải fetch/verify exact Actions.
+[2] Goal full M9 Active Position Hold vẫn giữ, nhưng H2 chia H2-A fail-closed supervisor và H2-B cấp lực với điện/thermal gate; không tự đổi mục tiêu sang M8.
+[3] Khả năng dữ liệu: H1 130 real AS5600/CCR frames done, nhưng không có lực ngoài hoặc dòng stall, CCS_SHB12 PWM0 coast/brake unknown. Không tự ước lượng cap CCR như an toàn.
+[4] H0/H1 static/dynamic capture PASS trong phạm vi cũ. H2-A SOURCE-STAGED pending CI/target; H2-B powered chưa implement; H3 integration pending.
+[5] New Core/Inc/m9_h2_hold_guard.h + Core/Src/m9_h2_hold_guard.c: enum OFF/MONITOR/SHADOW/ARMED/ACTIVE/FAULT/COMPLETE, runtime uses only monitor/shadow/fault/complete. M9H2_POWER_PERMITTED=0U hard close, duty=0 no GPIO/PWM calls.
+[6] main.c add M9H2_StartAfterDone only AFTER left/right PWM0 and both DONE2 no NC, R1/Voice5..40; M9H2_IdleUpdate from cached AS5600, invalid/stale, NC, safety STOP, wheel moving, owner change/mode change flags, score calculated with near-goal PD 128/32 Q8 cap±20 arbitrary. No extra I2C. UART emits one M9H2_GUARD record at complete SAFE idle.
+[7] Files: Core/Src/main.c; Core/Inc/m9_h2_hold_guard.h, Core/Src/m9_h2_hold_guard.c, tools/m9_h2_host_test.c, tools/verify_m9_h2_guard.py, tools/capture_m9_h2_guard.ps1, docs/M9_H2_GUARD_SOURCE_2026_11_07.md and updated workflow.
+[8] Control rules: boot/timeout OFF, no startup hold, 3s H2A shadow observation, no active. STOP/neutral/trip, NC mask, stale/corrupt, jump >90RAW, error>32RAW, wheel activity or other steering owner cause cancel/Fault, never PWM.
+[9] Safety note: realtime H2-B motor owner arbitration not yet certified; current M8 idle path forces CCR0. Never bypass M8/NC ISR with shadow candidate. Code H2A contains no motor writes by design.
+[10] H2A logs bitset blockBits: 0 trip,1 stopLatch,2 control STOP,3 neutralReq,4 monitorDisabled,5 motionPermit off,6 wheel moving,7 NC input,8 owner/mode changed,9 debug poll; aids analysis of prior H0 seq3 reason3 without claiming cause.
+[11] Test strategy strict GCC actual-C host + wiring invariants + Windows PowerShell syntax; if PASS only H2A SOURCE/HOST. Separate CubeIDE Build/Flash/MCU logger and H2B physical bench still pending.
+[12] Need empirical CCS_SHB12 PWM0 coast/brake, ACCE/DECCE lag, motor current at stall/duty, temperature, safe holding time, actual force removal, independent power E-stop.
+[13] Sequence prior H0 passive/H1 shadow, H1 real 4 run SHA3dbdfaf; new H2A additive code no H1 gains or M8 tested steering modified.
+[14] H2A near-goal shadow KP_Q8=128/KD_Q8=32, cap±20 arbitrary, 32 RAW deviation rejection, stale≤250ms, 3s window, 100ms velocity; NOT motor CCR/current.
+[15] After code commit inspect CI exact SHA, docs status, user local worktree preserved before pull, no reset/restore files; if logs sent analyze them before requesting new physical tests.
+[16] H2A no electrical hold, no H2 powered PASS; H2B cannot be honestly claimed without safety evidence and review, original project req 386 lines remain unchanged.
 
 END OF CONTEXT HANDOFF
 

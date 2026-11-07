@@ -1,6 +1,8 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-## HIỆN HÀNH 2026-11-07 — M9 Steering: 4/4 REAL M8 drive traces captured (130 frames)
+## HIỆN HÀNH 2026-11-07 — M9 H2-A supervisor implemented, MOTOR POWER HARD-LOCKED
+
+**M9-H2-A SOURCE 2026-11-07:** Guard OFF/MONITOR/SHADOW/FAULT/COMPLETE viết bằng C, chỉ sau M8 DONE2 và goal R1/Voice5..40; màn giám sát STOP/NC/owner/wheel/stale/limit/time, score near-goal PD KHÔNG PWM. `M9H2_POWER_PERMITTED=0U`, dutyL/dutyR=0, `M9H2_GUARD` UART safe idle; target/host CI phải kiểm tra SHA mới. H2-B powered không được thực hiện vì chưa có dòng/nhiệt/PWM0 xác nhận. [Chi tiết H2-A](M9_H2_GUARD_SOURCE_2026_11_07.md).
 
 **M9-H1 REAL ON-MCU DATA 2026-11-07:** Bốn lượt động cơ đánh lái M8 thật `result=2`, 130/130 frames, actual AS5600+CCR+u_shadow, SHA `3dbdfaf`; **dynamic measurement DATA CAPTURE PASS**. Shadow cap ±40 xuất hiện nhiều và dấu u ngược với lỗi khi còn cách đích 150..180RAW, nên không được áp thẳng vào H2; H0 seq3 reason3 after1180ms chứ không hoàn tất 3s. No external load/current/thermal evidence. [Phân tích đầy đủ](M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
 
@@ -1387,3 +1389,9 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 3. To design actual position hold, still need **external disturbance/release under physically safe conditions**, motor current and thermal/stall constraints, driver PWM=0 coast/brake behavior, DIR polarity and PWM→torque relation. These cannot be inferred from the 130 normal-motion samples. Changing gains based solely on them risks unsafe actuation.
 4. **Next engineering improvement without requesting repeat of these four runs:** analyze M8 free-coast/quiet fine-pulse segments and motor response asymmetry offline; require explicit safety gates for owner/NC/STOP and bounded torque/current before any H2. An H1 read-only reason-bitmask for abort3 and finer post-DONE observation may help only if a specific new test is later justified.
 
+
+## 2026-11-07 — M9-H2-A GUARD triển khai source, MOTOR OUTPUT HARD OFF
+
+- [IMPLEMENTED] Pure C H2 guard + C unit tests + main integration after both DONE2, safe-idle UART3 one-line M9H2_GUARD with blockBits, script collector PowerShell. R2/Voice45 excluded, H1/H0/M8 retained.
+- [SAFETY] All H2A states have dutyL=dutyR=0, M9H2_POWER_PERMITTED=0 and no H2 GPIO/CCR writes, no new I2C; runtime bench_request cannot bypass. 250ms sensor stale, 32RAW deviation, 3sec observation, distinct STOP/NC/owner/mode/wheel cancel.
+- [EVIDENCE] Until exact SHA Actions complete, source staged only; CubeIDE Build/Flash/H2 MCU guard log pending. H2B powered active and loaded motor response NOT PASS/NOT IMPLEMENTED. No current/thermal/PWM0 brake-coast data; no active PWM tuning.
