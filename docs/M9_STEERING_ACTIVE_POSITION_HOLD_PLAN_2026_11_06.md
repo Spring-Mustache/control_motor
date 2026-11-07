@@ -92,3 +92,7 @@ Mỗi H0/H1/H2/H3 phải phân biệt `SOURCE-STAGED -> HOST CI PASS -> CubeIDE 
 - Cặp tham số `Kp_q8=256`, `Kd_q8=128`, ±40 shadow units là **giả định mô phỏng để kiểm thử**, không được chuyển sang CCR, mô-men hoặc dòng điện. Chưa đủ chứng cứ xác định gain giữ góc thật.
 - `M9H1_SHADOW` xuất log chỉ sau khi H0 kết thúc và mọi motor/UART idle; no motor write/no extra I2C. Simulated release-load in GCC không chứng minh an toàn đẩy ngược trên xe.
 - H2 ACTIVE vẫn chưa được thực hiện; chỉ nghiên cứu tiếp khi có H1 on-MCU data và đánh giá các cổng current/thermal/NC/STOP. Xem `docs/M9_H1_PD_SHADOW_2026_11_06.md`.
+
+### Cập nhật chứng cứ M9-H1 — 2026-11-07
+
+Người dùng cung cấp 4 cặp UART H0/H1 trên MCU `sha=00ccaeace99a6948880ecf85061dea5d2f77514e`: 3 Voice vị trí và 1 Voice CENTER, mỗi window 3000–3010ms, peak drift≤1RAW/trục, H1 peakVel0, peakCmd0, noise-suppressed tổng 28, không có error/stale/jump/drop. **H1 SHADOW static on-MCU data capture PASS giới hạn**; các err đo |e|≤6RAW thấp hơn ngưỡng engage8RAW nên không tạo candidate. Vì vậy chưa có bằng chứng motor damping/load release hoặc giữ góc khi có ngoại lực. H2 ACTIVE vẫn PENDING; `docs/M9_H1_PD_SHADOW_2026_11_06.md` chứa bảng kết quả.

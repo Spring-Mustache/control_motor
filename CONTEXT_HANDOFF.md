@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **M9-H1 NEWEST 2026-11-07 — ON-MCU STATIC UART:** Người dùng gửi **4/4 cặp M9H0_DRIFT + M9H1_SHADOW**, MCU `sha=00ccaeace99a6948880ecf85061dea5d2f77514e`, mỗi cửa sổ 3000–3010 ms, mỗi trục 294–296 mẫu, H0 peak drift≤1RAW và H1 `peakVel=0`, `peakCmd=0` cả 8 trục-cửa sổ; 28 cửa sổ biến thiên 1RAW bị loại, không có lỗi sensor/stale/drop/đảo dấu. **H1 ON-MCU UART DATA CAPTURE PASS giới hạn tĩnh**, **chưa chứng minh hồi vị/giảm chấn khi ngoại lực** vì |error|≤6RAW dưới ngưỡng kích hoạt8RAW. H1 SOURCE/HOST CI đã PASS, H2 ACTIVE chưa triển khai, không cấp lực HOLD. GitHub branch M9; sau cập nhật tài liệu phải kiểm tra HEAD mới và CI. Đọc `docs/M9_H1_PD_SHADOW_2026_11_06.md`; log gốc vẫn private.
+
 > **M9-H1 CHECKPOINT 2026-11-06:** SOURCE + exact-SHA **HOST CI PASS** tại commit `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b`, GitHub Actions run `42237917589`: Linux `verify_m9_h1_shadow.py` biên dịch C thật + mô phỏng load-release PASS, hồi quy H0/M8 và workflow handoff PASS; Windows PowerShell syntax PASS. **Chưa có CubeIDE Clean Build/Flash hoặc log MCU H1**, càng không có mô-men HOLD ACTIVE. Nhánh hiện hành `feature/m9-steering-active-position-hold` cần kiểm tra HEAD sau commit docs. Lệnh và evidence: `docs/M9_H1_PD_SHADOW_2026_11_06.md`.
 
 > **HIỆN HÀNH — 2026-11-06 M9-H1:** Người dùng yêu cầu **triển khai M9-H1 PD SHADOW**. Nhánh `feature/m9-steering-active-position-hold` lấy nền `d367618d`; H0 đã có 4/4 cửa sổ private MCU 3 giây **DATA CAPTURE PASS giới hạn** ở SHA `8c2b3fe7` (trôi đỉnh ≤1 RAW). **H1 SOURCE-STAGED, cần kiểm tra exact-SHA HOST CI rồi CubeIDE Build/Flash/MCU log riêng**; tính PD tham khảo trong bộ nhớ, không ghi PWM, không có HOLD_ACTIVE. Bảo toàn STOP, NC, PS2, VC-02, M8 đã nghiệm thu. Xem `docs/M9_H1_PD_SHADOW_2026_11_06.md`; đừng nhầm các dòng M8 “LATEST” lịch sử bên dưới với HEAD.
@@ -76,6 +78,12 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+### Cập nhật kiểm chứng thực tế 2026-11-07 — H1 MCU UART 4 cặp, static-only
+
+- Bằng chứng người dùng cấp: 4 M9H0_DRIFT + 4 M9H1_SHADOW có SHA 00ccaeace99a6948880ecf85061dea5d2f77514e; seq1..4 matched, source3 ×3/source2 ×1, duration3000..3010ms, 294–296 mẫu/trục, no invalid/stale/jump/drop.
+- H1 noise filter loại 28 lần biến thiên 1RAW; H0 peakVel100 RAW/s trong một số lượt nhưng H1 peakVel0; tất cả peakCmd0 vì |err|≤6 RAW < enter8. Chỉ static capture PASS, **chưa có kiểm chứng PD đáp ứng tải ngoài hoặc điều khiển PWM**.
+- Cần HOST dynamic stimulus hoặc controlled passive bench excursion để quan sát ứng xử khi |err|≥8, không tự chuyển H2. Xem đầu file và M9_H1_PD_SHADOW doc. Sau cập nhật MD HEAD docs thay đổi, nhưng MCU log thuộc SHA trước đó.
 
 ### TIẾN ĐỘ 2026-11-06 — M9-H1 PD SHADOW (SOURCE + HOST CI PASS; chưa cấp điện giữ góc)
 
@@ -1660,6 +1668,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] PD shadow Kp_q8=256, Kd_q8=128, hyst 8/4 RAW, deadband5 RAW, speed window100ms/1RAW suppression, stale250ms, cap±40 arbitrary units.
 [15] Chat mới tiếp tục từ HEAD M9 và H1 code; không chốt hardware PASS từ CI hoặc tư vấn powered H2 khi chưa có bảo vệ thực nghiệm.
 [16] Đúng bằng chứng: SOURCE + HOST CI PASS, hardware HOLD PASS chưa có; original 386-line source và 17 section/footer vẫn được giữ.
+
+## 2026-11-07 — M9-H1 private MCU log: cập nhật đủ 0–16
+
+[0] Người dùng gửi file riêng `M9H1_shadow_20261107_175758.txt`; 8 lines có 4 H0 + 4 H1. Không push raw TXT public.
+[1] Handoff nhánh feature/m9-steering-active-position-hold; source firmware đã flash tự báo SHA `00ccaeace99a6948880ecf85061dea5d2f77514e`. HEAD sau commit docs sẽ khác, phải check GitHub. H1 on-MCU UART static capture PASS giới hạn, not active HOLD.
+[2] Mục tiêu dài hạn software-only active hold; H1 chỉ shadow PD mô phỏng, chưa cấp điện để giữ trục.
+[3] User đã tự build/debug và thu 4 lượt theo script, không cần lặp hỏi SHA hay yêu cầu gửi lại 8 dòng.
+[4] M9-H0 static 4/4 pass trước; M9-H1 static MCU 4/4 pairs capture pass; H2 bounded active/H3 integration chưa làm, H1 dynamic load response chưa test.
+[5] Số đo: all 4 reason1, 3000..3010ms, samples 294..296/side, H0 peakDrift≤1RAW, H0 peakErr≤6RAW, H1 peakVel0, peakCmd0, noise-suppressed total28, invalid/stale/jump/zeroDt/dropped=0. Voice source3 x3, source2 x1.
+[6] Chưa có H1 candidate nonzero, reversal/brake dưới tải, current/thermal, CCS_SHB12 coast/brake, explicit CubeIDE Clean Build command/log và NC/STOP under load.
+[7] Docs: docs/M9_H1_PD_SHADOW_2026_11_06.md + docs/PROJECT_MILESTONES.md + source Core/Src/m9_h1_shadow.c. Log origin private conversation, not repo.
+[8] Kết luận: xác minh H1 filters 1RAW static jitter; peakCmd0 vì |e|≤6 < enter8, không nói PD giữ trục hiệu quả hoặc thiếu công suất.
+[9] Đỉnh H0 velocity100RAW/s tương thích 1RAW/10ms, H1 rejects; lượng tử và cửa sổ >=100ms có thể trì hoãn phản ứng khi load thật đột ngột, rủi ro chưa được đo.
+[10] Tốc độ mẫu ~98Hz/side lần này từ firmware safety loop hiện có, không guarantee invariant dt, H1 stale/invalid gates vẫn cần.
+[11] Next: thiết kế dynamic stimulus SHADOW >8RAW với mô phỏng/HOST có tiêu chí, hoặc bench protected nếu user sẵn sàng; đừng cho H2 lên motor cho đến khi có dữ liệu phản lực, cap current/thermal và ưu tiên STOP/NC đã kiểm chứng.
+[12] Vẫn chưa biết allowable motor current/stall duty, backlash/encoder mounting, real response to unloading, actual external torque, PWM0 brake/coast.
+[13] Timeline: M9-H1 firmware/source HOST CI completed at SHA 00ccaeace; 2026-11-07 user sends MCU 4 paired records; repository docs updated with accurate evidence boundary.
+[14] 4 records: peakDrift 0..1RAW, peakErr0..6RAW, peakVel H1 0, peakCmd0, noise sum28; 8 independent axis windows but not mechanical load tests; enter8/exit4 RAW is current shadow setting.
+[15] Khi chuyển chat, verify branch HEAD, history source firmware SHA different from later docs commit, read H1 plan and raw analysis summary; do not ask data again.
+[16] Evidence SOURCE/HOST CI and MCU UART static capture only; independent CubeIDE/Flash logs absent; no active holding and H2 not allowed to infer PASS. Historical original requirements 386 lines retained, footer unchanged.
 
 END OF CONTEXT HANDOFF
 

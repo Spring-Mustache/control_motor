@@ -1,6 +1,8 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-## HIỆN HÀNH 2026-11-06 — M9 Steering Active Position Hold (H0 dữ liệu tĩnh, H1 SHADOW source)
+## HIỆN HÀNH 2026-11-07 — M9 Steering Active Position Hold (H1 4/4 MCU UART static capture)
+
+**M9-H1 MCU DATA CAPTURE (2026-11-07):** Bốn cặp UART H0/H1 từ MCU SHA `00ccaeace99a6948880ecf85061dea5d2f77514e` đều reason1 và shadowOnly1, H0 peakDrift ≤1RAW, H1 peakVel=0/peakCmd=0, tổng noise28, all bad/stale/jump/drop0. **Đạt static on-MCU telemetry/filtered-noise gate**, chưa chứng minh phản hồi lực khi |error|≥8RAW hoặc release-load thật. Không tự suy H2 powered PASS. Xem [H1 detailed review](M9_H1_PD_SHADOW_2026_11_06.md).
 
 **M9-H1 SOURCE + HOST CI PASS (2026-11-06):** GitHub Actions `42237917589` **SUCCESS** trên exact `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b` (Linux GCC C thật + H0/M8 regression + Windows PowerShell). Target CubeIDE/Flash/real MCU H1 log vẫn chưa có. Đã chuẩn bị mô-đun tính PD SHADOW trên branch M9, chưa cấp điện hay giữ trục; 100ms velocity window lọc nhiễu 1RAW, e deadband/hysteresis, stale/jump/STOP/owner interlocks theo H0, kết quả UART idle `M9H1_SHADOW`. [Xem H1 chi tiết](M9_H1_PD_SHADOW_2026_11_06.md). HOST exact-SHA/target phải xác minh sau commit.
 
@@ -13,7 +15,7 @@
 | ID | Kết quả cần có | Trạng thái 2026-11-06 |
 |---|---|---|
 | **M9-H0** | Giám sát 3s sau DONE, không phát lực; 4 bản ghi MCU với cảm biến hợp lệ, lệch đỉnh ≤1 RAW | **SOURCE + HOST CI PASS; on-MCU UART DATA CAPTURE PASS giới hạn** |
-| **M9-H1** | PD shadow Q8, filtered velocity 100ms, stale/jump/noise, GCC load-release simulation, safe-idle UART | **SOURCE + exact HOST CI PASS (7d8c98e); CubeIDE/Flash/MCU log chưa có** |
+| **M9-H1** | PD shadow Q8; 4 cặp H0/H1 UART source SHA 00ccaeace có peakCmd0/peakVel0, 28 noise suppressed | **SOURCE + HOST CI PASS; MCU UART STATIC CAPTURE 4/4 PASS giới hạn, chưa phản ứng tải/ACTIVE** |
 | **M9-H2** | HOLD_ACTIVE opt-in boot OFF, giới hạn lực/thời gian, thử gá có NC/STOP và ngắt nguồn motor độc lập | **PLANNED / chưa powered test** |
 | **M9-H3** | Tích hợp HOLD với PS2, VC-02 và chạy bánh, nghiệm thu safety/gá/tải riêng | **PLANNED** |
 
@@ -1319,3 +1321,21 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - Commit source `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b`, Actions run `42237917589` **COMPLETED/SUCCESS**: Linux GCC H1 actual C PD release-load, strict source no-motor-write; H0 and old M8 regression; Windows PowerShell syntax; full context contract.
 - Initial CI on `524ab68` failed signed/unsigned type in `M9H1_Candidate`, fixed in `7d8c98e`. Distinguish compiler fix from any STM32 motor defect.
 - Milestone H1 evidence upgraded to **HOST CI PASS**, **NOT target Build/Flash/bench/HOLD PASS**. No H2 PWM/driver output changed; next receive `M9H1_SHADOW` private on-MCU UART if operator chooses.
+
+## 2026-11-07 — M9-H1: kiểm chứng 4 cặp H0/H1 UART trên STM32 (quan sát tĩnh)
+
+**[USER-SUPPLIED PRIVATE MCU LOG, 2026-11-07 17:57 local filename]** `M9H1_shadow_20261107_175758.txt`, 8 dòng: bốn `M9H0_DRIFT` và bốn `M9H1_SHADOW`, ghép cặp `seq=1..4`; toàn bộ `sha=00ccaeace99a6948880ecf85061dea5d2f77514e`, đúng HEAD firmware GitHub trước commit tài liệu. Đây là dữ liệu người dùng gửi riêng; **không commit nội dung TXT vào GitHub**.
+
+| Seq | Source | H0 duration | H0 peak drift L/R | H0 peak error L/R | H1 peak velocity L/R | H1 peak candidate L/R | H1 noise L/R |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 3 Voice position | 3000ms | 0/1 RAW | 0/4 RAW | 0/0 RAW/s | 0/0 SHADOW | 0/10 |
+| 2 | 3 Voice position | 3000ms | 1/1 RAW | 6/6 RAW | 0/0 RAW/s | 0/0 SHADOW | 6/3 |
+| 3 | 3 Voice position | 3000ms | 1/1 RAW | 3/3 RAW | 0/0 RAW/s | 0/0 SHADOW | 5/0 |
+| 4 | 2 Voice CENTER | 3010ms | 1/0 RAW | 2/4 RAW | 0/0 RAW/s | 0/0 SHADOW | 4/0 |
+
+- [OBSERVED] Mỗi trục có **294..296** mẫu/cửa sổ (~98 mẫu/s/trục), `reason=1`, `shadowOnly=1`, `wheelsMoved=0`, mọi `bad/stale/jump/zeroDt/dropped=0`; mọi `brake/reversal/sat=0`. Cả bốn H0 peak drift ≤1 RAW, error peak ≤6 RAW.
+- [SIGNAL] H0 vẫn thấy `peakVel=100 RAW/s` một số trục (có thể 1 RAW / 10ms), nhưng H1 `peakVel=0` ở cả 8 trục-cửa sổ; tổng `noise=28` cửa sổ loại biến thiên 1 RAW (0+10+6+3+5+0+4+0). Thể hiện lọc nhiễu lượng tử trong tình huống tĩnh, **không** chứng minh giữ được vận tốc thực nhỏ hoặc load-release trên chassis.
+- [CONTROLLER] Tất cả sai số H1 cuối |e|≤6 RAW, dưới ngưỡng position engage **8 RAW**. `peakCmd=0` là phù hợp deadband/hysteresis đã chọn, nhưng **không kiểm chứng PD khi sai lệch lớn, mô-men hồi vị, tăng giảm tải hoặc phanh ngược khi tải mất**. HOST synthetic release-load vẫn là bằng chứng mô phỏng riêng, không biến thành hardware PASS.
+- [SCOPE] **M9-H1 ON-MCU UART STATIC DATA CAPTURE PASS giới hạn (4/4)**, cùng HOST CI đã PASS trước đó. Không có bằng chứng độc lập CubeIDE Clean Build, flash command/output, NC/STOP under load, dòng/nhiệt hoặc CCS_SHB12 coast/brake ở PWM0. Chưa dùng `M9H1_SHADOW` để gửi PWM. Không có PS2 R1 `source=1` ở tập này.
+- [NEXT] Cần chứng cứ đặc trưng của `u_shadow` khi có độ lệch ≥8 RAW/động học, trước khi quyết định bộ thông số H2. Thực hiện bằng HOST injection hoặc thử quan sát có kiểm soát trên giá an toàn; **không chuyển sang H2 active chỉ vì 4/4 log tĩnh**. Nếu thử phần cứng, giữ quy trình nguồn motor độc lập và NC/STOP trước, không cố ép tay khi chưa bảo đảm an toàn.
+
