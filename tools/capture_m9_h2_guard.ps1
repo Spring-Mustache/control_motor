@@ -55,7 +55,7 @@ try {
         Write-Warning "UNEXPECTED NONZERO ACTIVE OUTPUT CLAIM. STOP test and review firmware."
         break
       }
-      Write-Host "GUARD $events/$MaxEvents: $line"
+      Write-Host "GUARD $events/${MaxEvents}: $line"
     }else{Write-Host "Read-only H0/H1 observer record received"}
   }
 }finally {

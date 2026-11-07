@@ -1788,6 +1788,11 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] After code commit inspect CI exact SHA, docs status, user local worktree preserved before pull, no reset/restore files; if logs sent analyze them before requesting new physical tests.
 [16] H2A no electrical hold, no H2 powered PASS; H2B cannot be honestly claimed without safety evidence and review, original project req 386 lines remain unchanged.
 
+## 2026-11-07 — H2-A lần CI đầu: sửa cú pháp PowerShell 5.1
+
+- Commit `b9b75aff0bba91fedf62e4e67b244ad8f91fa1b4`, Actions `42370416232`: Linux exact-C H2-A `verify_m9_h2_guard.py` cùng full context contract **PASS**; Windows PowerShell parser phát hiện biến `$MaxEvents:` trong interpolated string (`:` theo sau tên biến), không phải lỗi motor hay logic NC.
+- Đã đổi thành `${MaxEvents}:` để parser PowerShell 5.1 hiểu chính xác. Mã H2/C motor guard không thay đổi; kiểm tra lại tất cả workflow ở SHA commit mới là bắt buộc.
+
 END OF CONTEXT HANDOFF
 
 

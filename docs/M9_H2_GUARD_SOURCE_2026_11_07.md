@@ -34,3 +34,8 @@ Cần xác minh điện và điều khiển: (1) đo dòng motor khi đứng yê
 ## Báo cáo chính xác
 
 Đã viết source và test. **HOST CI exact commit chưa được xác minh tại thời điểm tạo tài liệu**; tiếp theo phải kiểm tra Actions SHA. Chưa có CubeIDE Build/Flash hay dữ liệu H2-A MCU. H2-B vẫn cấm cấp điện, H3 chưa làm.
+
+## 2026-11-07 — H2-A lần CI đầu: sửa cú pháp PowerShell 5.1
+
+- Commit `b9b75aff0bba91fedf62e4e67b244ad8f91fa1b4`, Actions `42370416232`: Linux exact-C H2-A `verify_m9_h2_guard.py` cùng full context contract **PASS**; Windows PowerShell parser phát hiện biến `$MaxEvents:` trong interpolated string (`:` theo sau tên biến), không phải lỗi motor hay logic NC.
+- Đã đổi thành `${MaxEvents}:` để parser PowerShell 5.1 hiểu chính xác. Mã H2/C motor guard không thay đổi; kiểm tra lại tất cả workflow ở SHA commit mới là bắt buộc.

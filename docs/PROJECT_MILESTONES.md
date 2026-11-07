@@ -1395,3 +1395,8 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [IMPLEMENTED] Pure C H2 guard + C unit tests + main integration after both DONE2, safe-idle UART3 one-line M9H2_GUARD with blockBits, script collector PowerShell. R2/Voice45 excluded, H1/H0/M8 retained.
 - [SAFETY] All H2A states have dutyL=dutyR=0, M9H2_POWER_PERMITTED=0 and no H2 GPIO/CCR writes, no new I2C; runtime bench_request cannot bypass. 250ms sensor stale, 32RAW deviation, 3sec observation, distinct STOP/NC/owner/mode/wheel cancel.
 - [EVIDENCE] Until exact SHA Actions complete, source staged only; CubeIDE Build/Flash/H2 MCU guard log pending. H2B powered active and loaded motor response NOT PASS/NOT IMPLEMENTED. No current/thermal/PWM0 brake-coast data; no active PWM tuning.
+
+## 2026-11-07 — H2-A lần CI đầu: sửa cú pháp PowerShell 5.1
+
+- Commit `b9b75aff0bba91fedf62e4e67b244ad8f91fa1b4`, Actions `42370416232`: Linux exact-C H2-A `verify_m9_h2_guard.py` cùng full context contract **PASS**; Windows PowerShell parser phát hiện biến `$MaxEvents:` trong interpolated string (`:` theo sau tên biến), không phải lỗi motor hay logic NC.
+- Đã đổi thành `${MaxEvents}:` để parser PowerShell 5.1 hiểu chính xác. Mã H2/C motor guard không thay đổi; kiểm tra lại tất cả workflow ở SHA commit mới là bắt buộc.
