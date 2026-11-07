@@ -1,6 +1,8 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-## HIỆN HÀNH 2026-11-07 — M9 Steering (H1 static passed, REAL DRIVE capture source added)
+## HIỆN HÀNH 2026-11-07 — M9 Steering: 4/4 REAL M8 drive traces captured (130 frames)
+
+**M9-H1 REAL ON-MCU DATA 2026-11-07:** Bốn lượt động cơ đánh lái M8 thật `result=2`, 130/130 frames, actual AS5600+CCR+u_shadow, SHA `3dbdfaf`; **dynamic measurement DATA CAPTURE PASS**. Shadow cap ±40 xuất hiện nhiều và dấu u ngược với lỗi khi còn cách đích 150..180RAW, nên không được áp thẳng vào H2; H0 seq3 reason3 after1180ms chứ không hoàn tất 3s. No external load/current/thermal evidence. [Phân tích đầy đủ](M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
 
 **M9-H1 REAL DRIVE (2026-11-07, SOURCE + HOST CI PASS):** Actions `42368389841` SUCCESS đúng source `93551551422559914052ec8b8671a521715714b4` (GCC C thật+no motor write & Windows PowerShell parser). CubeIDE Build/Flash/MCU REAL logs **chưa có**, không được coi dynamic data PASS.
 
@@ -1356,3 +1358,32 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 - GitHub Actions run `42368389841` **COMPLETED/SUCCESS** on source `93551551422559914052ec8b8671a521715714b4`, Linux exact-C GCC actual C recorder no actuator and old H0/H1/M8 tests PASS, Windows PowerShell syntax PASS.
 - No firmware target Clean Build/Flash or new REAL motion TXT from MCU. No claims of physical H1 dynamic PASS, external-force release or current/thermal data.
+
+## 2026-11-07 — M9-H1 REAL data: 4 lượt motor M8 thật, UART PRIVATE
+
+**[USER-PROVIDED REAL MCU TXT]** File gốc `M9H1_REAL_20261107_183513.txt` gửi trong hội thoại; mọi dòng có `sha=3dbdfaf678b700f03f3517cf0e70664c5557f6ba`. **Chỉ lưu phân tích tổng hợp trong GitHub, KHÔNG commit 146 dòng TXT riêng tư.** Đây là số đo từ motor/AS5600 thật dưới bộ lái M8; thuật toán H1 chỉ tạo `u` SHADOW không cấp lực.
+
+| seq | source | goal L/R RAW | M8 result | M8 elapsed ms | REAL frames | peak v L/R RAW/s | final M8 error L/R RAW | H0 post-DONE reason, ms |
+|---|---|---|---|---:|---:|---|---|---|
+| 1 | 3 Voice position | 1716 / 507 | 2 DONE | 1550 | 19 | 277 / 240 | −2 / −4 | 1, 3000 |
+| 2 | 3 Voice position | 2160 / 906 | 2 DONE | 3098 | 37 | 324 / 296 | +5 / +3 | 1, 3003 |
+| 3 | 3 Voice position | 1431 / 247 | 2 DONE | 2954 | 36 | 370 / 324 | +2 / −3 | **3, 1180** |
+| 4 | 2 Voice CENTER | 1886 / 662 | 2 DONE | 3110 | 38 | 407 / 333 | +4 / +5 | 1, 3010 |
+
+### Data quality / movement observations
+
+- **4/4** REAL_BEGIN/REAL_END `result=2`; **130/130** FRAME present (19+37+36+38), every `i` contiguous, uniform 84ms spacing, every frame `ageL/ageR=0..1ms`, `nc=0`, `overflow=0`, `bad=0`, `stale=0`, `skipped=0`, `dropped=0`; `shadowOnly=1`. No measured lost frames. Max stored 38, far below 80.
+- M8 measured CCR peak L/R = **300/100** on all 4 runs; this is *drive output*, not H1 output. Some later `ccr=0` samples have position state MOVING/quiet, followed by brief fine corrections, not necessarily completed DONE. Example seq2 LEFT t=2858ms `ccrL=175` while `eL=+6`; seq4 LEFT t=2606/2858 `ccrL=175` while eL≈+7/+6. The 84ms recorder cannot resolve exact fine-pulse width; do not tune pulse duration from these sparse frames.
+- Position error after M8 DONE is within **±5 RAW** both sides for every run; peak filtered movement speeds ranged L=277..407 and R=240..333 RAW/s (different path lengths/conditions, not stand-alone motor datasheet ratings). No persistent large final overshoot is observed. Seq3 LEFT crosses goal by roughly **2 RAW** at sampled t=2690ms; modest overshoot is observed, not proof of perfect transient control.
+- **H1 SHADOW on REAL motion is nonzero**: `peakCmdL=40, peakCmdR=40` for all four runs; 69/130 frames LEFT and 72/130 RIGHT reach ±40 arbitrary shadow-unit saturation. This diagnoses **a controller design ceiling, not an over-current measurement**.
+- **Critical: damping term dominates far from goal on real motor movement.** Seq2 at t=1178ms: LEFT e=+150 RAW, v=+305 RAW/s, `uL=-7` although actual M8 `ccrL=300`; RIGHT e=+116,v=+268,uR=-23,ccrR=88. Seq4 t=1010ms LEFT e=+180,v=+361,uL=-5 while `ccrL=300`. H1 candidate proposes an **opposite sign of position error** while M8 is still driving normally. With `Kp_q8=256` and `Kd_q8=128` (effective Kd/Kp 0.5s), sign flip expected near `e≈0.5v` counts; **do not map current u_shadow to real PWM/DIR or claim it is already tuned for H2**.
+- The per-axis `brakeL/R` 59..88 and `reversalL/R` 1..3 reported in REAL_END are *per-sensor-feed, calculated SHADOW diagnostics*, not 59..88 actual motor brake pulses. Actual motor DIR was not logged. Velocity data on M8 move indicates response under active drive, not passive response to external force after DONE.
+- Post-DONE H0/H1 `peakCmd=0`, `peakVel=0` for four logs, and H0 drift max 0..1RAW. **seq3 H0/H1 `reason=3` after 1180ms**: observer aborted on a STOP/safety-neutral/STOP-mode/monitor-disable condition, not on a 3000ms complete window. Other three reason1. This field by itself **does not determine whether physical STOP was pressed or the exact trigger**, so do not label seq3 H0 static complete or a confirmed NC fault. Its REAL movement `result=2` remains valid.
+
+### Evidence-based decisions (no new actuator code)
+
+1. **H1 REAL DYNAMIC DATA CAPTURE: PASS 4/4**; H1 source/host CI and earlier static sensor-filter also PASS. We have demonstrated PD SHADOW calculation and filtered velocity with real AS5600 movement, **not** H1 force/hold active PASS.
+2. **H1 gains/cap are uncalibrated for physical H2.** Current D component / 40-unit saturation would propose early sign reversal during transit. Segregate transit M8 from any prospective post-DONE holding controller; do not replace M8 owner, disable existing NC/STOP or route shadow candidates directly to H-bridge.
+3. To design actual position hold, still need **external disturbance/release under physically safe conditions**, motor current and thermal/stall constraints, driver PWM=0 coast/brake behavior, DIR polarity and PWM→torque relation. These cannot be inferred from the 130 normal-motion samples. Changing gains based solely on them risks unsafe actuation.
+4. **Next engineering improvement without requesting repeat of these four runs:** analyze M8 free-coast/quiet fine-pulse segments and motor response asymmetry offline; require explicit safety gates for owner/NC/STOP and bounded torque/current before any H2. An H1 read-only reason-bitmask for abort3 and finer post-DONE observation may help only if a specific new test is later justified.
+

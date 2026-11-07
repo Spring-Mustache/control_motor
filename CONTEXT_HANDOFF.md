@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **M9-H1 REAL measured 2026-11-07:** Người dùng gửi `M9H1_REAL_20261107_183513.txt` với **4/4 M8 position DONE**, 130 REAL frames AS5600/CCR (19+37+36+38) hoàn chỉnh ở MCU SHA `3dbdfaf678b700f03f3517cf0e70664c5557f6ba`; tuổi mẫu 0..1ms, no bad/stale/overflow/drop. `u_shadow` **khác0** và thường bão hòa ±40; có trường hợp PD `u` đề xuất **hãm ngược lỗi khi M8 vẫn chạy, còn cách đích 150–180 RAW**, nên gain `Kd/Kp=0.5s` hiện không được đưa sang PWM thật. M8 sai số cuối ≤5RAW; H0 seq3 `reason=3` sau 1180ms (đã abort observer, nguyên nhân chi tiết chưa xác định). **H1 REAL DYNAMIC DATA CAPTURE PASS 4/4**, KHÔNG có HOLD external-force/thermal/current PASS, H2 chưa cấp điện giữ. Đọc `docs/M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md`; raw TXT vẫn private, docs-only commit không cần nạp lại firmware.
+
 > **M9-H1 REAL capture HOST CI PASS 2026-11-07:** Source commit `93551551422559914052ec8b8671a521715714b4`, Actions `42368389841` completed SUCCESS: Linux GCC exact-C test for REAL trace + wiring/forbidden motor writes, old H0/H1/M8 regressions and full context contract PASS; native PowerShell 5.1 parser PASS. Đây **không phải CubeIDE Build/Flash hay log chuyển động trên xe**. HEAD sau commit chỉ sửa docs cần verify CI riêng; H2 ACTIVE vẫn chưa có.
 
 > **M9-H1 REAL DATA instrumentation, 2026-11-07:** Người dùng **không muốn mô phỏng**, muốn ghi dữ liệu chuyển động thật của xe **trong một lần thử** để cải tiến PD. Đã chuẩn bị bộ ghi RAM-only 80 frame (80ms giữa frame) trên các lệnh M8 đánh lái thật R1 CENTER/Voice5–40; mỗi frame chứa RAW, error, velocity PD filtered, candidate PD SHADOW, **CCR thực tế M8 chỉ đọc** và timestamp/NC/state. H0/H1 static 3s vẫn giữ nguyên; chỉ xuất `M9H1_REAL_BEGIN/FRAME/END` qua UART3 IRQ sau khi cả hai motor đã dừng, và sau các log M8/H0/H1. Công cụ `tools/capture_m9_h1_real.ps1` một lần nghe **4 lượt thực** và gom tất cả file TXT local, không dùng Live Expressions hay tác động tay/hack sensor. **Chưa có CubeIDE build/flash/log REAL và KHÔNG có đo ngoại lực tháo tải**; không suy H2 ACTIVE PASS. Xem `docs/M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md`. Phải kiểm tra exact GitHub CI sau commit.
@@ -1743,6 +1745,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] Chat mới phải kiểm tra correct GitHub HEAD SHA/CI and avoid user repaste old data.
 [16] H1 no real-drive hardware PASS yet; no H2 ACTIVE, no Release, original requirements untouched.
 
+
+## 2026-11-07 — REAL MOTOR measured private 4-run trace, handoff 0–16
+
+[0] Nguồn trực tiếp file user private `M9H1_REAL_20261107_183513.txt` 146 lines 4 H0/4 H1 static + 4 BEGIN/4 END + 130 FRAME, sha3dbdfaf..., no file published.
+[1] Branch feature/m9-steering-active-position-hold, firmware sha3dbdfaf678b700f03f3517cf0e70664c5557f6ba; docs HEAD after this commit will differ, do not infer firmware reflash needed.
+[2] Software-only active steering HOLD remains goal; real M8 movement measured while H1 predicts but never applies u.
+[3] User specifically wanted one real data session, not synthetic Live Expressions or manual force; user has delivered it. Do not demand same 4 runs repeated.
+[4] H1 REAL DYNAMIC DATA CAPTURE 4/4 pass; H1 HOLD ACTIVE external load response not done, H2/H3 not implemented.
+[5] 130 frames seq 1=19/1550ms, 2=37/3098, 3=36/2954, 4=38/3110; all M8 result2, sample gaps84ms, fresh ages0..1ms, no bad/stale/overflow/dropped, nc0.
+[6] H0 seq3 reason3 after1180ms not the full3s reason1; specific STOP/neutral/monitor condition not isolated. No current/temperature/real external load data.
+[7] Primary docs real drive capture; source main.c/m9_h1_real_trace.c; user's local TXT private (must not commit). H1 baseline SHA3dbdfaf and previous CI.
+[8] Derived: goal reached within ±5RAW at completion M8, peak vL277..407 and vR240..333RAW/s, PWM peak measured CCR L300/R100, cannot assume torque equality.
+[9] Current H1 Kd/Kp=0.5s yields sign reversal far from target: seq2 t1178 eL150 vL305 uL−7 while actual M8 ccrL300, seq4 t1010 eL180 vL361 uL−5 while ccrL300. Critical no H2 direct mapping.
+[10] 69/130 LEFT frames and72/130 RIGHT frames at ±40 shadow cap; not physical PWM. Per-feed brake counts in END are diagnostics, not physical actuation.
+[11] Engineering next: analyze sampled coast+fine correction M8 (e.g seq2 t2858 LEFT CCR175 at e6) and plan safety review (current/thermal/NClimit/owner/release) before H2.
+[12] Not known CCS_SHB12 PWM0 coast/brake, signed motor DIR behavior, continuous stall torque/current; zero-CCR frame not necessarily M8 owner DONE.
+[13] User delivered real file 2026-11-07 evening; verified source/GitHub source exact SHA; docs-only followup record outcome.
+[14] H0 static reason1 for seq1/2/4, reason3 for seq3; H1 idle peakCmd0 all four, moving peakCmd40 both axes in four runs.
+[15] Next chat answer from existing real data first; do not ask new hardware test unless a specific remaining safety gate cannot be addressed offline.
+[16] No HOLD torque applied, H2 not active; source/CI vs MCU hardware evidence separated, original requirements untouched.
 
 END OF CONTEXT HANDOFF
 

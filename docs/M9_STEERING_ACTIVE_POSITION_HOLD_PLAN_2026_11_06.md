@@ -100,3 +100,7 @@ Người dùng cung cấp 4 cặp UART H0/H1 trên MCU `sha=00ccaeace99a6948880e
 ## 2026-11-07 — Quyết định đo động học H1 bằng motor thật
 
 Theo yêu cầu người dùng, H1 bổ sung `M9H1_REAL_BEGIN/FRAME/END` khi *M8 thực sự lái bánh* (không injection AS5600/sim); raw, error, filtered velocity, shadow candidate và actual M8 CCR/time/NC được lưu vào RAM và gửi chỉ khi an toàn đứng yên. Một script `tools/capture_m9_h1_real.ps1` thu bốn lệnh trong cùng một lần. Chờ log MCU thật và phân tích đáp ứng trước khi đổi thông số PD. H2 vẫn chưa cấp lực, không có H1 loaded release test. [Hướng dẫn](M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
+
+### 2026-11-07 — Rút ra từ 130 mẫu chuyển động thật M8
+
+4/4 lệnh REAL motor pass result2, 130 frames 84ms, exact SHA `3dbdfaf`, AS5600 ages≤1ms, no overflow/stale/bad. M8 đạt sai số cuối ≤5RAW/trục; `u_shadow` saturate±40 trên nhiều mẫu và có thể đề xuất hãm khi còn e≈150–180RAW trong lúc M8 còn PWM cao. Do vậy trước H2 không chuyển trực tiếp `Kp256/Kd128/cap40` thành motor PWM; phải thiết kế riêng hold-only gating, giới hạn dòng/nhiệt, NC/STOP và đánh giá ngoại lực. H0 reason3 lượt3 sau1180ms chưa xác định trigger cụ thể. [Báo cáo](M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
