@@ -33,6 +33,8 @@
 #include "m9_h1_real_trace.h"
 #include "m9_h2_hold_guard.h"
 #include "m9_h2b_hold_policy.h"
+#include "m9_h2b1_hold.h"
+#include "m9_h2b1_commissioning.h"
 #include "as5600.h"
 #include "steer_s14_math.h"
 #include "steer_s142_speed.h"
@@ -2204,6 +2206,18 @@ static M9H2Guard m9_h2_guard = {0};
  * All physical output limits remain 0 until motor/driver are measured.
  */
 static M9H2BPolicy m9_h2b_policy = {0};
+/* Full persistent TWO-axis HOLD; physical commissioning is const/closed. */
+volatile uint8_t m9_h2b1_enable = 1U;
+static M9B1Hold m9_h2b1_hold = {0};
+static volatile uint32_t m9_h2b1_nc_epoch = 0U;
+static uint32_t m9_h2b1_seen_nc_epoch = 0U, m9_h2b1_sequence = 0U;
+static uint32_t m9_h2b1_report_ms = 0U, m9_h2b1_dropped = 0U;
+static uint8_t m9_h2b1_pending = 0U;
+static uint8_t M9B1_KeepOutput(void);
+static void M9B1_Stop(uint8_t reason);
+static void M9B1_PreOwnerService(void);
+static void M9B1_StartAfterDone(uint8_t result);
+static void M9B1_Update(void);
 static uint8_t m9_h2_pending = 0U;
 static uint32_t m9_h2_count = 0U;
 static uint32_t m9_h2_dropped = 0U;
@@ -4595,12 +4609,18 @@ static uint8_t Steering_PositionWheelsStopped(void)
 
 static void Steering_PositionLeftOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
   steer_pos_left_pwm = 0U;
 }
 
 static void Steering_PositionRightOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
   steer_pos_right_pwm = 0U;
 }
@@ -5034,6 +5054,9 @@ static void Steering_PositionFinish(uint8_t result)
   Steering_PositionRightOff();
   M9H0_StartAfterDone(result); /* read-only snapshot after CCR0 */
   M9H2_StartAfterDone(result); /* H2A guard observer; HARD-LOCKED PWM0 */
+#if defined(M9H2B1_INTEGRATED)
+  M9B1_StartAfterDone(result); /* separate persistent owner, no 3s expiry */
+#endif
   if (steer_pos_active != 0U) steer_pos_finish_count++;
   steer_pos_active = 0U;
   steer_pos_escape_mask = 0U;
@@ -8182,6 +8205,42 @@ static void M8S11_StreamUpdate(void)
     return;
   }
 
+  /* M9-H2B1 summaries only when real outputs and wheel drive are idle.
+   * A collector ending never ends the persistent controller session. */
+  if (m9_h2b1_pending && !m9_h2_pending && !m9_h0_pending &&
+      !m9_h1_pending && !m8_s154_right_fine_pending && !m8_r1_right_pending &&
+      !m8_s11_stream_state && !m8_s11_stream_enable && !wheel_log_active &&
+      !wheel_log_dump_active && !wheel_log_dump_request &&
+      !m8_s00_dump_request && !steer_pos_active && !steer_manual_active &&
+      !steer_cal_active && !steer_test_running && !steer_test_arm &&
+      !steer_test_request && Steering_PositionWheelsStopped() &&
+      __HAL_TIM_GET_COMPARE(&htim12,TIM_CHANNEL_2)==0U &&
+      __HAL_TIM_GET_COMPARE(&htim14,TIM_CHANNEL_1)==0U &&
+      huart3.gState==HAL_UART_STATE_READY)
+  {
+    const M9B1Hold *b=&m9_h2b1_hold;
+    n=snprintf((char *)m8_s11_tx_line,sizeof(m8_s11_tx_line),
+      "M9H2B1_HOLD,sha=%s,seq=%lu,source=%u,state=%u,reason=%u,"
+      "active=%u,commissioned=%u,lease=%u,elapsedMs=%lu,"
+      "goalL=%u,goalR=%u,rawL=%u,rawR=%u,eL=%d,eR=%d,vL=%ld,vR=%ld,"
+      "pwmL=%d,pwmR=%d,peakPwmL=%u,peakPwmR=%u,"
+      "appliedMs=%lu,everApplied=%u,updates=%lu,dropped=%lu\r\n",
+      FW_BUILD_GIT_SHA,(unsigned long)b->seq,(unsigned)b->source,
+      (unsigned)b->state,(unsigned)b->reason,(unsigned)b->active,
+      (unsigned)m9_h2b1_config.power_commissioned,(unsigned)b->lease,
+      (unsigned long)(HAL_GetTick()-b->started_ms),
+      (unsigned)b->goal[0],(unsigned)b->goal[1],
+      (unsigned)b->axis[0].raw,(unsigned)b->axis[1].raw,
+      (int)b->axis[0].error,(int)b->axis[1].error,
+      (long)b->axis[0].velocity,(long)b->axis[1].velocity,
+      (int)b->axis[0].pwm,(int)b->axis[1].pwm,
+      (unsigned)b->axis[0].peak_pwm,(unsigned)b->axis[1].peak_pwm,
+      (unsigned long)b->applied_ms,(unsigned)b->ever_applied,
+      (unsigned long)b->updates,(unsigned long)m9_h2b1_dropped);
+    if (M8S11_SendLine(n) != 0U) m9_h2b1_pending=0U;
+    return;
+  }
+
   /* M9-H1 REAL MOTION: only RAM-recorded physical AS5600/CCR frames.
    * Send after M8 summaries and BOTH H0/H1 post-DONE summaries.
    * At most one static 80-frame session; strict safe idle UART3 IRQ.
@@ -8756,12 +8815,18 @@ static uint16_t Steering_S142Demand(uint8_t left,uint16_t amount,uint8_t dpad)
 
 static void Steering_ManualLeftOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
   steer_manual_left_pwm = 0U;
 }
 
 static void Steering_ManualRightOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
   steer_manual_right_pwm = 0U;
 }
@@ -8939,6 +9004,7 @@ volatile uint32_t steer_nc_local_stop_count = 0U;
 volatile uint8_t steer_nc_local_stop_last_mask = 0U;
 static void Steering_SafetyOnLimitInterrupt(uint8_t bit)
 {
+  ++m9_h2b1_nc_epoch; /* retain an NC edge even after GPIO bounces clear */
   steer_nc_local_stop_last_mask = bit;
   steer_nc_local_stop_count++;
   if ((Steering_SafetyExpectedNcMask() & bit) != 0U)
@@ -11112,12 +11178,18 @@ static uint8_t Steering_SafetyEnvelopeWithNcDiscovery(uint8_t left,
 
 static void Steering_CalLeftOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
   steer_cal_left_pwm = 0U;
 }
 
 static void Steering_CalRightOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
   steer_cal_right_pwm = 0U;
 }
@@ -12515,13 +12587,16 @@ static int16_t PS2_Convert_LY_To_PWM(uint8_t ly)
 }
 
 
+#include "m9_h2b1_main.inc"
+
 static void Turn_Motors_Stop(void)
 {
-  /*
-   * M2 chưa điều khiển vị trí đánh lái.
-   * Hai kênh PWM đánh lái chưa được HAL_TIM_PWM_Start(),
-   * đồng thời compare luôn được giữ bằng 0.
-   */
+#if defined(M9H2B1_INTEGRATED)
+  M9B1_Stop(M9B1_STOP); /* explicit STOP revokes, never silently resumes */
+#endif
+  /* Explicit all-steering STOP: revoke the persistent HOLD lease and
+   * zero BOTH outputs. Ordinary idle paths retain a valid HOLD before
+   * calling this function; STOP/fault paths never use that exception. */
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
 }
@@ -14307,7 +14382,10 @@ static void PS2_ApplyManualControl(void)
   if ((steer_manual_active == 0U) && (steer_pos_active == 0U) &&
       (Steering_ManualRequestDirection() == 0) &&
       (PS2_Pad.R1 == 0U) && (PS2_Pad.R2 == 0U))
-    Turn_Motors_Stop();
+#if defined(M9H2B1_INTEGRATED)
+    if (M9B1_KeepOutput() == 0U)
+#endif
+      Turn_Motors_Stop();
 }
 
 
@@ -14469,7 +14547,10 @@ static void Control_Arbitrate(void)
     {
       control_mode = CONTROL_MODE_IDLE;
       WheelControl_SetTargetPWM(0);
-      Turn_Motors_Stop();
+#if defined(M9H2B1_INTEGRATED)
+      if (M9B1_KeepOutput() == 0U)
+#endif
+        Turn_Motors_Stop();
     }
 
     return;
@@ -14486,6 +14567,9 @@ static void Control_Arbitrate(void)
    * service and limit EXTI stop it. All STOP/PS2/Voice paths above still
    * call Turn_Motors_Stop() immediately as before.
    */
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return;
+#endif
   if (steer_test_running == 0U)
   {
     Turn_Motors_Stop();
@@ -15280,6 +15364,7 @@ int main(void)
     PS2_RestoreRouteUpdate(); /* S15 all mapped PS2 commands, read-only */
     PS2_ObserveNewMapping(); /* decoded requests; output gating is separate */
 
+    M9B1_PreOwnerService(); /* release HOLD before a new owner writes */
     Control_Arbitrate();
     /* Any steering NC trip is a whole-vehicle incident. Arbitration may
      * still issue wheel targets, so override them before the wheel update.
@@ -15460,6 +15545,7 @@ int main(void)
     M9REAL_ObserveForPosition(); /* capture REAL M8 motion in RAM only */
     M9H0_IdleUpdate(); /* cached samples ONLY; no additional I2C / motor command */
     M9H2_IdleUpdate(); /* H2A: independent safe supervisor; no motor output */
+    M9B1_Update(); /* persistent dual-axis HOLD, gated atomic actuator port */
     Steering_S143NeutralObserve(); /* cached AS5600 only */
     M8S00_ClearService(); /* read-only S00 diagnostics reset */
     PS2_DebugObserveRightOutput(); /* after all PWM owners have run */

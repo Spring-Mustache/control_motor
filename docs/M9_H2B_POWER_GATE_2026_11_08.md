@@ -1,6 +1,8 @@
 
 # M9-H2-B0 — Chính sách giữ góc gần đích, công suất KHÓA (2026-11-08)
 
+> **2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
+
 > **2026-11-08 — USER-REPORTED motor-lead current baseline:** User measured on wires FROM driver TO motor (not driver input). During CENTER travel LEFT0.8–1A and RIGHT≈2A; after stopping meter reads0A on both. Earlier LEFT5A/RIGHT10A were estimates from discussed motor powers80/200W, NOT verified continuous/stall/HOLD ratings. These readings are a running-current baseline, not safe HOLD limits; meter type/bandwidth and thermal/standstill-current envelope remain unverified. MCU firmware stays819f635; H2-B1 powered output has not been implemented.
 
 > **Hiện hành 2026-11-08:** SOURCE/HOST CI PASS; đã có một lượt H2-B0 MCU STATIC INTEGRATION/TELEMETRY PASS tại firmware819f635, 3003ms. Candidate vẫn0; H2-B1 giữ góc bằng mô-men motor chưa thực hiện. Các phần SOURCE/MCU pending bên dưới lưu trạng thái trước kết quả này.
@@ -80,3 +82,10 @@ Nguồn: file UART riêng tư do người dùng gửi, `M9H2_GUARD_20261108_1516
 - Phản ứng ngoại lực/nhả tải và nhiệt độ dưới thời gian giữ dài hơn là nghiệm thu tiếp theo; phối hợp khi xe chạy thuộc H3. Không đánh dấu HOLD/thermal/load PASS từ baseline dòng chạy.
 
 **Trạng thái:** đây là cập nhật dữ liệu và thiết kế bài thử, KHÔNG phải firmware H2-B1 đã triển khai hoặc được phép cấp điện. Không thay Core/tools/driver setting. Firmware đang chạy vẫn819f635; không yêu cầu build/flash hoặc lặp130 frame H1 vì commit docs này.
+
+## 2026-11-08 — Phạm vi và source H2-B1 liên tục hai trục
+
+**2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
+
+**Nguồn hiện hành:** [H2-B1 full HOLD](M9_H2B1_FULL_HOLD_2026_11_08.md). Các đề xuất bench từng trục/phiên ngắn phía trước được giữ làm lịch sử, không phải phạm vi bàn giao đã chốt. H2-B0 và guard3s vẫn là quan sát cũ riêng; H2-B1 không dùng timer đó để kết thúc mục tiêu.
+

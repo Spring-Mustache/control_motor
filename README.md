@@ -1,5 +1,7 @@
 # Xe tăng cướp bóng — STM32F767ZI
 
+> **2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
+
 > **Motor-lead current baseline (USER,2026-11-08):** khi CENTER trái0,8–1A/phải≈2A; sau dừng đồng hồ đọc0A. Mức5/10A từ công suất chỉ là ước lượng, không phải giới hạn HOLD. [B1 bench design và giới hạn dữ liệu](docs/M9_H2B_POWER_GATE_2026_11_08.md). H2-B1 chưa cấp lực; firmware819f635.
 
 > **Trạng thái mới 2026-11-08:** H2-B0 MCU **STATIC INTEGRATION/TELEMETRY PASS một lượt Voice CENTER**, 3003ms tại firmware819f635; đầu ra HOLD0, candidate0. H2-B1 cấp lực/H3 tích hợp chưa hoàn thành. [Kết quả và giới hạn](docs/M9_H2B_POWER_GATE_2026_11_08.md). **USER clarification (2026-11-08):** Động học chưa hoàn thành để tích hợp/nạp vào firmware; SELECT tạm hoãn. Không tự đồng nhất hai trạng thái hoặc coi nội suy RAW của Voice là động học bánh xe hoàn chỉnh.

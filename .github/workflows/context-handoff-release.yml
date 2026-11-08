@@ -127,6 +127,9 @@ jobs:
       - name: Verify M9-H2B0 candidate C and HARD LOCKED output
         run: python3 tools/verify_m9_h2b_policy.py
 
+      - name: Verify full persistent H2-B1 two-axis controller and main actuator ownership
+        run: python tools/verify_m9_h2b1_hold.py
+
       - name: Verify S15.4 fresh post-I2C sample tick and skip telemetry
         run: python3 tools/verify_m8_s154_sync_sample_clock.py
 
@@ -187,6 +190,7 @@ jobs:
                                ".\\tools\\capture_m9_h1_shadow.ps1",
                                ".\\tools\\capture_m9_h1_real.ps1",
                                ".\\tools\\capture_m9_h2_guard.ps1",
+                               ".\\tools\\capture_m9_h2b1_hold.ps1",
                                ".\\tools\\stamp_firmware_build.ps1")) {
             $tokens = $null
             $errors = $null
@@ -265,3 +269,4 @@ jobs:
               --latest=false \
               "${bundle}" "${status}"
           fi
+

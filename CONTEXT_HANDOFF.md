@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
+
 > **2026-11-08 — USER-REPORTED motor-lead current baseline:** User measured on wires FROM driver TO motor (not driver input). During CENTER travel LEFT0.8–1A and RIGHT≈2A; after stopping meter reads0A on both. Earlier LEFT5A/RIGHT10A were estimates from discussed motor powers80/200W, NOT verified continuous/stall/HOLD ratings. These readings are a running-current baseline, not safe HOLD limits; meter type/bandwidth and thermal/standstill-current envelope remain unverified. MCU firmware stays819f635; H2-B1 powered output has not been implemented.
 
 > **2026-11-08 — H2-B0 MCU STATIC INTEGRATION/TELEMETRY PASS (1 healthy Voice CENTER run):** Private user log `M9H2_GUARD_20261108_151606.txt`, MCU firmware `819f635aafbe9dde3ee0e4b9c5c8e6cbc282e0c2`, seq1/source2. H2-A state6/reason1 and H2-B0 bState3/bReason1 completed 3003ms, 268 guard updates; freshL/R267/268; sensorErr/deniedNC/deniedOwner/blockBits/dropped0; normal VOICE1->IDLE0 accepted. bPeakL/R0 and bEligibleL/R0; bCcrL/R=dutyL/R=0, powered0. This validates one quiet static integration window, NOT nonzero-candidate/disturbance/STOP-NC fault-injection or powered HOLD. H2-B1/H3 remain pending; no firmware changes in this documentation update.
@@ -105,6 +107,8 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
 
 **2026-11-08 — USER-REPORTED motor-lead current baseline:** User measured on wires FROM driver TO motor (not driver input). During CENTER travel LEFT0.8–1A and RIGHT≈2A; after stopping meter reads0A on both. Earlier LEFT5A/RIGHT10A were estimates from discussed motor powers80/200W, NOT verified continuous/stall/HOLD ratings. These readings are a running-current baseline, not safe HOLD limits; meter type/bandwidth and thermal/standstill-current envelope remain unverified. MCU firmware stays819f635; H2-B1 powered output has not been implemented.
 
@@ -501,6 +505,8 @@ New milestone S14.3: use prior neutral sensor stillness to shorten only safe sta
 B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1461, 0 UART errors. Combined test four wheels user reports good, steering lag ~0.5s. GCC helper neutral/stale/coast/wrap checks succeeded, target code unbuilt.
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
+
+**Điểm dừng mới nhất:** full H2-B1 source/host đã triển khai; kiểm tra GitHub CI tại commit mới, CubeIDE Build/Flash và commissioning vật lý còn riêng. Không thu hẹp chương trình thành bench hữu hạn; không bật công suất bằng các mức dòng chạy chưa phải rating HOLD.
 
 **Cập nhật ưu tiên 2026-11-08:** H2-B0 đã có một cửa sổ MCU tĩnh 3003ms đạt tiêu chí; build/flash thực tế được suy từ firmware chạy và UART SHA, chưa có transcript CubeIDE riêng. H2-B1 powered và H3 integration là phần còn dở; các ưu tiên S14 phía dưới là lịch sử. Không thay firmware hoặc yêu cầu flash lại cho bản ghi tài liệu này.
 
@@ -1984,6 +1990,27 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] Thông số: retain CENTER1886/662RAW and current firmware819f635; user current baseline is approximate, no sample-synchronized PWM/current trace.
 [15] Tiếp quản: carry this qualified measurement forward; no more interpretation as source current, no reflash for docs, private UART stays private.
 [16] Kiểm chứng: user-reported electrical baseline only; no HOLD current/thermal or active/load PASS, no source modification, original386-line specification unchanged.
+
+
+## 2026-11-08 — FULL persistent H2-B1 source implementation, 17 checkpoints
+
+[0] Phạm vi: user corrected H1 to H2-B1 and explicitly requires complete persistent two-axis HOLD, not delivery as isolated/short powered trials.
+[1] Phiên bản: source work from exact78271f4e25accdbe353d9ab8108965bb449ef6ca; user MCU remains819f635 until a later build/flash is verified.
+[2] Mục tiêu: retain both completed steering goals, correct displacement and damp return/release, integrated with existing motor ownership and safety.
+[3] Yêu cầu: no fixed3s HOLD expiry, no single-axis bench mode; kinematics incomplete for integration and SELECT deferred; preserve existing controls and private logs.
+[4] Milestones: H2-B0 one healthy static MCU PASS retained; H2-B1 full software SOURCE-STAGED/local HOST PASS, physical power commissioning and MCU/load acceptance pending.
+[5] Đầu ra: m9_h2b1_hold.c/.h, commissioning header, main.inc, main hooks/UART, two actual-C tests, verifier, PowerShell receiver and CI integration.
+[6] Điểm dừng: controller and actuator route exist; power flag0 and unknown physical gains/caps0 prevent real HOLD output. No CubeIDE build/flash or physical H2-B1 log yet.
+[7] Tài nguyên: docs/M9_H2B1_FULL_HOLD_2026_11_08.md is current scope/design/evidence; older single-axis finite bench proposal is superseded as delivery scope.
+[8] Quyết định: valid goals only after BOTH M8 DONE2 R1/VoiceCENTER or Voice5..40; no R2/Voice45 NC hold or implicit goal from manual release; no auto-resume after STOP/fault.
+[9] Lỗi xử lý: IDLE and ordinary Position/Manual/Cal zeroing retain a valid HOLD owner; pre-owner release precedes new M8 writes; explicit STOP still revokes.
+[10] An toàn: fresh sensors/geometry, raw NC plus pending EXTI plus retained NC epoch, atomic rechecks before/after DIR and between CCR writes; no new I2C or blocking UART.
+[11] Kế hoạch: GitHub exact-SHA CI, then independently verify target build/MCU; commissioned force needs actual motor/driver calibration, not a new reduced product scope.
+[12] Đầu vào thiếu: physical PWM/gain/reversal/thermal limits and installed driver behavior/current protections; firmware has no current/temperature feedback from external meter.
+[13] Timeline: user rejected single-axis short-session delivery, confirmed full H2-B1; full persistent controller/owner/source implementation and host regressions follow.
+[14] Thông số: manual motor-lead running current L0.8–1A/R≈2A, rest meter0A; prior5/10A from80/200W estimates only. Host fixture PWM/gains are synthetic, never calibration.
+[15] Tiếp quản: read new full-HOLD report and exact branch CI; distinguish SOURCE/HOST, commissioning0, target build/flash and loaded hardware; keep H2-B0/H1 prior data without repetition.
+[16] Chất lượng: tests cover continuous120s two-axis demand, damping/reversal,60s production main retention, NC ISR/pending/STOP/new owner and compiler interlock; no active/load/thermal PASS inferred.
 
 END OF CONTEXT HANDOFF
 
