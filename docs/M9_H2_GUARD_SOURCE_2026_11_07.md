@@ -73,3 +73,12 @@ After a successful target Build/Flash, collect one new `M9H2_GUARD` record. For 
 
 **PENDING:** H2-B actual powered position hold, force disturbance/release, motor current/stall, thermal envelope, CCS_SHB12 PWM0 coast/brake, independence of hardware motor cutoff, NC/STOP physical tests. Remain HARD POWER LOCK `M9H2_POWER_PERMITTED=0U`. **No user log TXT is published to public GitHub; only this aggregate.** Source and MCU SHA remain `5dd1502`; any follow-on docs-only HEAD is NOT a new flashed firmware revision.
 
+
+
+## 2026-11-08 — H2-B0 candidate SOURCE, physical power hard-locked
+
+- USER yêu cầu tiến hành H2-B sau khi H2-A 3s trên MCU PASS (source firmware 5dd1502). Source mới xây pure C bounded near-goal policy m9_h2b_hold_policy.c/.h, liên kết H2-A guard cùng seq/timestamp; hysteresis 8/4 RAW, score cap 20 arbitrary, slew 3/tick, reject sign away from goal; STOP/NC/owner/sensor/timeout trúng guard thì policy hủy.
+- Không có H2 GPIO/DIR/CCR write. Compile hard locks M9H2B_POWER_STAGE_ENABLED=0, verified motor PWM0 và on-time0 cùng H2-A PERMITTED0. Candidate score tuyệt đối không có đơn vị PWM/torque. Các bản ghi M9H2_GUARD mới gồm bState/bReason/bPeak/bEligible/bVeto/bBlocked/bCcr nhưng powered/duty vẫn0.
+- Manual CCS_SHB12 uploaded by USER ghi board 12A continuous/30A peak, iLIMIT and overcurrent/overtemperature, tùy chỉnh ACCE/DECCE; đây KHÔNG phải đặc tính stall/thermal an toàn của motor DC riêng. PWM0 coast/brake, motor current/temp và cắt nguồn độc lập chưa xác minh.
+- Test source tools/m9_h2b_policy_host_test.c + tools/verify_m9_h2b_policy.py với GitHub Actions strict Linux GCC và Windows PS parser. MCU H2B0 3s log cần Build/Flash sau exact CI; không phải H2-B1 powered PASS.
+- H2-B1 active motor duty/wiring cần thêm dữ liệu vật lý, STOP/NC owner safety + current/thermal commissioning; chưa code bật công suất. Tài liệu docs/M9_H2B_POWER_GATE_2026_11_08.md.

@@ -32,6 +32,7 @@
 #include "m9_h1_shadow.h"
 #include "m9_h1_real_trace.h"
 #include "m9_h2_hold_guard.h"
+#include "m9_h2b_hold_policy.h"
 #include "as5600.h"
 #include "steer_s14_math.h"
 #include "steer_s142_speed.h"
@@ -2199,6 +2200,10 @@ static uint32_t m9_real_seen_l = 0U, m9_real_seen_r = 0U;
 volatile uint8_t m9_h2_monitor_enable = 1U;
 volatile uint8_t m9_h2_bench_request = 0U;
 static M9H2Guard m9_h2_guard = {0};
+/* H2-B0 near-goal policy candidate; no TIM/CCR/dir HAL motor writer.
+ * All physical output limits remain 0 until motor/driver are measured.
+ */
+static M9H2BPolicy m9_h2b_policy = {0};
 static uint8_t m9_h2_pending = 0U;
 static uint32_t m9_h2_count = 0U;
 static uint32_t m9_h2_dropped = 0U;
@@ -4854,6 +4859,10 @@ static void M9H2_StartAfterDone(uint8_t result)
              source, goal_l, goal_r,
              steer_pos_left_new_sample_count,
              steer_pos_right_new_sample_count);
+  /* Inherits the SAME completed M8 goal and guard session; never a
+   * second steering owner. A failed begin revokes the candidate.
+   */
+  M9H2B_Begin(&m9_h2b_policy, &m9_h2_guard);
 }
 
 /* Fresh AS5600 cached values only. 0 power on ALL paths. Captures a
@@ -4926,6 +4935,10 @@ static void M9H2_IdleUpdate(void)
   in.request_power = m9_h2_bench_request;
   pre_active = m9_h2_guard.active_window;
   M9H2_Step(&m9_h2_guard, &in);
+  /* H2-B0 reads the already gated H2-A supervisor. It cannot
+   * command motor current and never writes PWM or GPIO. */
+  M9H2B_Step(&m9_h2b_policy, &m9_h2_guard,
+             in.now_ms, in.request_power);
   if ((pre_active != 0U) && (m9_h2_guard.active_window == 0U))
     m9_h2_pending = 1U;
 }
@@ -8136,6 +8149,9 @@ static void M8S11_StreamUpdate(void)
         "peakScoreL=%u,peakScoreR=%u,deniedNC=%u,deniedOwner=%u,"
         "sensorErr=%u,blockedPower=%u,blockBits=%lu,"
         "modeStart=%u,modeNow=%u,modeOK=%u,voiceBusy=%u,"
+        "bState=%u,bReason=%u,bPeakL=%u,bPeakR=%u,"
+        "bEligibleL=%u,bEligibleR=%u,bVetoL=%u,bVetoR=%u,"
+        "bBlocked=%u,bCcrL=%u,bCcrR=%u,"
         "dutyL=%u,dutyR=%u,powered=0,shadowOnly=1,dropped=%lu\r\n",
         FW_BUILD_GIT_SHA,(unsigned long)g->seq,(unsigned)g->source,
         (unsigned)g->state,(unsigned)g->reason,
@@ -8149,6 +8165,17 @@ static void M8S11_StreamUpdate(void)
         (unsigned long)m9_h2_block_bits,
         (unsigned)m9_h2_owner_mode,(unsigned)m9_h2_mode_now,
         (unsigned)m9_h2_mode_ok,(unsigned)m9_h2_voice_busy,
+        (unsigned)m9_h2b_policy.state,
+        (unsigned)m9_h2b_policy.reason,
+        (unsigned)m9_h2b_policy.peak_candidate_l,
+        (unsigned)m9_h2b_policy.peak_candidate_r,
+        (unsigned)m9_h2b_policy.eligible_l,
+        (unsigned)m9_h2b_policy.eligible_r,
+        (unsigned)m9_h2b_policy.damping_veto_l,
+        (unsigned)m9_h2b_policy.damping_veto_r,
+        (unsigned)m9_h2b_policy.blocked_power,
+        (unsigned)m9_h2b_policy.motor_ccr_l,
+        (unsigned)m9_h2b_policy.motor_ccr_r,
         (unsigned)g->duty_l,(unsigned)g->duty_r,
         (unsigned long)m9_h2_dropped);
     if (M8S11_SendLine(n) != 0U) m9_h2_pending = 0U;

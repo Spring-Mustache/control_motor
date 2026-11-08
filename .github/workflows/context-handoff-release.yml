@@ -124,6 +124,9 @@ jobs:
       - name: Verify M9-H2A HOLD guard and HARD-CLOSED motor output
         run: python3 tools/verify_m9_h2_guard.py
 
+      - name: Verify M9-H2B0 candidate C and HARD LOCKED output
+        run: python3 tools/verify_m9_h2b_policy.py
+
       - name: Verify S15.4 fresh post-I2C sample tick and skip telemetry
         run: python3 tools/verify_m8_s154_sync_sample_clock.py
 

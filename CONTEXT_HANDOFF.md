@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **LATEST M9 H2-B0 SOURCE 2026-11-08:** User wants H2-B started. Bounded candidate HOLD near target added as pure-C policy after H2-A guard. It can compute scores but M9H2B_POWER_STAGE_ENABLED=0, verified PWM0/time0, plus H2-A power lock0; no physical PWM/DIR/I2C/owner writes. CCS_SHB12 manual driver 12A continuous does not verify motor stall/temperature or PWM0 brake/coast. H2-B1 powered action still pending real electrical evidence. Review docs/M9_H2B_POWER_GATE_2026_11_08.md. H2-A earlier MCU 3s PASS, do not ask user to repeat old H1. Verify exact Actions SHA after commit.
+
 > **LATEST 2026-11-08 M9-H2-A ON-MCU 3000ms PASS:** User delivered PRIVATE `M9H2_GUARD_20261108_143827.txt`, MCU SHA `5dd1502ac606c5e254ddda3484baffbf2a70a534`, one complete Voice CENTER `seq=2`, H2 `state=6,reason=1,durationMs=3000,updates=294,freshL=294,freshR=293,blockBits=0,deniedOwner=0,deniedNC=0,sensorErr=0,modeStart=1,modeNow=0,modeOK=1,voiceBusy=0,dutyL=0,dutyR=0,powered=0`. H0/H1 same 3s complete, drift <=1 RAW, no bad/stale/NC. **H2-A POST-DONE QUIET MCU PASS for one run**, not active holding or nonzero dynamic hold response. H2-B motor PWM hard locked 0; unknown stall current, heat and CCS_SHB12 PWM0 coast/brake still must be resolved. Raw UART private, only aggregate in docs. Docs-only commit does not require reflash.
 
 > **2026-11-08 SOURCE CI VERIFIED — H2-A owner handoff fix:** Source commit `977533f79194e2ac3a6b97768675b6647348dbd8`, GitHub Actions run `42459137638` **completed SUCCESS**: Linux exact-C GCC host covers normal Voice->IDLE after DONE, PS2 release and reject takeover/STOP/new Voice/PS2 cancel, H2 hard duty0; older M8/H0/H1 regressions and full context contract PASS; Windows PowerShell5.1 capture parser PASS. Exact MCU build/flash and new 3-second H2 log **not yet available**. No H2-B powered output or HOLD load PASS. Any later docs-only commit will have a different SHA; distinguish it from source flashed SHA.
@@ -1882,6 +1884,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] Private source TXT do not upload GitHub; summary only in docs/M9_H2_GUARD_SOURCE_2026_11_07.md.
 [15] Follow-up could plan H2-B electrical safe evidence and design, no forced hand load under powered hold without safety verification.
 [16] Do not change M8 PWM/owner, H2 powered remains OFF, release not warranted.
+
+## 2026-11-08 — H2-B0 bounded policy source, handoff 17 items
+
+[0] USER explicitly requested continuation of H2-B, after H2-A 3s real MCU pass.
+[1] Base HEAD 39ab98e92f6bf53ea84596d9ffa1af1a8c000606; verify source exact GitHub Actions after commit.
+[2] Goal remains eventual H2 powered hold, but current source H2-B0 only computes bounded candidate, not physical holding.
+[3] User-provided CCS_SHB12 manual: H-bridge 12A continuous/30A peak DRIVER, no safe motor hold current or PWM0 coast/brake verified.
+[4] H0/H1 static/dynamic and H2-A one-run 3s passed; H2-B0 source staged, H2-B1/H3 not.
+[5] Pure C m9_h2b_hold_policy.c/.h stores same H2-A seq/time and score candidate, no new I2C/PWM/owner.
+[6] Candidate hyst enter8 exit4 RAW, cap20 arbitrary score, slew3/tick, veto sign opposite position error, cancel on guard revoke.
+[7] Power stage compile hardlocks H2B_OUTPUT0, PWM_LIMIT0, ON_TIME0 and independent H2A PERMITTED0; no motor outputs.
+[8] main.c H2B_Begin immediately after H2A_Begin, Step after H2A_Step, safe idle UART record has bState/bReason/bPeakL/R/bVeto/bCcr zero.
+[9] Host test source verifies no motor writes and GCC actual-C candidate gates and failure cases.
+[10] Exact GitHub Linux and Windows CI still pending until source commit; MCU on-target Build/Flash status pending.
+[11] User local project settings modified, preserve; a single passive Voice test only after CI and no new manual force.
+[12] H2-B1 needs motor specific current/temp/stall and real CCS_SHB12 PWM0 coast/brake, independent power cut, NC/STOP tests.
+[13] Prior H1 130 samples and prior H2A 3s healthy log not to be recollected.
+[14] Raw user UART logs remain private and should not be published to repository.
+[15] Documentation docs/M9_H2B_POWER_GATE_2026_11_08.md plus roadmap and CONTEXT_HANDOFF updated.
+[16] No physical active HOLD pass or commissioned H2-B1; original project requirements retained.
 
 END OF CONTEXT HANDOFF
 

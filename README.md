@@ -10,6 +10,8 @@ Firmware 4 motor bánh + 2 motor đánh lái, PS2, VC-02, encoder/AS5600, công 
 
 **M9-H2-A GUARD (SOURCE/HOST CI + one-run ON-MCU 3s PASS at `5dd1502`, 2026-11-08):** Đã có log MCU 13ms `reason3/blockBits256`, source xác định VOICE->IDLE sau DONE bị guard cũ coi mất quyền, đã sửa narrow normal handoff; new 3s MCU log/CI SHA mới cần xác minh. **M9-H2-A trước đó (SOURCE + HOST CI PASS `55db22f`, 2026-11-07):** Đã thêm supervisor OFF/MONITOR/SHADOW/FAULT chỉ sau M8 DONE hợp lệ, kiểm tra STOP/NC/owner/sensor/wheel, near-goal PD score; **duty=0 và compile hard lock M9H2_POWER_PERMITTED=0U**, không HOLD cấp lực. H2-B powered chưa có vì chưa đo dòng/nhiệt/PWM0 driver. [M9-H2-A hướng dẫn](docs/M9_H2_GUARD_SOURCE_2026_11_07.md).
 
+**M9-H2-B0 source (2026-11-08):** bounded candidate HOLD policy after H2-A guard, hyst 8/4 RAW, veto score ngược chiều mục tiêu; power output vẫn hard lock 0, không phải active holding. H2-B1 sẽ cần dữ liệu dòng/nhiệt motor và PWM0 driver. See docs/M9_H2B_POWER_GATE_2026_11_08.md.
+
 ## Mở cuộc hội thoại ChatGPT mới
 
 **[Sao chép lời nhắn khởi đầu tại đây](docs/CHAT_B_START_PROMPT.md)** vào hội thoại mới. Bạn không cần tải lại file nếu AI có quyền đọc repository.
