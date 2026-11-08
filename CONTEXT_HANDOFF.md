@@ -1,5 +1,9 @@
 # CONTEXT HANDOFF
 
+> **2026-11-08 — H2-B0 MCU STATIC INTEGRATION/TELEMETRY PASS (1 healthy Voice CENTER run):** Private user log `M9H2_GUARD_20261108_151606.txt`, MCU firmware `819f635aafbe9dde3ee0e4b9c5c8e6cbc282e0c2`, seq1/source2. H2-A state6/reason1 and H2-B0 bState3/bReason1 completed 3003ms, 268 guard updates; freshL/R267/268; sensorErr/deniedNC/deniedOwner/blockBits/dropped0; normal VOICE1->IDLE0 accepted. bPeakL/R0 and bEligibleL/R0; bCcrL/R=dutyL/R=0, powered0. This validates one quiet static integration window, NOT nonzero-candidate/disturbance/STOP-NC fault-injection or powered HOLD. H2-B1/H3 remain pending; no firmware changes in this documentation update.
+
+> **USER clarification (2026-11-08):** Động học chưa hoàn thành để tích hợp/nạp vào firmware; SELECT tạm hoãn. Không tự đồng nhất hai trạng thái hoặc coi nội suy RAW của Voice là động học bánh xe hoàn chỉnh.
+
 > **M9 H2-B0 SOURCE CI PASS 2026-11-08:** Firmware commit 9e4f4533b9c7de820295f9c36ceab28541048dc0, GitHub Actions 42460572191 completed SUCCESS: Linux GCC exact-C H2-B0 candidate + hard-power-lock verifier and H0/H1/H2-A regressions; Windows PowerShell 5.1 syntax PASS. Target CubeIDE Build/Flash/H2B0 MCU log remains PENDING. H2-B1 powered hold not implemented (unknown motor stall current/temp, driver PWM0 coast/brake and independent cutoff). Docs-only HEAD after this report is not new firmware.
 
 > **LATEST M9 H2-B0 SOURCE 2026-11-08:** User wants H2-B started. Bounded candidate HOLD near target added as pure-C policy after H2-A guard. It can compute scores but M9H2B_POWER_STAGE_ENABLED=0, verified PWM0/time0, plus H2-A power lock0; no physical PWM/DIR/I2C/owner writes. CCS_SHB12 manual driver 12A continuous does not verify motor stall/temperature or PWM0 brake/coast. H2-B1 powered action still pending real electrical evidence. Review docs/M9_H2B_POWER_GATE_2026_11_08.md. H2-A earlier MCU 3s PASS, do not ask user to repeat old H1. Verify exact Actions SHA after commit.
@@ -99,6 +103,12 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**2026-11-08 — H2-B0 MCU STATIC INTEGRATION/TELEMETRY PASS (1 healthy Voice CENTER run):** Private user log `M9H2_GUARD_20261108_151606.txt`, MCU firmware `819f635aafbe9dde3ee0e4b9c5c8e6cbc282e0c2`, seq1/source2. H2-A state6/reason1 and H2-B0 bState3/bReason1 completed 3003ms, 268 guard updates; freshL/R267/268; sensorErr/deniedNC/deniedOwner/blockBits/dropped0; normal VOICE1->IDLE0 accepted. bPeakL/R0 and bEligibleL/R0; bCcrL/R=dutyL/R=0, powered0. This validates one quiet static integration window, NOT nonzero-candidate/disturbance/STOP-NC fault-injection or powered HOLD. H2-B1/H3 remain pending; no firmware changes in this documentation update.
+
+**USER clarification (2026-11-08):** Động học chưa hoàn thành để tích hợp/nạp vào firmware; SELECT tạm hoãn. Không tự đồng nhất hai trạng thái hoặc coi nội suy RAW của Voice là động học bánh xe hoàn chỉnh.
+
+**Điểm dừng hiện hành:** đã nhận và kiểm tra log H2-B0 từ STM32; giữ firmware819f635. Đường cấp lực H2-B1 và tích hợp H3 chưa hoàn thành. Không lặp lượt tĩnh vừa đạt.
 
 ### 2026-11-07 — M9-H1 thực hiện yêu cầu USER: đo đường cong M8 thật trên xe
 
@@ -487,6 +497,8 @@ New milestone S14.3: use prior neutral sensor stillness to shorten only safe sta
 B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1461, 0 UART errors. Combined test four wheels user reports good, steering lag ~0.5s. GCC helper neutral/stale/coast/wrap checks succeeded, target code unbuilt.
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
+
+**Cập nhật ưu tiên 2026-11-08:** H2-B0 đã có một cửa sổ MCU tĩnh 3003ms đạt tiêu chí; build/flash thực tế được suy từ firmware chạy và UART SHA, chưa có transcript CubeIDE riêng. H2-B1 powered và H3 integration là phần còn dở; các ưu tiên S14 phía dưới là lịch sử. Không thay firmware hoặc yêu cầu flash lại cho bản ghi tài liệu này.
 
 **Ưu tiên P0 — chốt M8-S14.2 nguồn và build.**
 
@@ -1926,6 +1938,27 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] Driver manual rating 12A continuous/30A peak is H-bridge rating not a safe continuous motor hold rating.
 [15] Private user UART data not published publicly, only aggregates and source docs.
 [16] Do not claim active HOLD or load release PASS, original requirement contract unchanged.
+
+
+## 2026-11-08 — H2-B0 MCU static integration/telemetry PASS, 17 checkpoints
+
+[0] Phạm vi: user supplied private M9H2_GUARD_20261108_151606.txt; reviewed all three complete H0/H1/H2 records; raw TXT remains private.
+[1] Điểm tiếp tục: MCU exact firmware 819f635aafbe9dde3ee0e4b9c5c8e6cbc282e0c2, seq1/source2 Voice CENTER; current source branch checked at this SHA before docs-only commit.
+[2] Mục tiêu: software-only active steering position hold and controlled disturbance-release response using existing STM32/AS5600/CCS_SHB12.
+[3] Yêu cầu USER làm rõ: động học chưa hoàn thành để tích hợp/nạp; SELECT tạm hoãn. PowerShell-only logging and preserve existing Windows project/local .settings.
+[4] Milestones: H0/H1 prior measurement results retained; H2-A healthy MCU validation retained; H2-B0 one-run STATIC INTEGRATION/TELEMETRY PASS; H2-B1/H3 pending.
+[5] Kết quả: H2 state6/reason1, duration3003ms, updates268, freshL267/freshR268; H2-B0 bState3/bReason1.
+[6] Điểm dừng: compiled H2-B0 now observed on MCU, but bPeak0/bEligible0 means no physical nonzero candidate or disturbance validation; no powered hold.
+[7] Tài nguyên: private log filename above, docs/M9_H2B_POWER_GATE_2026_11_08.md detailed aggregate, M9 roadmap and current source at MCU SHA.
+[8] Quyết định giữ: M9H2B_POWER_STAGE_ENABLED0, verified PWM/time0, independent H2A PERMITTED0; do not map arbitrary score to motor PWM.
+[9] Lỗi/bài học: normal VOICE1->IDLE0 accepted (modeOK1); deniedOwner0, deniedNC0, sensorErr0, blockBits0, dropped0; no new firmware defect indicated.
+[10] Rủi ro/giới hạn: quiet run does not test STOP/NC fault injection, loaded response, current/thermal/stall or PWM0 driver coast/brake; no claim of full hardware HOLD PASS.
+[11] Kế hoạch tiếp: preserve measured log and use existing data; H2-B1 needs actuator/driver evidence and guarded owner/output design before powered commissioning; no repeat of completed H1/static test.
+[12] Đầu vào thiếu: motor safe current/temperature/stall and installed driver PWM0/ACCE-DECCE behavior, cutoff/STOP/NC qualification for powered hold; independent CubeIDE transcript not supplied in this upload.
+[13] Dòng thời gian: after source/CI and user update819f635, user supplied new3s log151606; docs update follows with no firmware changes.
+[14] Thông số chính xác: goals1886/662RAW; H2 peakErr6/3RAW; H0 peakDrift1/1; H1 final err5/2, filtered peakVel0/0, peakCmd0/0, noise7/0.
+[15] Chỉ dẫn tiếp quản: distinguish MCU SHA819f635 from later docs-only HEAD; no reflash for docs, no raw UART publication, no unrequested motor-power change or duplicate stash apply.
+[16] Chất lượng: one matched healthy static window verified; H2-B0 power values all0, bVeto0/bBlocked0; no candidate/dynamic/active/loaded PASS inferred; original386-line spec unchanged.
 
 END OF CONTEXT HANDOFF
 

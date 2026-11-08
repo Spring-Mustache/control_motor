@@ -1,5 +1,7 @@
 # Xe tăng cướp bóng — STM32F767ZI
 
+> **Trạng thái mới 2026-11-08:** H2-B0 MCU **STATIC INTEGRATION/TELEMETRY PASS một lượt Voice CENTER**, 3003ms tại firmware819f635; đầu ra HOLD0, candidate0. H2-B1 cấp lực/H3 tích hợp chưa hoàn thành. [Kết quả và giới hạn](docs/M9_H2B_POWER_GATE_2026_11_08.md). **USER clarification (2026-11-08):** Động học chưa hoàn thành để tích hợp/nạp vào firmware; SELECT tạm hoãn. Không tự đồng nhất hai trạng thái hoặc coi nội suy RAW của Voice là động học bánh xe hoàn chỉnh.
+
 Firmware 4 motor bánh + 2 motor đánh lái, PS2, VC-02, encoder/AS5600, công tắc NC/STOP.
 
 ## Mốc hiện hành (2026-11-06)

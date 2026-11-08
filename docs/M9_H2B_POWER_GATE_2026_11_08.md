@@ -1,7 +1,7 @@
 
 # M9-H2-B0 — Chính sách giữ góc gần đích, công suất KHÓA (2026-11-08)
 
-> Tình trạng: đã lập trình source H2-B0, cần xác minh GitHub CI và build STM32 riêng. **Không phải H2-B1 giữ góc bằng mô-men motor.** Mọi đầu ra motor do H2-B0 đều bằng 0.
+> **Hiện hành 2026-11-08:** SOURCE/HOST CI PASS; đã có một lượt H2-B0 MCU STATIC INTEGRATION/TELEMETRY PASS tại firmware819f635, 3003ms. Candidate vẫn0; H2-B1 giữ góc bằng mô-men motor chưa thực hiện. Các phần SOURCE/MCU pending bên dưới lưu trạng thái trước kết quả này.
 
 ## Căn cứ và giới hạn
 
@@ -32,3 +32,25 @@ Trước khi code đường xuất TIM12/TIM14/DIR cho HOLD cần xác minh moto
 ## 2026-11-08 — Exact source CI verified
 
 **M9 H2-B0 SOURCE CI PASS 2026-11-08:** Firmware commit 9e4f4533b9c7de820295f9c36ceab28541048dc0, GitHub Actions 42460572191 completed SUCCESS: Linux GCC exact-C H2-B0 candidate + hard-power-lock verifier and H0/H1/H2-A regressions; Windows PowerShell 5.1 syntax PASS. Target CubeIDE Build/Flash/H2B0 MCU log remains PENDING. H2-B1 powered hold not implemented (unknown motor stall current/temp, driver PWM0 coast/brake and independent cutoff). Docs-only HEAD after this report is not new firmware.
+
+
+## 2026-11-08 — H2-B0 on-MCU: one healthy static 3003ms window PASS
+
+Nguồn: file UART riêng tư do người dùng gửi, `M9H2_GUARD_20261108_151606.txt`. Đã kiểm tra đủ ba dòng H0/H1/H2, cùng firmware `819f635aafbe9dde3ee0e4b9c5c8e6cbc282e0c2`, `seq=1`, `source=2` (Voice CENTER). Chỉ công khai kết quả tổng hợp này; không đưa TXT gốc vào repository.
+
+| Hạng mục | Kết quả quan sát |
+|---|---|
+| Phiên H2-A | COMPLETE state6, reason1; 3003ms; 268 updates; fresh L/R267/268 |
+| H2-B0 | COMPLETE bState3, bReason1; bPeak L/R0, bEligible L/R0, bVeto L/R0, bBlocked0 |
+| Quyền / cảm biến | deniedOwner0, deniedNC0, sensorErr0, blockBits0; modeStart1 -> modeNow0, modeOK1, voiceBusy0 |
+| Đầu ra HOLD | bCcrL/R0, dutyL/R0, powered0, shadowOnly1, dropped0 |
+| H0 đối chiếu cùng phiên | 3003ms; peak drift1/1RAW; samples268/269; bad/jump/drop0; wheelsMoved0 |
+| H1 đối chiếu cùng phiên | error cuối5/2RAW; filtered peak velocity0/0, peak command0/0; noise suppressed7/0; bad/stale/jump/drop0 |
+
+**Kết luận:** H2-B0 **MCU STATIC INTEGRATION/TELEMETRY PASS giới hạn một lượt Voice CENTER khỏe mạnh**. H0/H1/H2 khớp phiên; bình thường VOICE->IDLE không hủy guard, policy kết thúc đủ cửa sổ và các giá trị đầu ra HOLD bằng0. UART chứng minh firmware đã chạy trên MCU tại SHA nêu trên; phiên này không cung cấp riêng transcript lệnh CubeIDE Build/Flash.
+
+**Giới hạn:** H2 peak error6/3RAW, thấp hơn ngưỡng engage8RAW; không xuất hiện candidate khác0. Vì vậy chưa kiểm chứng thực tế ngưỡng vào/nhả, chặn sai dấu, phản ứng ngoại lực/nhả tải, fault-injection STOP/NC/sensor hoặc mô-men giữ. Những bài HOST đã có vẫn là bằng chứng phần mềm riêng. Không mở khóa PWM hoặc suy an toàn điện/nhiệt từ cửa sổ tĩnh.
+
+**Điểm tiếp tục:** Không yêu cầu người dùng lặp H0/H1 130 frame hay chính lượt CENTER này. H2-B1 powered và H3 integration còn chờ đặc tính motor current/thermal/stall, CCS_SHB12 PWM0 coast/brake/ACCE-DECCE và thiết kế cấp quyền actuator có STOP/NC/cắt nguồn phù hợp. Bản cập nhật này chỉ sửa tài liệu; firmware đã chạy vẫn là `819f635`, không yêu cầu build/flash lại vì commit docs mới.
+
+**USER clarification (2026-11-08):** Động học chưa hoàn thành để tích hợp/nạp vào firmware; SELECT tạm hoãn. Không tự đồng nhất hai trạng thái hoặc coi nội suy RAW của Voice là động học bánh xe hoàn chỉnh.
