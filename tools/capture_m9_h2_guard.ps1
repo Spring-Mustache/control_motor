@@ -48,6 +48,14 @@ try {
       if($sha -eq ""){$sha=$candidate}
       elseif($sha -ne $candidate){Write-Warning "Mixed MCU SHA: verify firmware."}
     }else{Write-Warning "Full MCU SHA absent on record."}
+    # Preserve incomplete serial evidence, but NEVER count it as a valid
+    # completed H0/H1 record. A serial line may be truncated/concatenated.
+    if($line.StartsWith("M9H0_DRIFT,") -and
+       (($line -notmatch ',samplesL=') -or
+        ($line -notmatch ',samplesR=') -or
+        ($line -notmatch ',dropped='))){
+      Write-Warning "Incomplete/concatenated M9H0_DRIFT line; preserve raw text, do not score H0 PASS."
+    }
     [System.IO.File]::AppendAllText($file,$line+"`r`n",$utf8)
     if($line.StartsWith("M9H2_GUARD,")){
       $events++

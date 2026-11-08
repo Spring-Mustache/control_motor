@@ -116,3 +116,7 @@ H2-A giữ quy tắc: hai trục DONE2 (R1 CENTER hoặc Voice5..40), no NC/STOP
 ### 2026-11-07 — H2-A SOURCE/HOST CI kết quả xác minh
 
 Source `55db22f67c81517ada48106f5a506b7b367b7e4c` Actions `42370515934` PASS (C-core hard power-off/STOP/NC/owner/stale plus Win PowerShell syntax). Không có target CubeIDE/flash/H2 MCU log nên **H2-A hardware pending**; không có H2-B Active PWM. Bản đầu `b9b75a` Win parser fail dấu `:` sau tên biến rồi đã sửa, không phải lỗi motor.
+
+### 2026-11-08 — H2-A sửa VOICE → IDLE sau DONE
+
+MCU SHA8214610 source3 H2_GUARD abort 13ms reason3/blockBits256, duty0, powered0, sensorErr0/deniedNC0. Source kiểm tra xác định điều kiện so sánh `control_mode` tuyệt đối: VOICE lúc DONE sau đó IDLE mặc định. Sửa riêng normal-mode handoff trong pure-C/MAIN, chỉ cho phép khi Voice/PS2 không có công việc mới và các cổng STOP/NC/owner/motion/sensor vẫn nguyên; UART log thêm modeStart/modeNow/modeOK. Chưa có 3s H2-A hardware PASS; H2-B vẫn không cấp motor. File khác H0_DRIFT bị ghép với M8R1_FINE không đủ để kết luận nguyên nhân UART. [Chi tiết](M9_H2_GUARD_SOURCE_2026_11_07.md).

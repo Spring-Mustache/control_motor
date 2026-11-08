@@ -39,3 +39,16 @@ Cần xác minh điện và điều khiển: (1) đo dòng motor khi đứng yê
 
 - Commit `b9b75aff0bba91fedf62e4e67b244ad8f91fa1b4`, Actions `42370416232`: Linux exact-C H2-A `verify_m9_h2_guard.py` cùng full context contract **PASS**; Windows PowerShell parser phát hiện biến `$MaxEvents:` trong interpolated string (`:` theo sau tên biến), không phải lỗi motor hay logic NC.
 - Đã đổi thành `${MaxEvents}:` để parser PowerShell 5.1 hiểu chính xác. Mã H2/C motor guard không thay đổi; kiểm tra lại tất cả workflow ở SHA commit mới là bắt buộc.
+
+## 2026-11-08 — H2-A on-MCU log: abort 13ms caused by normal VOICE -> IDLE handoff
+
+**[USER-PROVIDED PRIVATE UART]** `M9H2_GUARD_20261108_142137.txt` has exactly one valid `M9H2_GUARD` record, MCU SHA `8214610cadac396f7502dea5fbde847de784fe9d`: `seq=1,source=3,state=0,reason=3,durationMs=13,goalL=1545,goalR=351,updates=1,freshL=0,freshR=1,deniedOwner=1,blockBits=256,deniedNC=0,sensorErr=0,dutyL=0,dutyR=0,powered=0,shadowOnly=1`. **Hardware H2-A no-actuation confirmed for this one 13ms window; H2-A 3-second MONITOR not yet PASS.**
+
+**[INDEPENDENT SOURCE INSPECTION]** `M9H2_StartAfterDone()` latched `m9_h2_owner_mode=control_mode` at M8 Voice position DONE. `Steering_PositionFinish()` then clears `voice_pos_owned`, and `Control_Arbitrate()` normally transitions `CONTROL_MODE_VOICE` to `CONTROL_MODE_IDLE` on the next poll. Old H2-A treated any difference `control_mode != m9_h2_owner_mode` as takeover, explaining bit8/13ms; we have source evidence of this path, but no old-mode values in the uploaded record itself.
+
+**[SECOND UPLOAD DATA QUALITY]** `M9H2_GUARD_20261108_142244.txt` has one incomplete **physically concatenated** line starting with `M9H0_DRIFT`, truncated after `peakDriftR=1,peak`, immediately followed by `M8R1_FINE` record. This is **not** a complete H0 line and has no `M9H2_GUARD` event. The file cannot establish why bytes were concatenated (UART sender arbitration, COM reception or capture timing all remain hypotheses). Do not treat it as a valid H0 3sec pass or as evidence of hardware safety incident. Do not publish either private original TXT.
+
+**[FIX]** Introduce pure-C `M9H2_ModeAllowed(source,started_mode,current_mode,voice_busy,ps2_manual,ps2_cancel)`: only source3/2 VOICE -> same VOICE or normal IDLE with no pending Voice/PS2 job, and source1 PS2 -> same PS2 or IDLE when manual inputs released. STOP, PS2 takeover, new Voice request/command, cancel-hold and unexpected transitions are **revocations**, not whitelisted. Legacy `steer_pos_active/manual/cal/test`, both CCR=0, STOP/neutral/trip/motion-permit, NC, sensor fresh, wheel-stopped remain independent guards. No change to M8 PWM/owner/AS5600 I2C, H2 guard still HARD POWER LOCK `M9H2_POWER_PERMITTED=0U`, all `dutyL=dutyR=0`.
+
+**[DIAGNOSTIC]** New `M9H2_GUARD` includes `modeStart/modeNow/modeOK/voiceBusy`, so a new 3sec passive log can confirm normal 1->0 transition without guessing. Pure-C GCC host regressions cover normal Voice DONE->IDLE and PS2 R1->IDLE plus reject STOP/PS2 takeover/new voice/manual/cancel while power remains zero. CI must be checked on NEW SHA separately; CubeIDE Build/Flash and new MCU log pending. **H2-B powered not implemented**.
+

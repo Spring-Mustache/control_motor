@@ -16,6 +16,36 @@ static M9H2Input input(uint32_t now,uint16_t l,uint16_t r) {
 int main(void) {
   M9H2Guard g;
   M9H2Input x;
+  /* This was the actual on-MCU failure at 8214610: Voice DONE
+   * changed CONTROL_MODE_VOICE to normal IDLE after 13ms.
+   * Never confuse that expected release with a new owner.
+   */
+  assert(M9H2_ModeAllowed(3U,M9H2_CONTROL_VOICE,
+                          M9H2_CONTROL_IDLE,0U,0U,0U)==1U);
+  assert(M9H2_ModeAllowed(2U,M9H2_CONTROL_VOICE,
+                          M9H2_CONTROL_IDLE,0U,0U,0U)==1U);
+  assert(M9H2_ModeAllowed(3U,M9H2_CONTROL_VOICE,
+                          M9H2_CONTROL_VOICE,0U,0U,0U)==1U);
+  assert(M9H2_ModeAllowed(1U,M9H2_CONTROL_PS2,
+                          M9H2_CONTROL_IDLE,0U,0U,0U)==1U);
+  assert(M9H2_ModeAllowed(1U,M9H2_CONTROL_PS2,
+                          M9H2_CONTROL_PS2,0U,1U,0U)==1U);
+  assert(M9H2_ModeAllowed(1U,M9H2_CONTROL_PS2,
+                          M9H2_CONTROL_IDLE,0U,1U,0U)==0U);
+  assert(M9H2_ModeAllowed(3U,M9H2_CONTROL_VOICE,
+                          M9H2_CONTROL_IDLE,1U,0U,0U)==0U);
+  assert(M9H2_ModeAllowed(3U,M9H2_CONTROL_VOICE,
+                          M9H2_CONTROL_IDLE,0U,1U,0U)==0U);
+  assert(M9H2_ModeAllowed(3U,M9H2_CONTROL_VOICE,
+                          M9H2_CONTROL_IDLE,0U,0U,1U)==0U);
+  assert(M9H2_ModeAllowed(3U,M9H2_CONTROL_VOICE,
+                          M9H2_CONTROL_PS2,0U,1U,0U)==0U);
+  assert(M9H2_ModeAllowed(3U,M9H2_CONTROL_VOICE,
+                          M9H2_CONTROL_STOP,0U,0U,0U)==0U);
+  assert(M9H2_ModeAllowed(1U,M9H2_CONTROL_PS2,
+                          M9H2_CONTROL_VOICE,0U,0U,0U)==0U);
+  assert(M9H2_ModeAllowed(3U,M9H2_CONTROL_IDLE,
+                          M9H2_CONTROL_IDLE,0U,0U,0U)==0U);
   unsigned i;
   M9H2_Reset(&g);
   assert(g.state==M9H2_OFF && g.duty_l==0U && g.duty_r==0U);
@@ -61,6 +91,18 @@ int main(void) {
   x=input(4000U,1000U,600U);
   M9H2_Step(&g,&x);
   assert(g.state==M9H2_COMPLETE && g.reason==M9H2_REASON_WINDOW_DONE);
+  /* Valid 3-second Voice->Idle monitor remains read-only throughout. */
+  M9H2_Begin(&g,11U,1000U,3U,1545U,351U,0U,0U);
+  for(i=0U;i<32U;i++){
+    uint8_t mode=(i==0U)?M9H2_CONTROL_VOICE:M9H2_CONTROL_IDLE;
+    x=input(1000U+i*100U,1548U,355U);
+    x.owners_idle=M9H2_ModeAllowed(3U,M9H2_CONTROL_VOICE,
+                                  mode,0U,0U,0U);
+    M9H2_Step(&g,&x);
+    assert(g.duty_l==0U && g.duty_r==0U);
+  }
+  assert(g.state==M9H2_COMPLETE && g.reason==M9H2_REASON_WINDOW_DONE);
+  assert(g.ended_ms-g.started_ms==3000U);
   M9H2_Begin(&g,7U,1000U,3U,1000U,600U,0U,0U);
   x=input(1100U,1000U,600U);x.wheels_stopped=0;
   M9H2_Step(&g,&x);

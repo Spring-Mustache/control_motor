@@ -46,6 +46,23 @@ assert finish.index("Steering_PositionRightOff();") < finish.index("M9H2_StartAf
 assert finish.index("M9H2_StartAfterDone(result);") < finish.index("steer_pos_active = 0U;")
 assert "M9H2_IdleUpdate(); /* H2A: independent safe supervisor; no motor output */" in MAIN
 assert "M9H2_Step(&m9_h2_guard, &in)" in tick
+assert "M9H2_ModeAllowed(" in tick and "m9_h2_mode_ok != 0U" in tick
+assert "m9_h2_mode_ok == 0U" in tick
+assert "Voice_HasPendingData()" in tick
+assert "voice_execution_active != 0U" in tick
+assert "voice_command_ready != 0U" in tick
+assert "voice_pos_request != 0U" in tick
+assert "voice_pos_owned != 0U" in tick
+assert "ps2_manual_active, ps2_cancel_hold" in tick
+assert "M9H2_ModeAllowed(" in SRC
+assert "M9H2_CONTROL_VOICE 1U" in HDR
+assert "M9H2_CONTROL_IDLE  0U" in HDR
+assert "M9H2_CONTROL_PS2   2U" in HDR
+assert "M9H2_CONTROL_STOP  3U" in HDR
+assert "CONTROL_MODE_IDLE = 0" in MAIN
+assert "CONTROL_MODE_VOICE," in MAIN
+assert "CONTROL_MODE_PS2," in MAIN
+assert "CONTROL_MODE_STOP" in MAIN
 for condition in ("Steering_TestRawLimitMask()", "steer_safety_trip_latched",
  "control_stop_latched", "steer_safety_neutral_required",
  "steer_safety_motion_permit", "STEER_SAFETY_INCIDENT_LOCKOUT",
@@ -57,6 +74,7 @@ for condition in ("Steering_TestRawLimitMask()", "steer_safety_trip_latched",
   assert condition in tick,condition
 assert "M9H2_GUARD,sha=%s" in stream
 assert "powered=0,shadowOnly=1" in stream
+assert "modeStart=%u,modeNow=%u,modeOK=%u,voiceBusy=%u" in stream
 assert "dutyL=%u,dutyR=%u" in stream
 assert "m9_h0_pending == 0U" in stream
 assert "m9_h1_pending == 0U" in stream

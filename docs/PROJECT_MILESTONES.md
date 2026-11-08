@@ -1,6 +1,8 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-## HIỆN HÀNH 2026-11-07 — M9 H2-A supervisor implemented, MOTOR POWER HARD-LOCKED
+## HIỆN HÀNH 2026-11-08 — M9 H2-A hardware 13ms owner abort analyzed; code fix pending exact CI and MCU recheck
+
+**M9-H2-A MCU LOG UPDATE 2026-11-08:** Dòng H2-A từ MCU SHA 8214610 abort 13ms reason3/blockBits256 do mode VOICE->IDLE sau DONE bị guard cũ coi mất quyền. Dữ liệu duty0/powered0 và không lỗi sensor/NC. Đã sửa chính xác whitelist handoff, giữ STOP/NC/owner/voice pending gates, thêm UART modeStart/Now/OK; CI SHA mới và hardware 3sec pending. File UART thứ hai bị ghép H0_DRIFT+M8R1_FINE, không có H2. [H2 report](M9_H2_GUARD_SOURCE_2026_11_07.md).
 
 **M9-H2-A SOURCE + EXACT HOST CI PASS 2026-11-07:** Commit `55db22f67c81517ada48106f5a506b7b367b7e4c` GitHub Actions `42370515934` COMPLETED/SUCCESS, Linux actual-C and Windows PowerShell5.1 parser. Chưa CubeIDE/Flash/MCU real H2A evidence, H2-B ACTIVE chưa có. 
 
@@ -1408,3 +1410,16 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - Exact SHA `55db22f67c81517ada48106f5a506b7b367b7e4c` Actions `42370515934` COMPLETED/SUCCESS including Linux GCC real H2 C fault/owner/STOP/NC tests, no actuator-source wiring, M8/H0/H1 regressions and Windows PowerShell 5.1 H2 capture syntax.
 - Initial `b9b75a` Windows parser failed due `$MaxEvents:` in interpolated string; only collector syntax fixed, motor code unchanged. Target Build/Flash/H2-A private MCU logs pending.
 - H2-B physical HOLD still no code/active proof, fixed duty0, no current/thermal and no reliable driver PWM0 behavior.
+
+## 2026-11-08 — H2-A on-MCU log: abort 13ms caused by normal VOICE -> IDLE handoff
+
+**[USER-PROVIDED PRIVATE UART]** `M9H2_GUARD_20261108_142137.txt` has exactly one valid `M9H2_GUARD` record, MCU SHA `8214610cadac396f7502dea5fbde847de784fe9d`: `seq=1,source=3,state=0,reason=3,durationMs=13,goalL=1545,goalR=351,updates=1,freshL=0,freshR=1,deniedOwner=1,blockBits=256,deniedNC=0,sensorErr=0,dutyL=0,dutyR=0,powered=0,shadowOnly=1`. **Hardware H2-A no-actuation confirmed for this one 13ms window; H2-A 3-second MONITOR not yet PASS.**
+
+**[INDEPENDENT SOURCE INSPECTION]** `M9H2_StartAfterDone()` latched `m9_h2_owner_mode=control_mode` at M8 Voice position DONE. `Steering_PositionFinish()` then clears `voice_pos_owned`, and `Control_Arbitrate()` normally transitions `CONTROL_MODE_VOICE` to `CONTROL_MODE_IDLE` on the next poll. Old H2-A treated any difference `control_mode != m9_h2_owner_mode` as takeover, explaining bit8/13ms; we have source evidence of this path, but no old-mode values in the uploaded record itself.
+
+**[SECOND UPLOAD DATA QUALITY]** `M9H2_GUARD_20261108_142244.txt` has one incomplete **physically concatenated** line starting with `M9H0_DRIFT`, truncated after `peakDriftR=1,peak`, immediately followed by `M8R1_FINE` record. This is **not** a complete H0 line and has no `M9H2_GUARD` event. The file cannot establish why bytes were concatenated (UART sender arbitration, COM reception or capture timing all remain hypotheses). Do not treat it as a valid H0 3sec pass or as evidence of hardware safety incident. Do not publish either private original TXT.
+
+**[FIX]** Introduce pure-C `M9H2_ModeAllowed(source,started_mode,current_mode,voice_busy,ps2_manual,ps2_cancel)`: only source3/2 VOICE -> same VOICE or normal IDLE with no pending Voice/PS2 job, and source1 PS2 -> same PS2 or IDLE when manual inputs released. STOP, PS2 takeover, new Voice request/command, cancel-hold and unexpected transitions are **revocations**, not whitelisted. Legacy `steer_pos_active/manual/cal/test`, both CCR=0, STOP/neutral/trip/motion-permit, NC, sensor fresh, wheel-stopped remain independent guards. No change to M8 PWM/owner/AS5600 I2C, H2 guard still HARD POWER LOCK `M9H2_POWER_PERMITTED=0U`, all `dutyL=dutyR=0`.
+
+**[DIAGNOSTIC]** New `M9H2_GUARD` includes `modeStart/modeNow/modeOK/voiceBusy`, so a new 3sec passive log can confirm normal 1->0 transition without guessing. Pure-C GCC host regressions cover normal Voice DONE->IDLE and PS2 R1->IDLE plus reject STOP/PS2 takeover/new voice/manual/cancel while power remains zero. CI must be checked on NEW SHA separately; CubeIDE Build/Flash and new MCU log pending. **H2-B powered not implemented**.
+

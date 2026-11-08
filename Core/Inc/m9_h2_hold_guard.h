@@ -16,6 +16,14 @@
 #define M9H2_KD_Q8                 32
 #define M9H2_POWER_PERMITTED        0U
 
+/* Must remain identical to main.c ControlMode_t:
+ * CONTROL_MODE_IDLE=0, VOICE=1, PS2=2, STOP=3.
+ */
+#define M9H2_CONTROL_IDLE  0U
+#define M9H2_CONTROL_VOICE 1U
+#define M9H2_CONTROL_PS2   2U
+#define M9H2_CONTROL_STOP  3U
+
 typedef enum {
   M9H2_OFF = 0,
   M9H2_MONITOR = 1,
@@ -65,6 +73,14 @@ typedef struct {
   uint8_t active_window, output_ever_nonzero;
 } M9H2Guard;
 
+/* Allow only the NORMAL post-DONE Voice/PS2 -> IDLE handoff.
+ * Any new request, PS2 takeover, STOP or unknown transition revokes it.
+ * 'voice_busy' means execution/ready/request/owned/pending Voice work.
+ * This helper never grants actuator permission.
+ */
+uint8_t M9H2_ModeAllowed(uint8_t source, uint8_t started_mode,
+                        uint8_t current_mode, uint8_t voice_busy,
+                        uint8_t ps2_manual, uint8_t ps2_cancel);
 void M9H2_Reset(M9H2Guard *g);
 void M9H2_Begin(M9H2Guard *g, uint32_t seq, uint32_t now_ms,
                 uint8_t source, uint16_t goal_l, uint16_t goal_r,

@@ -2204,6 +2204,9 @@ static uint32_t m9_h2_count = 0U;
 static uint32_t m9_h2_dropped = 0U;
 static uint32_t m9_h2_block_bits = 0U;
 static uint8_t m9_h2_owner_mode = 0U;
+static uint8_t m9_h2_mode_now = 0U;
+static uint8_t m9_h2_mode_ok = 0U;
+static uint8_t m9_h2_voice_busy = 0U;
 static uint8_t steer_pos_previous_buttons = 0U;
 static uint32_t steer_pos_start_ms = 0U;
 static uint32_t steer_pos_idle_last_ms = 0U;
@@ -4795,6 +4798,9 @@ static void M9H0_StartAfterDone(uint8_t result)
   m9_h0_active = 1U;
 }
 
+/* H2-A uses a later-defined Voice pending builder observer; declare it here. */
+static uint8_t Voice_HasPendingData(void);
+
 /* M9-H2A SOURCE STAGE — one post-DONE read-only supervisor.
  * No active PWM, timer or motor direction call is reachable here.
  * H2-B (power) is BLOCKED until electrical+thermal evidence and a
@@ -4841,6 +4847,9 @@ static void M9H2_StartAfterDone(uint8_t result)
   if (m9_h2_count < 0xffffffffUL) ++m9_h2_count;
   m9_h2_block_bits = 0U;
   m9_h2_owner_mode = (uint8_t)control_mode;
+  m9_h2_mode_now = m9_h2_owner_mode;
+  m9_h2_mode_ok = 0U;
+  m9_h2_voice_busy = 0U;
   M9H2_Begin(&m9_h2_guard, m9_h2_count, HAL_GetTick(),
              source, goal_l, goal_r,
              steer_pos_left_new_sample_count,
@@ -4868,6 +4877,16 @@ static void M9H2_IdleUpdate(void)
   in.valid_r = (uint8_t)((debug_as5600_right_comm_ok != 0U) &&
       (AS5600_DebugReadingValid(1U, debug_as5600_right_status) != 0U));
   in.nc_mask = Steering_TestRawLimitMask();
+  m9_h2_mode_now = (uint8_t)control_mode;
+  m9_h2_voice_busy = (uint8_t)(
+      (voice_execution_active != 0U) ||
+      (voice_command_ready != 0U) ||
+      (voice_pos_request != 0U) ||
+      (voice_pos_owned != 0U) ||
+      (Voice_HasPendingData() != 0U));
+  m9_h2_mode_ok = M9H2_ModeAllowed(
+      m9_h2_guard.source, m9_h2_owner_mode, m9_h2_mode_now,
+      m9_h2_voice_busy, ps2_manual_active, ps2_cancel_hold);
   if (steer_safety_trip_latched != 0U) bits |= 1UL << 0;
   if (control_stop_latched != 0U) bits |= 1UL << 1;
   if (control_mode == CONTROL_MODE_STOP) bits |= 1UL << 2;
@@ -4879,7 +4898,7 @@ static void M9H2_IdleUpdate(void)
   if ((steer_pos_active != 0U) || (steer_manual_active != 0U) ||
       (steer_cal_active != 0U) || (steer_test_running != 0U) ||
       (steer_test_arm != 0U) || (steer_test_request != 0U) ||
-      ((uint8_t)control_mode != m9_h2_owner_mode))
+      (m9_h2_mode_ok == 0U))
     bits |= 1UL << 8;
   if (debug_as5600_poll_enable != 0U) bits |= 1UL << 9;
   m9_h2_block_bits |= bits;
@@ -4897,7 +4916,7 @@ static void M9H2_IdleUpdate(void)
       (steer_test_running == 0U) &&
       (steer_test_arm == 0U) &&
       (steer_test_request == 0U) &&
-      ((uint8_t)control_mode == m9_h2_owner_mode) &&
+      (m9_h2_mode_ok != 0U) &&
       (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) == 0U) &&
       (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) == 0U));
   in.wheels_stopped = Steering_PositionWheelsStopped();
@@ -8116,6 +8135,7 @@ static void M8S11_StreamUpdate(void)
         "updates=%u,freshL=%u,freshR=%u,peakErrL=%u,peakErrR=%u,"
         "peakScoreL=%u,peakScoreR=%u,deniedNC=%u,deniedOwner=%u,"
         "sensorErr=%u,blockedPower=%u,blockBits=%lu,"
+        "modeStart=%u,modeNow=%u,modeOK=%u,voiceBusy=%u,"
         "dutyL=%u,dutyR=%u,powered=0,shadowOnly=1,dropped=%lu\r\n",
         FW_BUILD_GIT_SHA,(unsigned long)g->seq,(unsigned)g->source,
         (unsigned)g->state,(unsigned)g->reason,
@@ -8127,6 +8147,8 @@ static void M8S11_StreamUpdate(void)
         (unsigned)g->denied_nc,(unsigned)g->denied_owner,
         (unsigned)g->errors,(unsigned)g->blocked_power_requests,
         (unsigned long)m9_h2_block_bits,
+        (unsigned)m9_h2_owner_mode,(unsigned)m9_h2_mode_now,
+        (unsigned)m9_h2_mode_ok,(unsigned)m9_h2_voice_busy,
         (unsigned)g->duty_l,(unsigned)g->duty_r,
         (unsigned long)m9_h2_dropped);
     if (M8S11_SendLine(n) != 0U) m9_h2_pending = 0U;

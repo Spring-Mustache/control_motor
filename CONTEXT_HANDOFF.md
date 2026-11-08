@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **LATEST H2-A 2026-11-08:** User uploaded 2 private UART files at MCU `8214610`. Valid `M9H2_GUARD` record aborted in **13ms** with `reason3 / blockBits256`, `deniedOwner1`, `sensorErr0`, `deniedNC0`, `dutyL/R0,powered0`. Reconstructed from source: ordinary `VOICE->IDLE` after M8 DONE wrongly looked like new owner, not proven hardware fault. New source fix whitelists **only clean normal Voice/PS2 post-DONE->IDLE**, all STOP/NC/other-owner/busy continue to abort; added modeStart/modeNow/modeOK/voiceBusy telemetry. Second TXT has malformed concatenated H0+M8R1 line and **no H2**; cannot infer UART cause or count as H0 pass. H2 still POWER HARD OFF; exact CI after new commit, target Flash and 3s MCU H2 log need verification. Read `docs/M9_H2_GUARD_SOURCE_2026_11_07.md`. Never publish raw TXT.
+
 > **M9-H2-A EXACT CI VERIFIED 2026-11-07:** C source guard `55db22f67c81517ada48106f5a506b7b367b7e4c`, GitHub Actions `42370515934` **COMPLETED/SUCCESS**: strict Linux GCC actual-C H2-A monitor/fault and hard power-off, full M8/H0/H1 context regression PASS, Windows PowerShell5.1 H2 capture script syntax PASS. Initial `b9b75a` Windows parser fail due `$MaxEvents:`, fix only PS interpolation, motor source unchanged. Chưa có CubeIDE Clean Build/Flash hoặc `M9H2_GUARD` MCU log. **H2-B ACTIVE not coded/tested, 0 PWM always.** Sau commit docs HEAD mới cần CI riêng.
 
 > **NEWEST M9-H2-A 2026-11-07:** Theo yêu cầu USER triển khai H2, đã viết **bộ giám sát H2-A tách riêng**, chỉ nhận goal sau cả hai trục M8 DONE2, tính near-goal PD shadow và đánh giá STOP/NC/owner/wheel/stale/timeout. Thêm `Core/Src/m9_h2_hold_guard.c`/`.h`, `M9H2_GUARD` UART3 sau idle và `tools/capture_m9_h2_guard.ps1`. Bắt buộc `M9H2_POWER_PERMITTED=0U`, mọi `dutyL=dutyR=0`, **KHÔNG có đường ghi PWM/DIR trong H2-A**. Cần xác minh Actions SHA mới, CubeIDE Build/Flash và MCU guard status; **H2-B ACTIVE CHƯA TRIỂN KHAI** do chưa kiểm chứng current/thermal, PWM0 coast/brake, independent motor E-stop. H0/H1 đã có 130 real motion frames trên SHA `3dbdfaf`. Đọc `docs/M9_H2_GUARD_SOURCE_2026_11_07.md` và các hồ sơ cũ. Không được gọi H2 powered PASS.
@@ -1815,6 +1817,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [15] New chat should read exact source SHA vs doc HEAD and avoid asking old 130 H1 data again.
 [16] No H2 powered PASS, original requirements unchanged, no user TXT published.
 
+
+## 2026-11-08 — H2-A normal owner handoff fix, 17 checkpoints
+
+[0] User private 2 TXT files: first valid M9H2_GUARD sha8214610, second malformed H0+M8R1 joined line without H2.
+[1] Source base branch HEAD8214610cadac396f7502dea5fbde847de784fe9d, after fix HEAD and Actions must be verified.
+[2] User goal H2 software-only hold project continues; H2-A supervisor, H2-B powered depends on current/thermal.
+[3] Real log 13ms reason3 blockBits256, 0 NC/sensor error, 0 duty and powered0. No 3sec H2A PASS yet; old H1 130 measured frames remain.
+[4] Root from source: M9H2_StartAfterDone captures VOICE before finish clears Voice owner; Control_Arbitrate naturally sets IDLE. Strict mode equality canceled immediately.
+[5] New pure-C M9H2_ModeAllowed permits source2/3 originalVOICE to VOICE/IDLE if no new pending Voice, PS2 activity, cancel; source1 PS2 same PS2 or clean release to IDLE.
+[6] Revoke on STOP, new Voice or PS2 job, PS2 cancel, unexpected mode; original STOP/NC/wheel/owner/CCR/sensor/age gates still mandatory.
+[7] Files changed main.c, m9_h2_hold_guard.c/.h, tools/m9_h2_host_test.c, tools/verify_m9_h2_guard.py, collector warning and H2 docs/roadmap/handoff.
+[8] No motor changes: M9H2_POWER_PERMITTED=0U, dutyL=dutyR=0, no new TIM/GPIO/I2C, still H2B not coded.
+[9] UART H2 new modeStart/modeNow/modeOK/voiceBusy directly diagnoses expected VOICE mode1 -> IDLE mode0.
+[10] Original second TXT one H0 line physically truncated/concatenated with M8R1_FINE; cannot assume UART sender bug; file count H2=0. Collector warns malformed H0 summary.
+[11] Host GCC tests positive normal Voice->IDLE, PS2->IDLE and negatives new job, STOP, manual takeover, PS2 cancel, no output.
+[12] Need exact CI after commit; local CubeIDE Build/Flash then one passive safe Voice command for ≥3sec H2 log. Not retest H1 4 runs.
+[13] In first H2 log: source3, goalL1545 goalR351, updates1 freshL0 freshR1, duration13, sensorErr0, deniedOwner1, bit8 set, duty0.
+[14] Old H0 seq3 reason3 from previous H1 log separate event, do not conflate with this H2 reason3.
+[15] User local worktree has modified .settings files safely restored with stash apply; new update should preserve local config and no duplicate stash apply.
+[16] H2-A full hardware PASS pending, H2-B active/loaded untested, original specs not changed.
 
 END OF CONTEXT HANDOFF
 

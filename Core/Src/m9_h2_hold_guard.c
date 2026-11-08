@@ -1,6 +1,32 @@
 #include "m9_h2_hold_guard.h"
 #include <string.h>
 
+uint8_t M9H2_ModeAllowed(uint8_t source, uint8_t started_mode,
+                        uint8_t current_mode, uint8_t voice_busy,
+                        uint8_t ps2_manual, uint8_t ps2_cancel)
+{
+  /* A new Voice job or PS2 cancel must revoke even an unchanged mode. */
+  if ((voice_busy != 0U) || (ps2_cancel != 0U))
+    return 0U;
+
+  /* R1 via PS2 may remain PS2 while R1 is held. The normal release
+   * becomes IDLE only after all recognized PS2 manual inputs end.
+   */
+  if ((source == 1U) && (started_mode == M9H2_CONTROL_PS2))
+    return (uint8_t)((current_mode == M9H2_CONTROL_PS2) ||
+        ((current_mode == M9H2_CONTROL_IDLE) && (ps2_manual == 0U)));
+
+  /* Voice position and Voice CENTER normally finish VOICE -> IDLE.
+   * A newly active PS2 request MUST NOT be treated as that handoff.
+   */
+  if (((source == 2U) || (source == 3U)) &&
+      (started_mode == M9H2_CONTROL_VOICE) && (ps2_manual == 0U))
+    return (uint8_t)((current_mode == M9H2_CONTROL_VOICE) ||
+                     (current_mode == M9H2_CONTROL_IDLE));
+
+  return 0U;
+}
+
 static void inc16(uint16_t *x)
 {
   if (*x != UINT16_MAX) ++(*x);
