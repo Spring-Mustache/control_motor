@@ -1,3 +1,5 @@
+**2026-11-08 — H2-B1 MCU uncommissioned integration observed:** private UART firmware `4d004757f48f67c1b1b5192b8020c3e8d196ba9a`, four complete lines across seq1/source2 CENTER and seq2/source3 Voice angle. Both retain two goals beyond5s (5002/5001ms), active1/state2/reason7, commissioned0/lease0, all PWM/peakPWM/appliedMs/everApplied0. This is LIMITED MCU target-retention/telemetry PASS, not powered HOLD, current/thermal/load or fault-injection acceptance. Latest DOCX identifies DC775 geared motors: wheel110rpm x4, TURN LEFT30rpm, TURN RIGHT32rpm; manufacturer/winding/gearbox model and safe stationary current are not specified. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md. Earlier pending/819f635 notes below are dated history.
+
 
 # M9-H2-B0 — Chính sách giữ góc gần đích, công suất KHÓA (2026-11-08)
 
@@ -91,3 +93,10 @@ Nguồn: file UART riêng tư do người dùng gửi, `M9H2_GUARD_20261108_1516
 
 **Nguồn hiện hành:** [H2-B1 full HOLD](M9_H2B1_FULL_HOLD_2026_11_08.md). Các đề xuất bench từng trục/phiên ngắn phía trước được giữ làm lịch sử, không phải phạm vi bàn giao đã chốt. H2-B0 và guard3s vẫn là quan sát cũ riêng; H2-B1 không dùng timer đó để kết thúc mục tiêu.
 
+
+
+## 2026-11-08 — MCU H2-B1 chưa commissioning và nhận diện motor
+
+**2026-11-08 — H2-B1 MCU uncommissioned integration observed:** private UART firmware `4d004757f48f67c1b1b5192b8020c3e8d196ba9a`, four complete lines across seq1/source2 CENTER and seq2/source3 Voice angle. Both retain two goals beyond5s (5002/5001ms), active1/state2/reason7, commissioned0/lease0, all PWM/peakPWM/appliedMs/everApplied0. This is LIMITED MCU target-retention/telemetry PASS, not powered HOLD, current/thermal/load or fault-injection acceptance. Latest DOCX identifies DC775 geared motors: wheel110rpm x4, TURN LEFT30rpm, TURN RIGHT32rpm; manufacturer/winding/gearbox model and safe stationary current are not specified. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md. Earlier pending/819f635 notes below are dated history.
+
+Thông số motor theo DOCX mới: DC775 giảm tốc, bánh110rpm x4, láiLEFT30rpm, RIGHT32rpm. Chưa có hãng/mã cuộn dây/hộp số hoặc giới hạn dòng đứng giữ. `dropped=1` ở seq2 là trạng thái chờ bị thay thế khi Begin phiên mới theo adapter, không phải bộ đếm lỗi cảm biến. Bản ghi tổng hợp và giới hạn: [H2-B1 full HOLD](M9_H2B1_FULL_HOLD_2026_11_08.md). Không thay source hoặc cần nạp lại cho commit tài liệu này.

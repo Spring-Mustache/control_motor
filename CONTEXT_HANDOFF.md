@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **2026-11-08 — H2-B1 MCU uncommissioned integration observed:** private UART firmware `4d004757f48f67c1b1b5192b8020c3e8d196ba9a`, four complete lines across seq1/source2 CENTER and seq2/source3 Voice angle. Both retain two goals beyond5s (5002/5001ms), active1/state2/reason7, commissioned0/lease0, all PWM/peakPWM/appliedMs/everApplied0. This is LIMITED MCU target-retention/telemetry PASS, not powered HOLD, current/thermal/load or fault-injection acceptance. Latest DOCX identifies DC775 geared motors: wheel110rpm x4, TURN LEFT30rpm, TURN RIGHT32rpm; manufacturer/winding/gearbox model and safe stationary current are not specified. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md. Earlier pending/819f635 notes below are dated history.
+
 > **H2-B1 SOURCE/HOST CI VERIFIED (2026-11-08):** source `ac4fc082167bb13b299cba089bc8998e4d1bd2da`, GitHub Actions [42467841303](https://github.com/Spring-Mustache/control_motor/actions/runs/42467841303) completed SUCCESS. Linux full persistent two-axis controller + production main hooks and all legacy regressions PASS; Windows native PowerShell5.1 parser PASS. Physical commissioning remains0; CubeIDE/MCU/HOLD torque/thermal/load validation pending. A following docs-only HEAD is not a new actuator implementation.
 
 > **2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
@@ -109,6 +111,8 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**2026-11-08 — H2-B1 MCU uncommissioned integration observed:** private UART firmware `4d004757f48f67c1b1b5192b8020c3e8d196ba9a`, four complete lines across seq1/source2 CENTER and seq2/source3 Voice angle. Both retain two goals beyond5s (5002/5001ms), active1/state2/reason7, commissioned0/lease0, all PWM/peakPWM/appliedMs/everApplied0. This is LIMITED MCU target-retention/telemetry PASS, not powered HOLD, current/thermal/load or fault-injection acceptance. Latest DOCX identifies DC775 geared motors: wheel110rpm x4, TURN LEFT30rpm, TURN RIGHT32rpm; manufacturer/winding/gearbox model and safe stationary current are not specified. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md. Earlier pending/819f635 notes below are dated history.
 
 **2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
 
@@ -508,7 +512,7 @@ B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
 
-**Điểm dừng mới nhất:** full H2-B1 source/host đã triển khai; kiểm tra GitHub CI tại commit mới, CubeIDE Build/Flash và commissioning vật lý còn riêng. Không thu hẹp chương trình thành bench hữu hạn; không bật công suất bằng các mức dòng chạy chưa phải rating HOLD.
+**Điểm dừng mới nhất (log165103):** H2-B1 SOURCE/HOST CI PASS và MCU giữ mục tiêu/telemetry chưa commissioning đã quan sát hai phiên trên5s tại4d004757. UART chứng minh firmware này đang thực thi; chưa có transcript Clean Build/flash riêng. Lực HOLD vẫn khóa0, commissioning/gain/PWM/đảo chiều/nhiệt và H3 có tải chưa nghiệm thu. DC77530/32rpm mới xác định họ motor/tốc độ, chưa xác định dòng đứng giữ. Không lặp H1/H2-B0 hoặc hai lượt tĩnh vừa xác nhận.
 
 **Cập nhật ưu tiên 2026-11-08:** H2-B0 đã có một cửa sổ MCU tĩnh 3003ms đạt tiêu chí; build/flash thực tế được suy từ firmware chạy và UART SHA, chưa có transcript CubeIDE riêng. H2-B1 powered và H3 integration là phần còn dở; các ưu tiên S14 phía dưới là lịch sử. Không thay firmware hoặc yêu cầu flash lại cho bản ghi tài liệu này.
 
@@ -2200,3 +2204,24 @@ END OF CONTEXT HANDOFF
 [16] The user explicitly asked to improve both trigger origins, so one common center-mode patch avoids treating voice misrecognition as the cause of this R1 hunting.
 
 END OF CONTEXT HANDOFF
+
+
+## 2026-11-08 — H2-B1 uncommissioned MCU log and motor identification, 17 checkpoints
+
+[0] Phạm vi: tiếp tục FULL persistent two-axis H2-B1; không chuyển sang chương trình một trục/phiên ngắn.
+[1] Phiên bản: private MCU UART4d004757f48f67c1b1b5192b8020c3e8d196ba9a; branch HEAD pinned at same SHA before this docs-only update.
+[2] Mục tiêu: ghi đúng motor được tài liệu mới mô tả và phân loại bằng chứng MCU mới; không tự đặt dòng/gain.
+[3] Yêu cầu: động học chưa hoàn thành để tích hợp/nạp; SELECT tạm hoãn; raw UART cá nhân không publish.
+[4] Milestones: limited MCU uncommissioned target-retention/telemetry PASS for two sessions, not physical powered HOLD PASS.
+[5] Kết quả: seq1/source2 goal1886/662 actual1882/664 errors4/-2 at5002ms updates465; seq2/source3 goal2160/906 actual2157/901 errors3/5 at5001ms updates471.
+[6] Điểm dừng: cả4dòng active1/state2/reason7 commissioned0/lease0; PWM,peakPWM,appliedMs,everApplied đều0; không xác nhận mô-men.
+[7] Tài nguyên: private M9H2B1_HOLD_20261108_165103.txt and technical DOCX v2.0 dated2026-10-28 newly supplied; publish only these aggregates.
+[8] Quyết định: DC775 is recorded as family/type only; manufacturer/winding/gearbox variant not inferred from generic775 or30/32rpm.
+[9] Chẩn đoán: dropped rises0->1 across sessions; actual main.inc increments when a pending status is replaced at new Begin. Not sensor/loop loss; no proof of delivery of the previous terminal reason.
+[10] An toàn: no source/actuator/driver changes; power commissioning stays0; user running-current measurements remain baseline only.
+[11] Kế hoạch: keep continuous two-axis controller; establish actual PWM/gain/reversal and stationary current/thermal envelope before activating physical HOLD.
+[12] Thông tin còn thiếu: motor exact variant/data, standstill limits and installed driver response; no request to repeat already-supplied log/H1.
+[13] Lịch sử: earlier statements MCU819f635 / no B1 MCU log are superseded by this4d004757 UART evidence, retained as dated history.
+[14] Thông số: DOCX §1 DC775 geared wheel110rpm x4, LEFT30rpm, RIGHT32rpm. DOCX §24 still lists motor model/gear ratio/stall/torque unknown;80/200W and5/10A earlier user estimates remain separate.
+[15] Tiếp quản: read newest top status/report; target execution inferred from UART SHA, not a recorded CubeIDE build transcript; no torque/thermal/fault/load conclusion.
+[16] Kiểm chứng: four complete rows checked for SHA,state,zero-power,goal-raw=error,monotonic per-session updates and elapsed>5s; docs-only scope preserves original handoff headings/spec and firmware.
