@@ -1,6 +1,8 @@
 
 # M9-H2-B0 — Chính sách giữ góc gần đích, công suất KHÓA (2026-11-08)
 
+> **H2-B1 SOURCE/HOST CI VERIFIED (2026-11-08):** source `ac4fc082167bb13b299cba089bc8998e4d1bd2da`, GitHub Actions [42467841303](https://github.com/Spring-Mustache/control_motor/actions/runs/42467841303) completed SUCCESS. Linux full persistent two-axis controller + production main hooks and all legacy regressions PASS; Windows native PowerShell5.1 parser PASS. Physical commissioning remains0; CubeIDE/MCU/HOLD torque/thermal/load validation pending. A following docs-only HEAD is not a new actuator implementation.
+
 > **2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
 
 > **2026-11-08 — USER-REPORTED motor-lead current baseline:** User measured on wires FROM driver TO motor (not driver input). During CENTER travel LEFT0.8–1A and RIGHT≈2A; after stopping meter reads0A on both. Earlier LEFT5A/RIGHT10A were estimates from discussed motor powers80/200W, NOT verified continuous/stall/HOLD ratings. These readings are a running-current baseline, not safe HOLD limits; meter type/bandwidth and thermal/standstill-current envelope remain unverified. MCU firmware stays819f635; H2-B1 powered output has not been implemented.

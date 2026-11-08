@@ -1,5 +1,7 @@
 # Xe tăng cướp bóng — STM32F767ZI
 
+> **H2-B1 SOURCE/HOST CI VERIFIED (2026-11-08):** source `ac4fc082167bb13b299cba089bc8998e4d1bd2da`, GitHub Actions [42467841303](https://github.com/Spring-Mustache/control_motor/actions/runs/42467841303) completed SUCCESS. Linux full persistent two-axis controller + production main hooks and all legacy regressions PASS; Windows native PowerShell5.1 parser PASS. Physical commissioning remains0; CubeIDE/MCU/HOLD torque/thermal/load validation pending. A following docs-only HEAD is not a new actuator implementation.
+
 > **2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
 
 > **Motor-lead current baseline (USER,2026-11-08):** khi CENTER trái0,8–1A/phải≈2A; sau dừng đồng hồ đọc0A. Mức5/10A từ công suất chỉ là ước lượng, không phải giới hạn HOLD. [B1 bench design và giới hạn dữ liệu](docs/M9_H2B_POWER_GATE_2026_11_08.md). H2-B1 chưa cấp lực; firmware819f635.
