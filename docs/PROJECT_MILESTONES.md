@@ -1,6 +1,8 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-## HIỆN HÀNH 2026-11-08 — H2-A 3s MCU PASS; H2-B0 source candidate HARD POWER OFF, H2-B1 pending
+## HIỆN HÀNH 2026-11-08 — H2-B0 SOURCE/HOST CI PASS, MCU new log pending; H2-B1 powered pending
+
+**M9 H2-B0 SOURCE CI VERIFIED 2026-11-08:** Firmware source 9e4f4533, Actions42460572191 SUCCESS Linux+Windows, physical output locked0; CubeIDE/MCU pending. [H2-B0 detailed report](M9_H2B_POWER_GATE_2026_11_08.md).
 
 **M9 H2-B0 SOURCE 2026-11-08:** Bounded hold candidate policy after H2-A guarded DONE, hyst 8/4 RAW, veto wrong-sign score; compiled physically LOCKED output0, additional UART bFields, no actual new PWM. H2-B1 powered pending measured motor/driver electrical and STOP/NC. See docs/M9_H2B_POWER_GATE_2026_11_08.md.
 
@@ -1454,3 +1456,5 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - Manual CCS_SHB12 uploaded by USER ghi board 12A continuous/30A peak, iLIMIT and overcurrent/overtemperature, tùy chỉnh ACCE/DECCE; đây KHÔNG phải đặc tính stall/thermal an toàn của motor DC riêng. PWM0 coast/brake, motor current/temp và cắt nguồn độc lập chưa xác minh.
 - Test source tools/m9_h2b_policy_host_test.c + tools/verify_m9_h2b_policy.py với GitHub Actions strict Linux GCC và Windows PS parser. MCU H2B0 3s log cần Build/Flash sau exact CI; không phải H2-B1 powered PASS.
 - H2-B1 active motor duty/wiring cần thêm dữ liệu vật lý, STOP/NC owner safety + current/thermal commissioning; chưa code bật công suất. Tài liệu docs/M9_H2B_POWER_GATE_2026_11_08.md.
+
+**M9 H2-B0 SOURCE CI PASS 2026-11-08:** Firmware commit 9e4f4533b9c7de820295f9c36ceab28541048dc0, GitHub Actions 42460572191 completed SUCCESS: Linux GCC exact-C H2-B0 candidate + hard-power-lock verifier and H0/H1/H2-A regressions; Windows PowerShell 5.1 syntax PASS. Target CubeIDE Build/Flash/H2B0 MCU log remains PENDING. H2-B1 powered hold not implemented (unknown motor stall current/temp, driver PWM0 coast/brake and independent cutoff). Docs-only HEAD after this report is not new firmware.

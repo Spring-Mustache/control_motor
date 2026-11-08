@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **M9 H2-B0 SOURCE CI PASS 2026-11-08:** Firmware commit 9e4f4533b9c7de820295f9c36ceab28541048dc0, GitHub Actions 42460572191 completed SUCCESS: Linux GCC exact-C H2-B0 candidate + hard-power-lock verifier and H0/H1/H2-A regressions; Windows PowerShell 5.1 syntax PASS. Target CubeIDE Build/Flash/H2B0 MCU log remains PENDING. H2-B1 powered hold not implemented (unknown motor stall current/temp, driver PWM0 coast/brake and independent cutoff). Docs-only HEAD after this report is not new firmware.
+
 > **LATEST M9 H2-B0 SOURCE 2026-11-08:** User wants H2-B started. Bounded candidate HOLD near target added as pure-C policy after H2-A guard. It can compute scores but M9H2B_POWER_STAGE_ENABLED=0, verified PWM0/time0, plus H2-A power lock0; no physical PWM/DIR/I2C/owner writes. CCS_SHB12 manual driver 12A continuous does not verify motor stall/temperature or PWM0 brake/coast. H2-B1 powered action still pending real electrical evidence. Review docs/M9_H2B_POWER_GATE_2026_11_08.md. H2-A earlier MCU 3s PASS, do not ask user to repeat old H1. Verify exact Actions SHA after commit.
 
 > **LATEST 2026-11-08 M9-H2-A ON-MCU 3000ms PASS:** User delivered PRIVATE `M9H2_GUARD_20261108_143827.txt`, MCU SHA `5dd1502ac606c5e254ddda3484baffbf2a70a534`, one complete Voice CENTER `seq=2`, H2 `state=6,reason=1,durationMs=3000,updates=294,freshL=294,freshR=293,blockBits=0,deniedOwner=0,deniedNC=0,sensorErr=0,modeStart=1,modeNow=0,modeOK=1,voiceBusy=0,dutyL=0,dutyR=0,powered=0`. H0/H1 same 3s complete, drift <=1 RAW, no bad/stale/NC. **H2-A POST-DONE QUIET MCU PASS for one run**, not active holding or nonzero dynamic hold response. H2-B motor PWM hard locked 0; unknown stall current, heat and CCS_SHB12 PWM0 coast/brake still must be resolved. Raw UART private, only aggregate in docs. Docs-only commit does not require reflash.
@@ -1904,6 +1906,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] Raw user UART logs remain private and should not be published to repository.
 [15] Documentation docs/M9_H2B_POWER_GATE_2026_11_08.md plus roadmap and CONTEXT_HANDOFF updated.
 [16] No physical active HOLD pass or commissioned H2-B1; original project requirements retained.
+
+## 2026-11-08 — H2-B0 source exact CI PASS, 17 checkpoints
+
+[0] User explicitly requested H2B after H2A 3s real MCU pass, implemented candidate with motor output hard-locked.
+[1] Exact source SHA9e4f4533b9c7de820295f9c36ceab28541048dc0; docs-only HEAD may differ.
+[2] User goal active HOLD remains, but source stage H2-B0 not H2-B1 powered torque.
+[3] Previous H2A on-MCU one-run 3s PASS sha5dd1502, no need to repeat H1 130 frames.
+[4] H2B0 source/host CI PASS, CubeIDE target build/flash H2B0 log pending, H2B1 and H3 pending.
+[5] GitHub Actions run42460572191 completed SUCCESS Linux strict GCC actual-C and source safety gates.
+[6] Windows PowerShell5.1 parser PASS exact SHA, prior H0/H1/H2A regressions PASS.
+[7] Added Core/Inc/m9_h2b_hold_policy.h, Core/Src/m9_h2b_hold_policy.c, main.c integration.
+[8] Candidate hyst8/4RAW score cap20 arbit units slew3/tick, opposite-sign veto, seq/time consistency and guard revocation.
+[9] Compile H2B_POWER_STAGE_ENABLED0, verified motor PWM0/on-time0; independent H2A POWER_PERMITTED0.
+[10] main.C H2B_Begin after H2A_Begin, Step after H2A_Step, no extra I2C/TIM/GPIO control.
+[11] M9H2_GUARD UART adds bState/bReason/bPeak/bEligible/bVeto/bBlocked/bCcrL/R with powered0.
+[12] Need user local safe ff-only update preserving .settings, CubeIDE Refresh/Clean Build/Debug/Resume, one passive safe Voice log.
+[13] H2B1 powered requires measured motor stall-current/temp, SHB12 PWM0 brake/coast and independent motor cut.
+[14] Driver manual rating 12A continuous/30A peak is H-bridge rating not a safe continuous motor hold rating.
+[15] Private user UART data not published publicly, only aggregates and source docs.
+[16] Do not claim active HOLD or load release PASS, original requirement contract unchanged.
 
 END OF CONTEXT HANDOFF
 

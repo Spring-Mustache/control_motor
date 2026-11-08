@@ -28,3 +28,7 @@ Yêu cầu firmware SHA mới; bState=3 (COMPLETE), bReason=1, bCcrL=0,bCcrR=0, 
 
 Trước khi code đường xuất TIM12/TIM14/DIR cho HOLD cần xác minh motor cụ thể, dòng liên tục và stalled theo nhiệt, nguồn và ngắt nguồn động lực độc lập, trạng thái coast/brake khi PWM=0, cấu hình ACCE/DECCE thực, quyền STOP/NC ISR/PS2/Voice của từng trục. Sau đó mới xác định mức PWM và thời lượng thử với đo dòng/nhiệt và kiểm tra từng trục, rollback khi mất tín hiệu. **Không thay các define khóa thành 1 chỉ để thử.** Cần commit kiểm tra actuator lease riêng sau khi có dữ liệu, không tự suy motor PWM từ score.
 
+
+## 2026-11-08 — Exact source CI verified
+
+**M9 H2-B0 SOURCE CI PASS 2026-11-08:** Firmware commit 9e4f4533b9c7de820295f9c36ceab28541048dc0, GitHub Actions 42460572191 completed SUCCESS: Linux GCC exact-C H2-B0 candidate + hard-power-lock verifier and H0/H1/H2-A regressions; Windows PowerShell 5.1 syntax PASS. Target CubeIDE Build/Flash/H2B0 MCU log remains PENDING. H2-B1 powered hold not implemented (unknown motor stall current/temp, driver PWM0 coast/brake and independent cutoff). Docs-only HEAD after this report is not new firmware.
