@@ -2203,9 +2203,6 @@ END OF CONTEXT HANDOFF
 [15] Source pass doesn't ensure hardware smoothness; only user physical data adjudicates next step.
 [16] The user explicitly asked to improve both trigger origins, so one common center-mode patch avoids treating voice misrecognition as the cause of this R1 hunting.
 
-END OF CONTEXT HANDOFF
-
-
 ## 2026-11-08 — H2-B1 uncommissioned MCU log and motor identification, 17 checkpoints
 
 [0] Phạm vi: tiếp tục FULL persistent two-axis H2-B1; không chuyển sang chương trình một trục/phiên ngắn.
@@ -2225,3 +2222,6 @@ END OF CONTEXT HANDOFF
 [14] Thông số: DOCX §1 DC775 geared wheel110rpm x4, LEFT30rpm, RIGHT32rpm. DOCX §24 still lists motor model/gear ratio/stall/torque unknown;80/200W and5/10A earlier user estimates remain separate.
 [15] Tiếp quản: read newest top status/report; target execution inferred from UART SHA, not a recorded CubeIDE build transcript; no torque/thermal/fault/load conclusion.
 [16] Kiểm chứng: four complete rows checked for SHA,state,zero-power,goal-raw=error,monotonic per-session updates and elapsed>5s; docs-only scope preserves original handoff headings/spec and firmware.
+
+
+END OF CONTEXT HANDOFF
