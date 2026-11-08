@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **LATEST 2026-11-08 M9-H2-A ON-MCU 3000ms PASS:** User delivered PRIVATE `M9H2_GUARD_20261108_143827.txt`, MCU SHA `5dd1502ac606c5e254ddda3484baffbf2a70a534`, one complete Voice CENTER `seq=2`, H2 `state=6,reason=1,durationMs=3000,updates=294,freshL=294,freshR=293,blockBits=0,deniedOwner=0,deniedNC=0,sensorErr=0,modeStart=1,modeNow=0,modeOK=1,voiceBusy=0,dutyL=0,dutyR=0,powered=0`. H0/H1 same 3s complete, drift <=1 RAW, no bad/stale/NC. **H2-A POST-DONE QUIET MCU PASS for one run**, not active holding or nonzero dynamic hold response. H2-B motor PWM hard locked 0; unknown stall current, heat and CCS_SHB12 PWM0 coast/brake still must be resolved. Raw UART private, only aggregate in docs. Docs-only commit does not require reflash.
+
 > **2026-11-08 SOURCE CI VERIFIED — H2-A owner handoff fix:** Source commit `977533f79194e2ac3a6b97768675b6647348dbd8`, GitHub Actions run `42459137638` **completed SUCCESS**: Linux exact-C GCC host covers normal Voice->IDLE after DONE, PS2 release and reject takeover/STOP/new Voice/PS2 cancel, H2 hard duty0; older M8/H0/H1 regressions and full context contract PASS; Windows PowerShell5.1 capture parser PASS. Exact MCU build/flash and new 3-second H2 log **not yet available**. No H2-B powered output or HOLD load PASS. Any later docs-only commit will have a different SHA; distinguish it from source flashed SHA.
 
 
@@ -1860,6 +1862,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] H2A mode handoff code and host test exact source; no changes to H1 moving motor control/gains.
 [15] Preserve private user UART files, do not upload raw TXT public, verify new log sha and reason1 duration~3000.
 [16] No H2B powered PASS, H3 pending, original 386 requirements unchanged.
+
+## 2026-11-08 — H2-A guard MCU 3s one-run real validation, 0–16
+
+[0] User provided private M9H2_GUARD_20261108_143827.txt, MCU sha5dd1502ac606c5e254ddda3484baffbf2a70a534.
+[1] Feature branch HEAD at report start 5dd1502, may now have newer docs-only HEAD after commit; no firmware source change.
+[2] Goal M9 active hold unchanged; this observation is guard-only H2A, not H2B powered.
+[3] User already ran STM32 firmware and supplied three complete H0/H1/H2 lines; do not demand repeat of same run.
+[4] H0 static3s PASS, H1 static3s PASS, H2-A guard on-MCU 3s PASS **one Voice CENTER run**, H2-B/H3 pending.
+[5] H2 record seq2 source2 state6 reason1 duration3000 updates294 freshL294 freshR293 peakErrL5 peakErrR3.
+[6] H2 blockBits0 deniedNC0 deniedOwner0 sensorErr0, modeStart1 modeNow0 modeOK1 voiceBusy0: normal Voice->IDLE fix confirmed on MCU.
+[7] H2 dutyL0 dutyR0 powered0 shadowOnly1; hard lock M9H2_POWER_PERMITTED0 retained. No motor hold torque evidence.
+[8] H2 peakScoreL/R0 due quiet near-goal; cannot claim dynamic disturbance PD or powered response.
+[9] H0 goal1886/662 raw final1882/659 peakDrift1/1 samples295/294 bad0 jump0 wheelsMoved0.
+[10] H1 samples295/294 errL4 errR3 peakVel0/0 peakCmd0/0 no bad/stale/sat; reason1.
+[11] Prior MCU abort13ms at sha8214610 fixed in source and now new 3000ms proof on sha5dd1502.
+[12] H2-B requires verified current/thermal/stall, driver PWM0 brake/coast, independent cutoff and STOP/NC tests; never infer from idle.
+[13] Source normal mode fix exact CI pass and new real MCU passed only limited healthy one-run scope.
+[14] Private source TXT do not upload GitHub; summary only in docs/M9_H2_GUARD_SOURCE_2026_11_07.md.
+[15] Follow-up could plan H2-B electrical safe evidence and design, no forced hand load under powered hold without safety verification.
+[16] Do not change M8 PWM/owner, H2 powered remains OFF, release not warranted.
 
 END OF CONTEXT HANDOFF
 

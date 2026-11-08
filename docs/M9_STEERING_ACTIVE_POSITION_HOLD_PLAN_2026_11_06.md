@@ -120,3 +120,7 @@ Source `55db22f67c81517ada48106f5a506b7b367b7e4c` Actions `42370515934` PASS (C-
 ### 2026-11-08 — H2-A sửa VOICE → IDLE sau DONE
 
 MCU SHA8214610 source3 H2_GUARD abort 13ms reason3/blockBits256, duty0, powered0, sensorErr0/deniedNC0. Source kiểm tra xác định điều kiện so sánh `control_mode` tuyệt đối: VOICE lúc DONE sau đó IDLE mặc định. Sửa riêng normal-mode handoff trong pure-C/MAIN, chỉ cho phép khi Voice/PS2 không có công việc mới và các cổng STOP/NC/owner/motion/sensor vẫn nguyên; UART log thêm modeStart/modeNow/modeOK. Chưa có 3s H2-A hardware PASS; H2-B vẫn không cấp motor. File khác H0_DRIFT bị ghép với M8R1_FINE không đủ để kết luận nguyên nhân UART. [Chi tiết](M9_H2_GUARD_SOURCE_2026_11_07.md).
+
+### 2026-11-08 — H2-A guard 3s one-run MCU PASS
+
+Firmware `5dd1502` đã chạy một lệnh Voice CENTER source2, cả H0/H1/H2 quan sát 3000ms, H2 reason1 state6 updates294, modeStart1->modeNow0 modeOK1, blockedOwner/NC0, sensorErr0, dutyL/R0 powered0. Bình thường VOICE->IDLE được chấp nhận, không còn abort sớm. Bằng chứng này **chỉ** xác nhận supervisor tĩnh một lượt; chưa chứng minh lỗi/ngoại lực trên thực địa hay giữ góc bằng lực motor. H2-B vẫn cần kiểm tra current/thermal/driver PWM0 và bảo vệ vật lý trước khi lập trình ACTIVE output. [H2 real UART summary](M9_H2_GUARD_SOURCE_2026_11_07.md).

@@ -1,6 +1,8 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-## HIỆN HÀNH 2026-11-08 — M9 H2-A owner handoff fix SOURCE/HOST CI PASS, target 3s pending
+## HIỆN HÀNH 2026-11-08 — M9 H2-A MCU 3s GUARD PASS (one Voice CENTER run); H2-B ACTIVE pending
+
+**M9-H2-A REAL MCU 3s PASS 2026-11-08:** Firmware SHA `5dd1502`, one full Voice CENTER source2 seq2; H2 state6 reason1 duration3000ms modeStart1->modeNow0 modeOK1, deniedOwner/NC0 sensorErr0 blockBits0 duty0 powered0, H0/H1 3s each PASS. Not powered hold H2-B. [M9 H2A detailed data](M9_H2_GUARD_SOURCE_2026_11_07.md).
 
 **M9-H2-A HANDOFF FIX SOURCE CI PASS 2026-11-08:** `977533f` GitHub Actions `42459137638` completed SUCCESS Linux C + Windows PS5.1; only normal post-DONE Voice->IDLE/PS2->IDLE allowed, reject takeover, H2 PWM remains hard zero. Target CubeIDE/MCU retest 3s PENDING.
 
@@ -1427,4 +1429,17 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 
 
 **2026-11-08 SOURCE CI VERIFIED — H2-A owner handoff fix:** Source commit `977533f79194e2ac3a6b97768675b6647348dbd8`, GitHub Actions run `42459137638` **completed SUCCESS**: Linux exact-C GCC host covers normal Voice->IDLE after DONE, PS2 release and reject takeover/STOP/new Voice/PS2 cancel, H2 hard duty0; older M8/H0/H1 regressions and full context contract PASS; Windows PowerShell5.1 capture parser PASS. Exact MCU build/flash and new 3-second H2 log **not yet available**. No H2-B powered output or HOLD load PASS. Any later docs-only commit will have a different SHA; distinguish it from source flashed SHA.
+
+
+### 2026-11-08 — M9-H2-A MCU UART 3000ms VALIDATION (real hardware, one Voice CENTER run)
+
+**USER-ATTACHED PRIVATE UART:** `M9H2_GUARD_20261108_143827.txt`, firmware MCU exact SHA `5dd1502ac606c5e254ddda3484baffbf2a70a534` (post normal Voice->IDLE fix). File contains three complete records, same `seq=2`:
+
+- `M9H0_DRIFT`: `source=2,mode=1,reason=1,durationMs=3000,goalL=1886,goalR=662,startL=1882,startR=659,endL=1882,endR=659,peakDriftL=1,peakDriftR=1,peakErrL=5,peakErrR=3,peakVelL=100,peakVelR=100,samplesL=295,samplesR=294,badL=0,badR=0,jumpL=0,jumpR=0,zeroDtL=0,zeroDtR=0,wheelsMoved=0,dropped=0`.
+- `M9H1_SHADOW`: `reason=1,samplesL=295,samplesR=294,errL=4,errR=3,peakVelL=0,peakVelR=0,peakCmdL=0,peakCmdR=0,brakeL=0,brakeR=0,reversalL=0,reversalR=0,badL=0,badR=0,staleL=0,staleR=0,jumpL=0,jumpR=0,satL=0,satR=0,zeroDtL=0,dropped=0,shadowOnly=1`.
+- `M9H2_GUARD`: `source=2,state=6 (COMPLETE),reason=1 (WINDOW_DONE),durationMs=3000,updates=294,freshL=294,freshR=293,peakErrL=5,peakErrR=3,peakScoreL=0,peakScoreR=0,deniedNC=0,deniedOwner=0,sensorErr=0,blockedPower=0,blockBits=0,modeStart=1,modeNow=0,modeOK=1,voiceBusy=0,dutyL=0,dutyR=0,powered=0,shadowOnly=1,dropped=0`.
+
+**EVIDENCE VERDICT:** M9 **H2-A MCU POST-DONE STATIC 3s GUARD PASS** for this one healthy `Voice CENTER` run. 294 guard updates with 0 owner revocations proves normal `VOICE(1)->IDLE(0)` handoff fix no longer falsely aborts. H0/H1 static window 3s PASS in the same run. Both shadow scores 0 near target, so this log does **NOT** demonstrate the guard reacting to externally disturbed angle or nonzero command, nor an active motor hold.
+
+**PENDING:** H2-B actual powered position hold, force disturbance/release, motor current/stall, thermal envelope, CCS_SHB12 PWM0 coast/brake, independence of hardware motor cutoff, NC/STOP physical tests. Remain HARD POWER LOCK `M9H2_POWER_PERMITTED=0U`. **No user log TXT is published to public GitHub; only this aggregate.** Source and MCU SHA remain `5dd1502`; any follow-on docs-only HEAD is NOT a new flashed firmware revision.
 
