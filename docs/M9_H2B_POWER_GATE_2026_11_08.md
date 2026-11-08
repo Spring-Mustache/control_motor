@@ -1,6 +1,8 @@
 
 # M9-H2-B0 — Chính sách giữ góc gần đích, công suất KHÓA (2026-11-08)
 
+> **2026-11-08 — USER-REPORTED motor-lead current baseline:** User measured on wires FROM driver TO motor (not driver input). During CENTER travel LEFT0.8–1A and RIGHT≈2A; after stopping meter reads0A on both. Earlier LEFT5A/RIGHT10A were estimates from discussed motor powers80/200W, NOT verified continuous/stall/HOLD ratings. These readings are a running-current baseline, not safe HOLD limits; meter type/bandwidth and thermal/standstill-current envelope remain unverified. MCU firmware stays819f635; H2-B1 powered output has not been implemented.
+
 > **Hiện hành 2026-11-08:** SOURCE/HOST CI PASS; đã có một lượt H2-B0 MCU STATIC INTEGRATION/TELEMETRY PASS tại firmware819f635, 3003ms. Candidate vẫn0; H2-B1 giữ góc bằng mô-men motor chưa thực hiện. Các phần SOURCE/MCU pending bên dưới lưu trạng thái trước kết quả này.
 
 ## Căn cứ và giới hạn
@@ -54,3 +56,27 @@ Nguồn: file UART riêng tư do người dùng gửi, `M9H2_GUARD_20261108_1516
 **Điểm tiếp tục:** Không yêu cầu người dùng lặp H0/H1 130 frame hay chính lượt CENTER này. H2-B1 powered và H3 integration còn chờ đặc tính motor current/thermal/stall, CCS_SHB12 PWM0 coast/brake/ACCE-DECCE và thiết kế cấp quyền actuator có STOP/NC/cắt nguồn phù hợp. Bản cập nhật này chỉ sửa tài liệu; firmware đã chạy vẫn là `819f635`, không yêu cầu build/flash lại vì commit docs mới.
 
 **USER clarification (2026-11-08):** Động học chưa hoàn thành để tích hợp/nạp vào firmware; SELECT tạm hoãn. Không tự đồng nhất hai trạng thái hoặc coi nội suy RAW của Voice là động học bánh xe hoàn chỉnh.
+
+
+## 2026-11-08 — Motor-lead current baseline and H2-B1 bench design
+
+**Nguồn:** người dùng báo số đo trực tiếp trong chat, xác nhận vị trí đo là dây từ driver ra motor. Không phải dòng nguồn cấp driver và không phải telemetry dòng do STM32 ghi.
+
+| Trạng thái được người dùng mô tả | LEFT | RIGHT |
+|---|---:|---:|
+| Đang chạy về CENTER | 0,8–1 A | khoảng 2 A |
+| Sau khi đến đích, đã dừng | đồng hồ đọc 0 A | đồng hồ đọc 0 A |
+
+**Phân loại dữ liệu:** số đo do USER cung cấp, chưa có tệp đo theo thời gian, model/băng thông đồng hồ, giá trị peak/RMS hoặc nhiệt độ. Chưa thể coi là dòng khởi động đỉnh, dòng stall hoặc dòng HOLD liên tục an toàn. Các mức 5A trái/10A phải trước đó chỉ được ước lượng từ công suất80/200W đang thảo luận; không lưu chúng như rating dòng của nhà sản xuất. Driver12A là thông số khả năng driver trong manual; chưa xác minh ngưỡng bảo vệ/iLIMIT thực trên từng board.
+
+**Ý nghĩa đối với M9:** đã có baseline dòng chạy trên motor để đối chiếu bài thử sau. Đồng hồ đọc0A khi dừng phù hợp firmware819f635 không cấp PWM HOLD; riêng quan sát này không xác định PWM0 là coast hay short-brake. Không suy PWM thành ampere hoặc cho rằng LEFT1A/RIGHT2A là giới hạn giữ lâu. Firmware hiện không có đường phản hồi dòng/nhiệt từ đồng hồ; giới hạn PWM/thời gian không được gọi là giới hạn dòng thực.
+
+### Phần thiết kế H2-B1 có thể tiếp tục từ source đã kiểm tra
+
+- B1 bench phải thử riêng từng trục; bốn bánh và trục không được thử giữ đầu ra0; boot OFF, một yêu cầu kích hoạt có chủ đích và phiên hữu hạn. Cơ chế kích hoạt, PWM cap, on-time và duty/thermal budget chưa chốt; không thay khẩu lệnh49 byte hoặc nút PS2 đang dùng mà không có đặc tả.
+- Source `Steering_PositionFinish()` tắt cả hai CCR trước khi gọi H2; `Control_Arbitrate()` ở IDLE gọi `Turn_Motors_Stop()`, còn `M9H2_IdleUpdate()` hiện yêu cầu cả hai CCR0. Vì vậy H2-B1 cần thiết kế quyền actuator riêng có giám sát, không nối thẳng score vào TIM và không bỏ điều kiện chủ sở hữu của H2-A để lách gate.
+- NC ISR `Steering_SafetyOnLimitInterrupt()` đang cắt trực tiếp TIM12_CH2 hoặc TIM14_CH1 theo trục; STOP, fault, sensor stale/invalid, NC, chủ sở hữu mới và hết phiên phải hủy quyền HOLD, ngăn superloop cấp lại sau cắt. M8 Position/Manual/SELECT/Voice45/R2 giữ quyền ưu tiên hiện có.
+- Bài thử đầu cho phần cấp lực cần mục tiêu là đo dòng khi HOLD thực sự hoạt động, trên gá, giới hạn phiên và từng trục; chưa đưa ngoại lực/nhả tải vào bài đầu. Mức thử dựa đặc tính motor/driver và phép đo thực, không lấy arbitrary score20 hoặc dòng chạy vừa báo làm giới hạn an toàn.
+- Phản ứng ngoại lực/nhả tải và nhiệt độ dưới thời gian giữ dài hơn là nghiệm thu tiếp theo; phối hợp khi xe chạy thuộc H3. Không đánh dấu HOLD/thermal/load PASS từ baseline dòng chạy.
+
+**Trạng thái:** đây là cập nhật dữ liệu và thiết kế bài thử, KHÔNG phải firmware H2-B1 đã triển khai hoặc được phép cấp điện. Không thay Core/tools/driver setting. Firmware đang chạy vẫn819f635; không yêu cầu build/flash hoặc lặp130 frame H1 vì commit docs này.

@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **2026-11-08 — USER-REPORTED motor-lead current baseline:** User measured on wires FROM driver TO motor (not driver input). During CENTER travel LEFT0.8–1A and RIGHT≈2A; after stopping meter reads0A on both. Earlier LEFT5A/RIGHT10A were estimates from discussed motor powers80/200W, NOT verified continuous/stall/HOLD ratings. These readings are a running-current baseline, not safe HOLD limits; meter type/bandwidth and thermal/standstill-current envelope remain unverified. MCU firmware stays819f635; H2-B1 powered output has not been implemented.
+
 > **2026-11-08 — H2-B0 MCU STATIC INTEGRATION/TELEMETRY PASS (1 healthy Voice CENTER run):** Private user log `M9H2_GUARD_20261108_151606.txt`, MCU firmware `819f635aafbe9dde3ee0e4b9c5c8e6cbc282e0c2`, seq1/source2. H2-A state6/reason1 and H2-B0 bState3/bReason1 completed 3003ms, 268 guard updates; freshL/R267/268; sensorErr/deniedNC/deniedOwner/blockBits/dropped0; normal VOICE1->IDLE0 accepted. bPeakL/R0 and bEligibleL/R0; bCcrL/R=dutyL/R=0, powered0. This validates one quiet static integration window, NOT nonzero-candidate/disturbance/STOP-NC fault-injection or powered HOLD. H2-B1/H3 remain pending; no firmware changes in this documentation update.
 
 > **USER clarification (2026-11-08):** Động học chưa hoàn thành để tích hợp/nạp vào firmware; SELECT tạm hoãn. Không tự đồng nhất hai trạng thái hoặc coi nội suy RAW của Voice là động học bánh xe hoàn chỉnh.
@@ -103,6 +105,8 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**2026-11-08 — USER-REPORTED motor-lead current baseline:** User measured on wires FROM driver TO motor (not driver input). During CENTER travel LEFT0.8–1A and RIGHT≈2A; after stopping meter reads0A on both. Earlier LEFT5A/RIGHT10A were estimates from discussed motor powers80/200W, NOT verified continuous/stall/HOLD ratings. These readings are a running-current baseline, not safe HOLD limits; meter type/bandwidth and thermal/standstill-current envelope remain unverified. MCU firmware stays819f635; H2-B1 powered output has not been implemented.
 
 **2026-11-08 — H2-B0 MCU STATIC INTEGRATION/TELEMETRY PASS (1 healthy Voice CENTER run):** Private user log `M9H2_GUARD_20261108_151606.txt`, MCU firmware `819f635aafbe9dde3ee0e4b9c5c8e6cbc282e0c2`, seq1/source2. H2-A state6/reason1 and H2-B0 bState3/bReason1 completed 3003ms, 268 guard updates; freshL/R267/268; sensorErr/deniedNC/deniedOwner/blockBits/dropped0; normal VOICE1->IDLE0 accepted. bPeakL/R0 and bEligibleL/R0; bCcrL/R=dutyL/R=0, powered0. This validates one quiet static integration window, NOT nonzero-candidate/disturbance/STOP-NC fault-injection or powered HOLD. H2-B1/H3 remain pending; no firmware changes in this documentation update.
 
@@ -1959,6 +1963,27 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] Thông số chính xác: goals1886/662RAW; H2 peakErr6/3RAW; H0 peakDrift1/1; H1 final err5/2, filtered peakVel0/0, peakCmd0/0, noise7/0.
 [15] Chỉ dẫn tiếp quản: distinguish MCU SHA819f635 from later docs-only HEAD; no reflash for docs, no raw UART publication, no unrequested motor-power change or duplicate stash apply.
 [16] Chất lượng: one matched healthy static window verified; H2-B0 power values all0, bVeto0/bBlocked0; no candidate/dynamic/active/loaded PASS inferred; original386-line spec unchanged.
+
+
+## 2026-11-08 — Motor-lead current baseline, 17-point handoff
+
+[0] Phạm vi dữ liệu: USER reports current during CENTER and after stop, measured on driver-to-motor wires; no raw telemetry file or instrument model.
+[1] Phiên bản: M9 branch checked at3cc874df, MCU remains819f635; this commit is documentation only.
+[2] Mục tiêu: active steering position hold with existing STM32/AS5600/CCS_SHB12; reduce rebound after disturbance release.
+[3] Yêu cầu: running-current values are baseline; earlier5A/10A from80/200W are estimates, not manufacturer safe HOLD ratings; kinematics incomplete for integration, SELECT deferred.
+[4] Milestones: prior H2-B0 one healthy3s static MCU PASS retained; powered H2-B1 and H3 not implemented.
+[5] Kết quả USER: during CENTER LEFT0.8–1A, RIGHT≈2A; after stopping meter reads0A each; explicitly motor leads, not driver supply.
+[6] Điểm dừng: baseline available for design; PWM/on-time/thermal envelope and explicit bench activation mechanism not selected; no motor-power change.
+[7] Tài nguyên: chat report; docs/M9_H2B_POWER_GATE_2026_11_08.md contains aggregate baseline and source-based B1 bench design.
+[8] Quyết định: no current-to-PWM assumption and no physical-current guarantee without current feedback; preserve independent H2A/H2B compile locks.
+[9] Source lesson: IDLE arbitration calls Turn_Motors_Stop, H2A owners_idle requires CCR0; B1 must have designed actuator ownership rather than attach shadow score to CCR.
+[10] Rủi ro còn thiếu dữ liệu: current display vs peak/RMS, motor thermal/stall envelope, PWM0 coast/brake, driver ACCE-DECCE/current thresholds;0A stationary does not establish brake mode.
+[11] Kế hoạch: separate single-axis finite bench session, other axis and wheels0, bootOFF and deliberate request; measure actual HOLD before disturbance-release and H3.
+[12] Đầu vào phụ thuộc: suitable current/temperature observation, defined safe PWM/time limits, installed driver behavior/cutoff and reviewed activation semantics; no request to repeat finished H1.
+[13] Dòng thời gian: after H2B0 MCU static log, user first estimated5/10A, then supplied running0.8–1/2A, confirmed stopped0A and motor-lead measurement.
+[14] Thông số: retain CENTER1886/662RAW and current firmware819f635; user current baseline is approximate, no sample-synchronized PWM/current trace.
+[15] Tiếp quản: carry this qualified measurement forward; no more interpretation as source current, no reflash for docs, private UART stays private.
+[16] Kiểm chứng: user-reported electrical baseline only; no HOLD current/thermal or active/load PASS, no source modification, original386-line specification unchanged.
 
 END OF CONTEXT HANDOFF
 
