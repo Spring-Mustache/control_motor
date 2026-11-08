@@ -1,5 +1,8 @@
 # CONTEXT HANDOFF
 
+> **2026-11-08 SOURCE CI VERIFIED — H2-A owner handoff fix:** Source commit `977533f79194e2ac3a6b97768675b6647348dbd8`, GitHub Actions run `42459137638` **completed SUCCESS**: Linux exact-C GCC host covers normal Voice->IDLE after DONE, PS2 release and reject takeover/STOP/new Voice/PS2 cancel, H2 hard duty0; older M8/H0/H1 regressions and full context contract PASS; Windows PowerShell5.1 capture parser PASS. Exact MCU build/flash and new 3-second H2 log **not yet available**. No H2-B powered output or HOLD load PASS. Any later docs-only commit will have a different SHA; distinguish it from source flashed SHA.
+
+
 > **LATEST H2-A 2026-11-08:** User uploaded 2 private UART files at MCU `8214610`. Valid `M9H2_GUARD` record aborted in **13ms** with `reason3 / blockBits256`, `deniedOwner1`, `sensorErr0`, `deniedNC0`, `dutyL/R0,powered0`. Reconstructed from source: ordinary `VOICE->IDLE` after M8 DONE wrongly looked like new owner, not proven hardware fault. New source fix whitelists **only clean normal Voice/PS2 post-DONE->IDLE**, all STOP/NC/other-owner/busy continue to abort; added modeStart/modeNow/modeOK/voiceBusy telemetry. Second TXT has malformed concatenated H0+M8R1 line and **no H2**; cannot infer UART cause or count as H0 pass. H2 still POWER HARD OFF; exact CI after new commit, target Flash and 3s MCU H2 log need verification. Read `docs/M9_H2_GUARD_SOURCE_2026_11_07.md`. Never publish raw TXT.
 
 > **M9-H2-A EXACT CI VERIFIED 2026-11-07:** C source guard `55db22f67c81517ada48106f5a506b7b367b7e4c`, GitHub Actions `42370515934` **COMPLETED/SUCCESS**: strict Linux GCC actual-C H2-A monitor/fault and hard power-off, full M8/H0/H1 context regression PASS, Windows PowerShell5.1 H2 capture script syntax PASS. Initial `b9b75a` Windows parser fail due `$MaxEvents:`, fix only PS interpolation, motor source unchanged. Chưa có CubeIDE Clean Build/Flash hoặc `M9H2_GUARD` MCU log. **H2-B ACTIVE not coded/tested, 0 PWM always.** Sau commit docs HEAD mới cần CI riêng.
@@ -1837,6 +1840,26 @@ M8-S15 has exclusive control ownership on fresh D-pad LEFT Level2 pilot. The S14
 [14] Old H0 seq3 reason3 from previous H1 log separate event, do not conflate with this H2 reason3.
 [15] User local worktree has modified .settings files safely restored with stash apply; new update should preserve local config and no duplicate stash apply.
 [16] H2-A full hardware PASS pending, H2-B active/loaded untested, original specs not changed.
+
+## 2026-11-08 — H2-A real-case mode handoff fix exact CI PASS (17 sections)
+
+[0] Exact source commit 977533f79194e2ac3a6b97768675b6647348dbd8 Actions run42459137638 SUCCESS.
+[1] Feature branch M9 docs-only HEAD newer may differ, must fetch on next turn.
+[2] Goal remains future powered hold but H2A is only guarded source/telemetry.
+[3] User previously submitted real 13ms H2 abort and malformed second TXT; no retest of H1 130 frames.
+[4] H2A source/host CI PASS exact SHA; target MCU 3s after fix PENDING, H2B/H3 not implemented.
+[5] Linux strict actual-C C-host normal Voice->IDLE, PS2 R1->IDLE after release, STOP, new command/PS2, NC/sensor and hardzero tests PASS.
+[6] Windows native PowerShell5.1 collector parser PASS, no new GPIO/PWM/I2C activity.
+[7] See docs/M9_H2_GUARD_SOURCE_2026_11_07.md, tools/capture_m9_h2_guard.ps1.
+[8] Control mode change allowed only for original Voice/PS2 near post-DONE and no new commands/PS2 cancel; all other arbitration checks still revoke.
+[9] UART new modeStart/modeNow/modeOK/voiceBusy explains accepted handoff.
+[10] Original log 8214610 had reason3, blockBits256 after13ms and powered0. New code verified HOST but not MCU.
+[11] Next user can git fetch + ff-only merge preserving .settings, CubeIDE Refresh/Clean Build/Debug/Resume, single Voice 15/Center safe, collect one guard TXT.
+[12] Do not force physical load tests until driver PWM0 behavior, motor current/stall/thermal and independent motor cutoff are known.
+[13] CI run42459137638 SUCCESS, source SHA977533f; docs followup SHA may differ but MCU firmware source unchanged.
+[14] H2A mode handoff code and host test exact source; no changes to H1 moving motor control/gains.
+[15] Preserve private user UART files, do not upload raw TXT public, verify new log sha and reason1 duration~3000.
+[16] No H2B powered PASS, H3 pending, original 386 requirements unchanged.
 
 END OF CONTEXT HANDOFF
 

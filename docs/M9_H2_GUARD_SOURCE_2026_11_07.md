@@ -52,3 +52,9 @@ Cần xác minh điện và điều khiển: (1) đo dòng motor khi đứng yê
 
 **[DIAGNOSTIC]** New `M9H2_GUARD` includes `modeStart/modeNow/modeOK/voiceBusy`, so a new 3sec passive log can confirm normal 1->0 transition without guessing. Pure-C GCC host regressions cover normal Voice DONE->IDLE and PS2 R1->IDLE plus reject STOP/PS2 takeover/new voice/manual/cancel while power remains zero. CI must be checked on NEW SHA separately; CubeIDE Build/Flash and new MCU log pending. **H2-B powered not implemented**.
 
+
+## 2026-11-08 — CI verified for normal owner handoff repair
+
+**2026-11-08 SOURCE CI VERIFIED — H2-A owner handoff fix:** Source commit `977533f79194e2ac3a6b97768675b6647348dbd8`, GitHub Actions run `42459137638` **completed SUCCESS**: Linux exact-C GCC host covers normal Voice->IDLE after DONE, PS2 release and reject takeover/STOP/new Voice/PS2 cancel, H2 hard duty0; older M8/H0/H1 regressions and full context contract PASS; Windows PowerShell5.1 capture parser PASS. Exact MCU build/flash and new 3-second H2 log **not yet available**. No H2-B powered output or HOLD load PASS. Any later docs-only commit will have a different SHA; distinguish it from source flashed SHA.
+
+After a successful target Build/Flash, collect one new `M9H2_GUARD` record. For a quiet Voice run expect `modeStart=1,modeNow=0,modeOK=1,voiceBusy=0`, `reason=1`, `durationMs≈3000`, `sensorErr=0`, `dutyL=0,dutyR=0,powered=0`. A different actual reason is diagnostic data to analyze, not permission to bypass the supervisor. Old malformed H0 line was incomplete and did not prove UART transmission root cause.

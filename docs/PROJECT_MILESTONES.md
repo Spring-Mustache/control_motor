@@ -1,6 +1,8 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-## HIỆN HÀNH 2026-11-08 — M9 H2-A hardware 13ms owner abort analyzed; code fix pending exact CI and MCU recheck
+## HIỆN HÀNH 2026-11-08 — M9 H2-A owner handoff fix SOURCE/HOST CI PASS, target 3s pending
+
+**M9-H2-A HANDOFF FIX SOURCE CI PASS 2026-11-08:** `977533f` GitHub Actions `42459137638` completed SUCCESS Linux C + Windows PS5.1; only normal post-DONE Voice->IDLE/PS2->IDLE allowed, reject takeover, H2 PWM remains hard zero. Target CubeIDE/MCU retest 3s PENDING.
 
 **M9-H2-A MCU LOG UPDATE 2026-11-08:** Dòng H2-A từ MCU SHA 8214610 abort 13ms reason3/blockBits256 do mode VOICE->IDLE sau DONE bị guard cũ coi mất quyền. Dữ liệu duty0/powered0 và không lỗi sensor/NC. Đã sửa chính xác whitelist handoff, giữ STOP/NC/owner/voice pending gates, thêm UART modeStart/Now/OK; CI SHA mới và hardware 3sec pending. File UART thứ hai bị ghép H0_DRIFT+M8R1_FINE, không có H2. [H2 report](M9_H2_GUARD_SOURCE_2026_11_07.md).
 
@@ -1422,4 +1424,7 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 **[FIX]** Introduce pure-C `M9H2_ModeAllowed(source,started_mode,current_mode,voice_busy,ps2_manual,ps2_cancel)`: only source3/2 VOICE -> same VOICE or normal IDLE with no pending Voice/PS2 job, and source1 PS2 -> same PS2 or IDLE when manual inputs released. STOP, PS2 takeover, new Voice request/command, cancel-hold and unexpected transitions are **revocations**, not whitelisted. Legacy `steer_pos_active/manual/cal/test`, both CCR=0, STOP/neutral/trip/motion-permit, NC, sensor fresh, wheel-stopped remain independent guards. No change to M8 PWM/owner/AS5600 I2C, H2 guard still HARD POWER LOCK `M9H2_POWER_PERMITTED=0U`, all `dutyL=dutyR=0`.
 
 **[DIAGNOSTIC]** New `M9H2_GUARD` includes `modeStart/modeNow/modeOK/voiceBusy`, so a new 3sec passive log can confirm normal 1->0 transition without guessing. Pure-C GCC host regressions cover normal Voice DONE->IDLE and PS2 R1->IDLE plus reject STOP/PS2 takeover/new voice/manual/cancel while power remains zero. CI must be checked on NEW SHA separately; CubeIDE Build/Flash and new MCU log pending. **H2-B powered not implemented**.
+
+
+**2026-11-08 SOURCE CI VERIFIED — H2-A owner handoff fix:** Source commit `977533f79194e2ac3a6b97768675b6647348dbd8`, GitHub Actions run `42459137638` **completed SUCCESS**: Linux exact-C GCC host covers normal Voice->IDLE after DONE, PS2 release and reject takeover/STOP/new Voice/PS2 cancel, H2 hard duty0; older M8/H0/H1 regressions and full context contract PASS; Windows PowerShell5.1 capture parser PASS. Exact MCU build/flash and new 3-second H2 log **not yet available**. No H2-B powered output or HOLD load PASS. Any later docs-only commit will have a different SHA; distinguish it from source flashed SHA.
 
