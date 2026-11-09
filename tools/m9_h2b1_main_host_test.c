@@ -53,11 +53,13 @@ static M9B1Hold m9_h2b1_hold;
 static volatile uint32_t m9_h2b1_nc_epoch;
 static uint32_t m9_h2b1_seen_nc_epoch,m9_h2b1_sequence;
 static uint32_t m9_h2b1_report_ms,m9_h2b1_dropped;
-#if defined(M9B1_USE_ASSIST_PROFILE)
+#if defined(M9B1_USE_FINAL_PROFILE)
 #include "m9_h2b1_commissioning.h"
+#elif defined(M9B1_USE_ASSIST_PROFILE)
+#include "m9_h2b1_legacy_profile.h"
 #elif defined(M9B1_USE_TUNING_PROFILE)
 #define m9_h2b1_config m9_new_assist_profile
-#include "m9_h2b1_commissioning.h"
+#include "m9_h2b1_legacy_profile.h"
 #undef m9_h2b1_config
 static M9B1Config m9_h2b1_config;
 #else
@@ -112,6 +114,15 @@ static void M9H0_StartAfterDone(uint8_t r)
 static void M9H2_StartAfterDone(uint8_t r)
 {(void)r;assert(!hardware_pwm[0]&&!hardware_pwm[1]);}
 #include "m9_h2b1_main.inc"
+
+#define STEER_POS_IDLE_POLL_MS 50U
+static uint32_t steer_pos_idle_last_ms,idle_reads,idle_sides;
+static uint8_t steer_pos_idle_next_side;
+static uint8_t Steering_PositionReadOne(uint8_t side,uint16_t *raw)
+{++idle_reads;idle_sides|=1U<<side;
+ if(side){steer_pos_left_last_sample_ms=clock_ms;++steer_pos_left_new_sample_count;*raw=steer_pos_left_raw;}
+ else{steer_pos_right_last_sample_ms=clock_ms;++steer_pos_right_new_sample_count;*raw=steer_pos_right_raw;}
+ return 1;}
 
 /* PRODUCTION_FUNCTIONS */
 
@@ -198,6 +209,7 @@ int main(void)
  M9B1_Update();
  assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
  verify_rotate_handoff();
+#include "m9_final_main_tests.inc"
 #if defined(M9B1_USE_ASSIST_PROFILE)
  steer_pos_left_raw=1863U;steer_pos_right_raw=685U;
  begin_center(2U);

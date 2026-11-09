@@ -1,5 +1,8 @@
 # CONTEXT HANDOFF
 
+**BẢN BÀN GIAO M9 FINAL — 2026-11-09 UTC.** Người dùng yêu cầu chốt trong một lượt, không thêm vòng thử mẫu. Bản hiện hành thay profile xung thử bằng **profile3 phục hồi vị trí hai trục**: dải M8 LEFT175..300/RIGHT50..100CCR, bù ma sát giữ qua tiến triển, dừng theo phản hồi góc; poll10ms luân phiên, lease50ms, sensor80ms; kẹt/hết đợt nghỉ riêng từng trục rồi tự phục hồi. STOP/NC/sensor/owner vẫn thu hồi; không có ngưỡng lệch32RAW. Hai fix Rotate và handoff HOLD→Rotate từ nền `a944da4f` được giữ.40 lệnh hồi quy local,162 mô hình giả lập và UBSan PASS; CI/ARM phải được kiểm ở đúng SHA. **Phần mềm đã triển khai; hardware profile3 CHƯA KIỂM CHỨNG**, commissioned vẫn0 (không khóa profile3). Không yêu cầu Live Expressions hoặc vòng thử trung gian để nhận mã final. Hồ sơ hiện hành: [M9_FINAL_DELIVERY_2026_11_09.md](docs/M9_FINAL_DELIVERY_2026_11_09.md). Các khối “hiện hành/pending/next” cũ bên dưới là lịch sử, không thay thế chỉ thị final này.
+
+
 **HIỆN HÀNH 2026-11-09 — TIẾP TỤC M9 TRÊN NỀN ROTATE ĐÃ FIX.**
 Theo chỉ thị mới, M9 đã được tiếp tục trên `feature/m9-steering-active-position-hold`.
 Nền firmware là `b382354ec1592589843f4b579643e5b1abbbecf0`, đã có xác nhận Rotate
@@ -138,6 +141,9 @@ Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_RO
 
 ## 0. Thông tin hồ sơ và phạm vi bao phủ
 
+[FINAL snapshot] Nguồn rà soát: yêu cầu hiện tại, ngữ cảnh đã rút gọn, source tại a944da4f, kết quả40 regression local và các tài liệu hiện có. Không tuyên bố còn toàn bộ hội thoại nguyên gốc. Bản final chỉ có bằng chứng phần mềm; CI/ARM và hardware là các mức khác nhau.
+
+
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Nguồn: log184953,USER xác nhận motor đứng yên/có tiếng rít,ERR/iOVER tắt;code branchb284c597. Các quan sát điện/cơ do USER báo,không biến thành phép đo mô-men hoặc xác nhận ACCE đang bật/tắt.
 
 **Kết quả MCU184953:** Dữ liệu mới13dòng thực tế của TXT184953,2seq,cùngfirmwareb89b4d5;đã kiểm số học goal−raw. Không đăng log gốc riêng tư.
@@ -192,6 +198,9 @@ Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_RO
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+[HÀNH ĐỘNG HIỆN HÀNH] Bàn giao M9 final trên nhánh hiện có, xác minh CI đúng SHA và đưa một lệnh cập nhật/build/nạp. Không mở thêm chuỗi thử mẫu hoặc xin lại quyền phát triển. Không nói người dùng đã nạp firmware khi chỉ mới push GitHub. Profile3 tự cấp quyền sau BOTH-DONE; commissioned0 không phải khóa lực.
+
 
 **HIỆN HÀNH 2026-11-09 — TIẾP TỤC M9 TRÊN NỀN ROTATE ĐÃ FIX.**
 Theo chỉ thị mới, M9 đã được tiếp tục trên `feature/m9-steering-active-position-hold`.
@@ -509,6 +518,9 @@ Current goal: user requests near-immediate steering response; Level2 turning spe
 
 ## 3. Yêu cầu hiện hành và cách phối hợp với người dùng
 
+[CHỈ THỊ MỚI NHẤT] Người dùng cần một bản final để hoàn thành dự án/báo cáo, không còn thời gian thử mẫu. Thực hiện mọi phần code/kiểm tra tự động/tài liệu trong một lượt. Không đổi yêu cầu này thành bắt đo dòng/nhiệt trước khi giao; đồng thời không tự bịa kết quả nghiệm thu thực tế.
+
+
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Tiếp tục yêu cầu sửa lực đã có của USER,không xin lại quyền cùng phạm vi. Giới hạn300/200 là lựa chọn thử nghiệm của assistant,không ghi USER đã chọn hoặc nghiệm thu các số này. Không hỏi lại dòng đo chưa có.
 
 **Hiện hành — trợ lực sau181422:** USER yêu cầu triển khai bước tạo phản lực,không muốn chờ số đo dòng. Assistant chọn cấu hình burst và giới hạn thử; không ghi các con số này thành thông số đã được USER nghiệm thu. STOP/NC/sensor/hành trình vẫn giữ.
@@ -541,6 +553,9 @@ Current goal: user requests near-immediate steering response; Level2 turning spe
 USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjectively preferred, reduce startup lag. ASSISTANT design keeps Level2 opt-in and safe old coasting wait; FIRST-STOP remains user-confirmed FIX, R2 code9 separate.
 
 ## 4. Roadmap và milestone
+
+[M9 FINAL] H2-B1 controller và H3 quyền/Rotate tích hợp đã triển khai profile3;40 kiểm tra local PASS. Giữ cột SOURCE/HOST riêng với ARM CI và HARDWARE. Không đánh dấu toàn bộ dự án hoặc động học/SELECT đã hoàn tất.
+
 
 **Hiện hành — LEFT300/200 sau báo đứng yên:** M9 H2-B1 LEFT recovery window SOURCE/HOST,exactSHA CI chờpush;motor return/dòng/nhiệt chưa nghiệm thu. RIGHT powered,H3 tải vẫn chưa thử.
 
@@ -605,6 +620,9 @@ USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjec
 New milestone S14.3: use prior neutral sensor stillness to shorten only safe starts, no stop/NC/SOFT override; SOURCE-STAGED, target acceptance pending.
 
 ## 5. Công việc đã thực hiện và kết quả hiện tại
+
+[DELIVERED CODE] Thêm recovery_axis và cấu hình final; giữ bù ma sát xuyên qua tiến triển; nghỉ/stall riêng; sample20ms/trục danh định; deadline trên mọi PWM qua SysTick. Thêm162 mô phỏng C/UBSan, test actual main/port/SysTick/poll và workflow ARM full compile/link; giữ toàn bộ hồi quy cũ bằng fixture legacy riêng.
+
 
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Chỉ đổi cap/cửa sổ trợ lực LEFT175/30 ->300/200 và cập nhật kiểm thử. Cùng controller/cutter hiện có. Test xác nhận end sớm bằng mẫu goal mới,deadline1ms,blocked main225ms và bác bỏ301CCR/201ms.
 
@@ -700,6 +718,9 @@ B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
 
+[ĐIỂM DỪNG FINAL] Không có vòng thử mẫu kế tiếp được giao cho người dùng. Sau CI hoàn tất, giao đúng commit và hồ sơ final. Dữ liệu cơ khí của profile3 chưa có, không chặn việc giao phần mềm nhưng chặn kết luận hardware PASS.
+
+
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Điểm dừng:chuẩn bị build/flash candidate300/200 sauCI. MCU cuốib89b4d5 là bản175/30;không gán log/quan sát cũ cho config mới. Không kết luận motor đủ lực trước test.
 
 **Kết quả MCU184953:** Điểm dừng sau flashb89b4d5: assist thực sự được adapter ghi nhận nhưng chưa kéo về. Giữ source;cần một quan sát cơ khí nhích/giật hay đứng yên để chọn kiểm actuator hoặc hiệu chỉnh xung;không hỏi lại số đo chưa có.
@@ -749,6 +770,9 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 
 ## 7. Tệp, tài nguyên và phiên bản cần chuyển sang B
 
+[TỆP FINAL] docs/M9_FINAL_DELIVERY_2026_11_09.md là báo cáo/bảng thông số/hướng dẫn hiện hành. tools/build_firmware_ci.py tạo ELF/HEX/BIN/map và BUILD_MANIFEST.json ở Actions artifact khớp SHA, không tạo GitHub Release tự động.
+
+
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Core/Inc/m9_h2b1_hold.h và commissioning.h;tests/verifierH2B1;report LEFT_RECOVERY_WINDOW. Không sửa wiring/driver pot,không publish TXT gốc.
 
 **Kết quả MCU184953:** Thêm TXT riêng tư M9H2B1_HOLD_20261109_184953.txt;chỉ tổng hợp trong báo cáo BREAKAWAY_ASSIST/handoff. Không công bốraw.
@@ -792,6 +816,9 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 
 ## 8. Lịch sử quyết định và các phương án đã cân nhắc
 
+[QUYẾT ĐỊNH FINAL] Bỏ profile thử30/10 + xung làm mặc định; chọn dải vận động M8 làm cơ sở phục hồi, bù ma sát trong cùng trần, không tăng vô hạn. Đây là quyết định kỹ thuật trong phạm vi yêu cầu final; không gọi thông số là rating dòng/nhiệt đã đo.
+
+
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Bỏ cách lặp xung175/30 sau khi USER báo đứng yên. Dựa trần chạy CENTER trái300,thêm cửa sổ thử200ms có phản hồi;không áp300 liên tục,không bỏ guard. Assistant thừa nhận đã bỏ sót ghi chúM8 175/30–45 yếu.
 
 **Hiện hành — trợ lực sau181422:** Thay quyết định không nâng output trong các bản chẩn đoán bằng hai mức burst hữu hạn do USER yêu cầu triển khai tạo lực. Không đổi continuousPD thành floor175/85 và không bỏ giới hạn output. Phong bì mới chưa nghiệm thu vật lý.
@@ -826,6 +853,9 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 Rejected blindly deleting 100/160ms +100ms quiet or increasing PWM: prior tests show coast near SOFT. Chose boot-OFF fast path requiring BOTH AS5600 neutral quiet observed previously and fresh check after command; old gate on doubt.
 
 ## 9. Vấn đề, lỗi và bài học từ những lần thử trước
+
+[BÀI HỌC] Bù ma sát bị đặt lại sau mỗi nhích2RAW tái tạo stop/start; mô phỏng đã phát hiện, bản chốt giữ bù tới khi đạt goal. Poll100ms/trục của idle không phù hợp dùng nguyên trạng cho điều khiển có lực nên HOLD có lịch10ms luân phiên riêng.
+
 
 **Hiện hành — LEFT300/200 sau báo đứng yên:** RUN nhấp nháy không chứng minh duty/đủ lực,ERR/iOVER tắt chỉ là trạng thái quan sát. Motor rít phù hợp có đáp ứng điện nhưng chưa đủ cơ lực theo USER;ACCE/ramp hoặc stiction vẫn chưa xác nhận riêng.
 
@@ -875,6 +905,9 @@ Software before-CCR wait vs motor after-CCR lag distinguished; latter may persis
 
 ## 10. Rủi ro, giả định và phụ thuộc
 
+[GIỚI HẠN FINAL] Chưa có torque/current/thermal hoặc thời gian đáp ứng trên xe của profile3. SysTick lease không hoạt động nếu SysTick/CPU bị halt. Không suy mô phỏng hoặc ARM build thành nghiệm thu vật lý. Giữ nguyên STOP/NC/sensor/owner và dải cơ khí.
+
+
 **Hiện hành — LEFT300/200 sau báo đứng yên:** 300CCR/200ms không phải giới hạn motor an toàn đã đo. SysTick cắt lệnhPWM khi IRQ/tick hoạt động,không xác nhận driver ngừng dòng ngay (ACCE/DECCE chưa biết). Giữ STOP/NC/hành trình,không haltCPU lúc cấp lực.
 
 **Hiện hành — trợ lực sau181422:** SysTick cắt khi nhịp tick/IRQ còn chạy; không phải ngắt nguồn hoặc bảo vệ dòng/nhiệt độc lập và không bảo đảm khi halt CPU/mask IRQ kéo dài. Giữ hướng dẫn không Pause/step lúc cấp lực.
@@ -909,6 +942,9 @@ Software before-CCR wait vs motor after-CCR lag distinguished; latter may persis
 Safety: no fast start while moving/coasting, NC active, disarmed, sensors stale, input not neutral, escape/R1/R2/Select. Physical independent cutoff still needed; no automatic Level2 selection.
 
 ## 11. Kế hoạch tiếp tục có thể thực hiện
+
+[TIẾP TỤC] Xác minh ref/CI commit final, đưa hướng dẫn fast-forward trên project Windows chính rồi CubeIDE Refresh/Clean/Build/Flash/F8. Không reset, stash hoặc tạo worktree Windows. Không triển khai vòng thử mẫu mới trái yêu cầu; dữ liệu vận hành chỉ thu nếu người dùng muốn bổ sung.
+
 
 **Hiện hành — LEFT300/200 sau báo đứng yên:** CI đúng commit ->git fetch/merge --ff-only,D:\STM32 task\control_motor ->Clean Build/flash/F8 ->collector UntilStopped ->CENTER,đẩy nhẹ/thả LEFT trên giá,quan sát dịch chuyển/rung ->STOP ->TXT. Không lặp H1/B0/kiểm kích hoạtLive.
 
@@ -977,6 +1013,9 @@ Windows: git status, git fetch, merge --ff-only on same branch, python tools/ver
 
 ## 12. Câu hỏi còn mở và thông tin cần bổ sung
 
+[KHÔNG HỎI LẠI ĐỂ GIAO] Phần mềm final không phụ thuộc một câu trả lời mới. Thực nghiệm lực giữ/độ chính xác/nhiệt CHƯA CÓ DỮ LIỆU; ghi giới hạn trong báo cáo, không đòi người dùng tự chẩn đoán hoặc làm bảng hỏi.
+
+
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Thiếu log config300/200,góc thật có trở về,dòng/nhiệt và setting/ramp driver. Có thể triển khai candidate giới hạn để thử,không gọi đã xác định nguyên nhân hoặc đã sửa phần cứng.
 
 **Kết quả MCU184953:** Thiếu quan sát cơ khí mới,thời lượng điện thật,mô-men/dòng/nhiệt và phản hồi RIGHT. Không cần kiểm lại Live Expressions,SHA hoặc kick activation đã xác nhận ở log này.
@@ -1010,6 +1049,9 @@ Windows: git status, git fetch, merge --ff-only on same branch, python tools/ver
 Missing: new STM32 build log/flashed ELF, actual current and measured coast at Level2, new A/B latency CSV, scope signal-to-power evidence. Not required to implement guarded source patch.
 
 ## 13. Dòng thời gian và diễn biến quan trọng
+
+[2026-11-09 UTC — FINAL REQUEST] Sau a944da4f M9+Rotate và CI42625676055 PASS, người dùng yêu cầu chốt M9 trong một lần xử lý; triển khai profile3,40 lệnh hồi quy và162 mô hình giả lập PASS; bổ sung ARM CI.
+
 
 **Hiện hành — LEFT300/200 sau báo đứng yên:** USER báo đĩa đứng yên,kế tiếp ERR/iOVER tắt và tiếngrít. Sau rà ghi chúM8,candidate chuyển LEFT từ fine pulse yếu sang recovery window300/200,trong cùng goal owner.
 
@@ -1202,6 +1244,9 @@ S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <
 
 ## 15. Chỉ dẫn để hội thoại B tiếp quản
 
+[CHỈ DẪN B] Đọc báo cáo final trước các thử nghiệm cũ. Không quay lại bản xung thử hoặc lộ trình test mẫu khi chưa có chỉ thị mới. Giữ hai fix Rotate. Luôn phân biệt final phần mềm với hardware đã được xác nhận.
+
+
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Tiếp quản report LEFT_RECOVERY_WINDOW trước bản175/30. Không nhầm user LEDoff với chứng nhận driver không giới hạn dòng hoặc ACCEdisabled. Giữ workingtreeWindows,khôngreset/clean.
 
 **Kết quả MCU184953:** Ưu tiên log184953 trước ghi chú source chưaflash. Đừng lấy CENTER mới seq4 làm nghiệm thu HOLD return;đừng coi reason13/active1 là hủy mục tiêu hoặc lỗi cảm biến.
@@ -1225,6 +1270,9 @@ S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <
 Next assistant must inspect new HEAD/Release; require evidence clean build and Flash; collect M8S00_S143 plus CSV, diagnose actual CCR and AS5600 lag. Do not ask repeated COM4 or D:\STM32 task\control_motor unless changed.
 
 ## 16. Kiểm tra chất lượng và khoảng trống bàn giao
+
+[CHẤT LƯỢNG FINAL] Bảo toàn nguyên văn386 dòng, đủ0–16 và footer; cập nhật roadmap/handoff theo code. Raw UART riêng tư không được đưa vào repository. Kết quả CI/ARM phải kiểm đúng SHA; hardware profile3 không được tự nâng PASS.
+
 
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Original386lines,17sections/footer giữ nguyên. Core/main/SysTick và sanitizer kiểm config mới;CI exactSHA,targetCubeIDE,flash vàhardware tách riêng. Giới hạn còn lại:hiệu quả cơ lực/return,dòng/nhiệt,H3.
 

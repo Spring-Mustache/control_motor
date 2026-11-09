@@ -130,6 +130,9 @@ jobs:
       - name: Verify full persistent H2-B1 two-axis controller and main actuator ownership
         run: python tools/verify_m9_h2b1_hold.py
 
+      - name: Verify final M9 closed-loop recovery and compiler interlocks
+        run: python3 tools/verify_m9_final.py
+
       - name: Verify S15.4 fresh post-I2C sample tick and skip telemetry
         run: python3 tools/verify_m8_s154_sync_sample_clock.py
 
@@ -171,6 +174,32 @@ jobs:
 
       - name: Validate passive RIGHT low-PWM A/B analyzer
         run: python3 tools/analyze_m8_right_low_pwm.py --self-test
+
+  build-stm32-firmware:
+    name: Compile and link complete STM32F767ZI firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install ARM compiler and C runtime
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+      - name: Build exact committed firmware
+        run: python3 tools/build_firmware_ci.py
+      - name: Keep SHA-matched firmware and build manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: M9-final-${{ github.sha }}
+          path: |
+            build-ci/control_motor_M9_final.elf
+            build-ci/control_motor_M9_final.hex
+            build-ci/control_motor_M9_final.bin
+            build-ci/control_motor_M9_final.map
+            build-ci/BUILD_MANIFEST.json
+          if-no-files-found: error
 
   validate-s152-powershell:
     name: Validate native Windows PowerShell capture syntax

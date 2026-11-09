@@ -5999,17 +5999,18 @@ static void Steering_PositionAxisUpdate(uint8_t left, uint8_t limit_mask,
 
 /* Legacy full-probe debug can still be enabled manually, but the normal
  * Live Expressions telemetry is automatically serviced with no enable.
- * One sensor per visit (<=2ms HAL read), alternating approximately 50ms
- * apart to avoid old double-bus polling jitter in M6 wheel PI.
+ * One sensor per visit (<=2ms HAL read), alternating 50ms apart at idle or 10ms apart during M9 HOLD
+ * to avoid old double-bus polling jitter in M6 wheel PI.
  */
 static void Steering_PositionTelemetryIdleUpdate(void)
 {
   uint16_t raw;
   uint32_t now = HAL_GetTick();
+  uint32_t period = m9_h2b1_hold.active ? M9B1_RECOVERY_POLL_MS : STEER_POS_IDLE_POLL_MS;
   if ((steer_pos_active != 0U) || (steer_manual_active != 0U) ||
       (steer_cal_active != 0U) || (debug_as5600_poll_enable != 0U))
     return;
-  if ((uint32_t)(now - steer_pos_idle_last_ms) < STEER_POS_IDLE_POLL_MS)
+  if ((uint32_t)(now - steer_pos_idle_last_ms) < period)
     return;
   steer_pos_idle_last_ms = now;
   (void)Steering_PositionReadOne(steer_pos_idle_next_side, &raw);
@@ -15753,11 +15754,11 @@ int main(void)
         Steering_CalUpdate();      /* SELECT - any NC trip latches */
       }
     }
-    /* Existing bounded idle telemetry refreshes one AS5600 every
-     * >=50ms, alternating sides. Observe AFTER read, so the new sample
-     * is eligible immediately. No additional I2C calls are added.
+    /* One bounded sensor transaction per visit,10ms while M9 holds
+     * (20ms/axis nominal),50ms at ordinary idle. HOLD sampling does not
+     * depend on a debugger flag. Observers consume the same cache.
      */
-    if (debug_steer_auto_as5600_idle_observe != 0U)
+    if ((debug_steer_auto_as5600_idle_observe != 0U) || m9_h2b1_hold.active)
       Steering_PositionTelemetryIdleUpdate();
     M9REAL_ObserveForPosition(); /* capture REAL M8 motion in RAM only */
     M9H0_IdleUpdate(); /* cached samples ONLY; no additional I2C / motor command */

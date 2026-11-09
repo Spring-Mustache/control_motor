@@ -53,7 +53,9 @@ try{
   if($line -match '(^|,)state=6(,|$)' -and $line -match '(^|,)active=1(,|$)'){
    Write-Host "COOLDOWN: target retained, outputs zero; automatic retry after budget recovery."
   }
-  if($line -match '(^|,)profile=1(,|$)'){
+  if($line -match '(^|,)profile=3(,|$)'){
+   Write-Host "FINAL RECOVERY: persistent target, independent feedback recovery. commissioned=0 means physical acceptance is not recorded."
+  }elseif($line -match '(^|,)profile=1(,|$)'){
    Write-Warning "TUNING profile CAN POWER BOTH MOTORS; commissioned=0 means thermal/current acceptance is pending."
   }elseif($line -match '(^|,)commissioned=0(,|$)'){
    Write-Warning "Physical power UNCOMMISSIONED. This record is NOT powered HOLD validation."

@@ -1,5 +1,8 @@
 # Xe tăng cướp bóng — STM32F767ZI
 
+**BẢN BÀN GIAO M9 FINAL — 2026-11-09 UTC.** Người dùng yêu cầu chốt trong một lượt, không thêm vòng thử mẫu. Bản hiện hành thay profile xung thử bằng **profile3 phục hồi vị trí hai trục**: dải M8 LEFT175..300/RIGHT50..100CCR, bù ma sát giữ qua tiến triển, dừng theo phản hồi góc; poll10ms luân phiên, lease50ms, sensor80ms; kẹt/hết đợt nghỉ riêng từng trục rồi tự phục hồi. STOP/NC/sensor/owner vẫn thu hồi; không có ngưỡng lệch32RAW. Hai fix Rotate và handoff HOLD→Rotate từ nền `a944da4f` được giữ.40 lệnh hồi quy local,162 mô hình giả lập và UBSan PASS; CI/ARM phải được kiểm ở đúng SHA. **Phần mềm đã triển khai; hardware profile3 CHƯA KIỂM CHỨNG**, commissioned vẫn0 (không khóa profile3). Không yêu cầu Live Expressions hoặc vòng thử trung gian để nhận mã final. Hồ sơ hiện hành: [M9_FINAL_DELIVERY_2026_11_09.md](docs/M9_FINAL_DELIVERY_2026_11_09.md). Các khối “hiện hành/pending/next” cũ bên dưới là lịch sử, không thay thế chỉ thị final này.
+
+
 **HIỆN HÀNH 2026-11-09 — TIẾP TỤC M9 TRÊN NỀN ROTATE ĐÃ FIX.**
 Theo chỉ thị mới, M9 đã được tiếp tục trên `feature/m9-steering-active-position-hold`.
 Nền firmware là `b382354ec1592589843f4b579643e5b1abbbecf0`, đã có xác nhận Rotate

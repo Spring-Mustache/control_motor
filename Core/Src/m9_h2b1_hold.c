@@ -27,7 +27,17 @@ uint8_t M9B1_ConfigValid(const M9B1Config *c)
      c->deadband_raw>=c->enter_raw || c->sample_stale_ms==0U ||
      c->velocity_window_ms<20U || c->velocity_window_ms>c->sample_stale_ms ||
      c->service_gap_ms==0U || c->max_jump_raw==0U || c->max_jump_raw>=2048U ||
-     c->power_mode>M9B1_POWER_COMMISSIONED)return 0U;
+     c->power_mode>M9B1_POWER_RECOVERY)return 0U;
+  if(c->power_mode==M9B1_POWER_RECOVERY &&
+     (c->axis[0].max_pwm>M9B1_RECOVERY_LEFT_CEILING ||
+      c->axis[1].max_pwm>M9B1_RECOVERY_RIGHT_CEILING ||
+      !c->axis[0].min_pwm || !c->axis[1].min_pwm ||
+      c->axis[0].assist_pwm || c->axis[1].assist_pwm ||
+      c->axis[0].assist_ms || c->axis[1].assist_ms ||
+      !c->tuning_no_progress_ms || c->tuning_no_progress_ms>1000U ||
+      c->tuning_effort_ms<=c->tuning_no_progress_ms || c->tuning_effort_ms>5000U ||
+      c->assist_cooldown_ms<3000U || c->assist_cooldown_ms>60000U ||
+      c->sample_stale_ms>80U || c->service_gap_ms>80U))return 0U;
   if(c->power_mode==M9B1_POWER_TUNING &&
      (!c->tuning_effort_ms || c->tuning_window_ms<=c->tuning_effort_ms ||
       !c->tuning_no_progress_ms || c->tuning_no_progress_ms>5000U ||
@@ -260,6 +270,83 @@ static int16_t demand(M9B1Axis *a,const M9B1AxisConfig *cfg,
   if(wanted>a->peak_pwm)a->peak_pwm=(uint16_t)wanted;
   return a->pwm;
 }
+/* Position recovery with bounded stiction compensation. Each axis owns
+ * its own progress/rest clock: a stalled LEFT cannot silence RIGHT.
+ * Counters use acknowledged powered time, never wall-clock session age.
+ * Returning/coasting progress resets the no-progress counter. The goal
+ * remains valid through a rest; actual safety faults revoke in Step.
+ */
+static void recovery_axis(M9B1Hold *h,const M9B1Config *c,unsigned i,
+                          uint32_t now,uint32_t dt)
+{
+  M9B1Axis *a=&h->axis[i];const M9B1AxisConfig *cfg=&c->axis[i];
+  uint16_t error=magnitude(a->error);int8_t sign=(a->error>0)?1:-1;
+  int32_t toward=(int32_t)sign*a->velocity,drive;
+  uint32_t wanted,previous,step,boost;
+  if(error>=c->enter_raw)a->position_latched=1U;
+  if(error<=c->exit_raw){
+    a->position_latched=0U;a->recovery_tracking=0U;
+    a->recovery_on_ms=0U;a->recovery_stuck_ms=0U;
+    a->recovery_boost_ms=0U;
+  }
+  if(a->recovery_rest){
+    a->pwm=0;a->rise_remainder=0U;
+    if((uint32_t)(now-a->recovery_rest_ms)<c->assist_cooldown_ms)return;
+    a->recovery_rest=0U;a->recovery_reason=0U;
+    a->recovery_tracking=0U;inc32(&h->retry_count);
+  }
+  if(!a->position_latched){a->pwm=0;a->rise_remainder=0U;return;}
+  if(!a->recovery_tracking){
+    a->recovery_tracking=1U;a->recovery_best_error=error;
+    a->recovery_stuck_ms=0U;a->recovery_on_ms=0U;
+  }
+  if((uint32_t)error+2U<=a->recovery_best_error){
+    a->recovery_best_error=error;a->recovery_stuck_ms=0U;
+  }
+  if(h->applied_pwm[i]){a->recovery_on_ms+=dt;a->recovery_stuck_ms+=dt;}
+  if(a->recovery_stuck_ms>=c->tuning_no_progress_ms ||
+     a->recovery_on_ms>=c->tuning_effort_ms){
+    a->recovery_reason=(a->recovery_stuck_ms>=c->tuning_no_progress_ms)?
+        M9B1_NO_PROGRESS:M9B1_EFFORT_BUDGET;
+    a->recovery_rest=1U;a->recovery_rest_ms=now;
+    a->pwm=0;a->rise_remainder=0U;return;
+  }
+  /* Coast ahead of arrival using one velocity window of lookahead.
+   * D reduces forward torque only; do not fight a returning wheel with
+   * a fresh reverse kick. Overshoot still corrects after zero blanking. */
+  if(toward>0 && (uint32_t)toward*c->velocity_window_ms>=
+      (uint32_t)(error-c->exit_raw)*1000U){
+    a->pwm=0;a->rise_remainder=0U;return;
+  }
+  /* Keep the learned breakaway contribution throughout this recovery.
+   * Dropping it after each 2RAW of progress recreates stop/start stiction.
+   * Reset at the goal; never exceed the original M8 motion ceiling. */
+  if(h->applied_pwm[i] && a->recovery_stuck_ms>200U){
+    boost=(uint32_t)a->recovery_boost_ms+dt;
+    a->recovery_boost_ms=(uint16_t)(boost>300U?300U:boost);
+  }
+  boost=a->recovery_boost_ms;
+  drive=(int32_t)cfg->min_pwm+(int32_t)cfg->kp_q8*error/256+
+        (int32_t)(boost*(cfg->max_pwm-cfg->min_pwm)/300U);
+  if(toward>0)drive-=(int32_t)cfg->kd_q8*toward/256;
+  if(drive<=0){a->pwm=0;a->rise_remainder=0U;return;}
+  wanted=(uint32_t)drive;
+  if(wanted<cfg->min_pwm)wanted=cfg->min_pwm;
+  if(wanted>cfg->max_pwm)wanted=cfg->max_pwm;
+  if(a->last_sign && sign!=a->last_sign){
+    if(!a->reversing || a->pending_sign!=sign){
+      a->reversing=1U;a->pending_sign=sign;a->reversal_ms=now;
+    }
+    a->pwm=0;a->rise_remainder=0U;
+    if((uint32_t)(now-a->reversal_ms)<cfg->reversal_zero_ms)return;
+  }
+  a->reversing=0U;previous=magnitude(a->pwm);
+  a->rise_remainder+=(uint32_t)cfg->rise_per_second*dt;
+  step=a->rise_remainder/1000U;a->rise_remainder%=1000U;
+  if(wanted>previous && wanted-previous>step)wanted=previous+step;
+  a->last_sign=sign;a->pwm=(int16_t)(sign*(int32_t)wanted);
+  if(wanted>a->peak_pwm)a->peak_pwm=(uint16_t)wanted;
+}
 void M9B1_Step(M9B1Hold *h,const M9B1Config *c,const M9B1Input *in)
 {
   unsigned i;uint8_t reason;uint32_t dt;
@@ -279,6 +366,19 @@ void M9B1_Step(M9B1Hold *h,const M9B1Config *c,const M9B1Input *in)
     h->reason=M9B1_CALIBRATION_REQUIRED;return;}
   if(!h->axis[0].velocity_ready || !h->axis[1].velocity_ready){
     zero_demand(h);h->state=M9B1_WAIT_DATA;return;
+  }
+  if(c->power_mode==M9B1_POWER_RECOVERY){
+    h->fault_axes=0U;h->reason=M9B1_NONE;
+    for(i=0U;i<2U;i++){
+      recovery_axis(h,c,i,in->now_ms,dt);
+      if(h->axis[i].recovery_rest){
+        h->fault_axes|=(uint8_t)(1U<<i);
+        h->reason=h->axis[i].recovery_reason;
+      }
+    }
+    h->state=(h->fault_axes && !h->axis[0].pwm && !h->axis[1].pwm)?
+        M9B1_COOLDOWN:M9B1_HOLDING;
+    return;
   }
   reason=tuning_guard(h,c,in->now_ms,dt);
   if(reason){

@@ -16,7 +16,9 @@ ROOT=Path(__file__).resolve().parents[1]
 MAIN=(ROOT/'Core/Src/main.c').read_text(encoding='utf-8')
 PORT=(ROOT/'Core/Src/m9_h2b1_main.inc').read_text(encoding='utf-8')
 CORE=(ROOT/'Core/Src/m9_h2b1_hold.c').read_text(encoding='utf-8')
-CFG=(ROOT/'Core/Inc/m9_h2b1_commissioning.h').read_text(encoding='utf-8')
+CFG=(ROOT/'tools/m9_h2b1_legacy_profile.h').read_text(encoding='utf-8')
+FINAL_CFG=(ROOT/'Core/Inc/m9_h2b1_commissioning.h').read_text(encoding='utf-8')
+assert '#define M9H2B1_POWER_MODE        3U' in FINAL_CFG
 IT=(ROOT/'Core/Src/stm32f7xx_it.c').read_text(encoding='utf-8')
 WORKFLOW=(ROOT/'.github/workflows/context-handoff-release.yml').read_text(encoding='utf-8')
 
@@ -80,7 +82,8 @@ names=['Steering_PositionLeftOff','Steering_PositionRightOff',
        'Steering_ManualLeftOff','Steering_ManualRightOff',
        'Steering_CalLeftOff','Steering_CalRightOff','Turn_Motors_Stop']
 functions=[extract('static void '+n+'(void)') for n in names]
-functions += [finish,extract('static void Steering_SafetyOnLimitInterrupt(uint8_t bit)')]
+functions += [finish,extract('static void Steering_SafetyOnLimitInterrupt(uint8_t bit)'),
+              extract('static void Steering_PositionTelemetryIdleUpdate(void)')]
 a=IT.index('void SysTick_Handler(void)');b=IT.index('}',a)+1
 assert 'HAL_IncTick();' in IT[a:b] and 'M9B1_PulseTick();' in IT[a:b]
 functions += [IT[a:b]]
@@ -108,10 +111,11 @@ with TemporaryDirectory() as temp:
     for source,name,extra in [(ROOT/'tools/m9_h2b1_host_test.c','controller',[]),
                               (d/'integration.c','main_hooks',[]),
                               (d/'integration.c','low_output_hooks',['-DM9B1_USE_TUNING_PROFILE']),
-                              (d/'integration.c','production_assist_hooks',['-DM9B1_USE_ASSIST_PROFILE'])]:
+                              (d/'integration.c','legacy_assist_hooks',['-DM9B1_USE_ASSIST_PROFILE']),
+                              (d/'integration.c','final_recovery_hooks',['-DM9B1_USE_FINAL_PROFILE'])]:
         executable=d/name
-        cmd=[cc,'-std=c11','-O2','-Wall','-Wextra','-Werror',
-             '-I'+str(ROOT/'Core/Inc'),'-I'+str(ROOT/'Core/Src'),
+        cmd=[cc,'-std=c11','-O2','-Wall','-Wextra','-Werror','-Wno-unused-function',
+             '-I'+str(ROOT/'Core/Inc'),'-I'+str(ROOT/'Core/Src'),'-I'+str(ROOT/'tools'),
              str(ROOT/'Core/Src/m9_h2b1_hold.c'),str(source),'-o',str(executable)]
         subprocess.run(cmd+extra,check=True)
         subprocess.run([str(executable)],check=True)
@@ -134,7 +138,7 @@ int main(void){int n;
 '''+MAIN[a:b]+'''
 assert(n>0 && n<(int)sizeof(m8_s11_tx_line));
 assert(strlen((char *)m8_s11_tx_line)==(size_t)n);
-assert(strstr((char *)m8_s11_tx_line,"commissioned=0,profile=1,"));
+assert(strstr((char *)m8_s11_tx_line,"commissioned=0,profile=3,"));
 assert(m8_s11_tx_line[n-2]=='\\r' && m8_s11_tx_line[n-1]=='\\n');
 puts("PASS actual production UART formatter and powered-tuning/commissioning labels");
 return 0;}

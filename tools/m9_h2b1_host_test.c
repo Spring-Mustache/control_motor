@@ -4,7 +4,7 @@
 #include <string.h>
 #include <limits.h>
 #include "m9_h2b1_hold.h"
-#include "m9_h2b1_commissioning.h"
+#include "m9_h2b1_legacy_profile.h"
 typedef struct {
   uint32_t now,irq,locks,unlocks,writes,nonzero,allowed_calls,fail_call;
   uint16_t pwm[2];int8_t dir[2];uint8_t suppress;
