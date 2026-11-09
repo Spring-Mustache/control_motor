@@ -17,6 +17,7 @@ MAIN=(ROOT/'Core/Src/main.c').read_text(encoding='utf-8')
 PORT=(ROOT/'Core/Src/m9_h2b1_main.inc').read_text(encoding='utf-8')
 CORE=(ROOT/'Core/Src/m9_h2b1_hold.c').read_text(encoding='utf-8')
 CFG=(ROOT/'Core/Inc/m9_h2b1_commissioning.h').read_text(encoding='utf-8')
+IT=(ROOT/'Core/Src/stm32f7xx_it.c').read_text(encoding='utf-8')
 WORKFLOW=(ROOT/'.github/workflows/context-handoff-release.yml').read_text(encoding='utf-8')
 
 def extract(signature):
@@ -42,7 +43,7 @@ assert 'Steering_SafetyHardEnvelopeValid(0U,in->raw[1])' in PORT
 assert 'Steering_SafetyHardEnvelopeValid(1U,m9_h2b1_hold.goal[0])' in PORT
 assert 'Steering_SafetyHardEnvelopeValid(0U,m9_h2b1_hold.goal[1])' in PORT
 assert 'if(!in.geometry_ok){M9B1_Stop(M9B1_RANGE);return;}' in PORT
-assert '3000' not in CORE and 'MAX_POLICY_MS' not in CORE
+assert 'MAX_POLICY_MS' not in CORE
 assert 'wheels_stopped' not in PORT.replace('No requirement for wheels_stopped here.','')
 assert 'HAL_I2C' not in PORT and 'AS5600_Read' not in PORT
 assert 'm9_h2b1_nc_epoch!=m9_h2b1_seen_nc_epoch' in PORT
@@ -54,7 +55,7 @@ assert finish.index('Steering_PositionLeftOff();')<finish.index('M9B1_StartAfter
 assert 'M9B1_KeepOutput()' in extract('static void Control_Arbitrate(void)')
 assert 'M9B1_KeepOutput()' in extract('static void PS2_ApplyManualControl(void)')
 assert '++m9_h2b1_nc_epoch' in extract('static void Steering_SafetyOnLimitInterrupt(uint8_t bit)')
-packet='appliedMs=%lu,everApplied=%u,updates=%lu,dropped=%lu,retryCount=%lu'
+packet='kickL=%lu,kickR=%lu'
 assert packet+r'\r\n' in MAIN and packet+r'\\r\\n' not in MAIN
 assert 'M9H2B1_HOLD' in MAIN
 assert 'commissioned=%u,profile=%u' in MAIN
@@ -77,6 +78,9 @@ names=['Steering_PositionLeftOff','Steering_PositionRightOff',
        'Steering_CalLeftOff','Steering_CalRightOff','Turn_Motors_Stop']
 functions=[extract('static void '+n+'(void)') for n in names]
 functions += [finish,extract('static void Steering_SafetyOnLimitInterrupt(uint8_t bit)')]
+a=IT.index('void SysTick_Handler(void)');b=IT.index('}',a)+1
+assert 'HAL_IncTick();' in IT[a:b] and 'M9B1_PulseTick();' in IT[a:b]
+functions += [IT[a:b]]
 with TemporaryDirectory() as temp:
     d=Path(temp)
     # Compile rejection of unaccepted production mode, missing gains,
@@ -85,6 +89,9 @@ with TemporaryDirectory() as temp:
         ('M9H2B1_POWER_MODE        1U','M9H2B1_POWER_MODE        2U','requires physical acceptance'),
         ('M9H2B1_LEFT_MAX_PWM      30U','M9H2B1_LEFT_MAX_PWM      0U','requires valid'),
         ('M9H2B1_LEFT_MAX_PWM      30U','M9H2B1_LEFT_MAX_PWM      31U','tuning requires bounded'),
+        ('M9H2B1_LEFT_ASSIST_PWM  175U','M9H2B1_LEFT_ASSIST_PWM  176U','assist requires bounded'),
+        ('M9H2B1_RIGHT_ASSIST_MS   12U','M9H2B1_RIGHT_ASSIST_MS   13U','assist requires bounded'),
+        ('M9H2B1_ASSIST_REST_MS  3000U','M9H2B1_ASSIST_REST_MS  2999U','assist requires bounded'),
         ('M9H2B1_NO_PROGRESS_MS   1000U','M9H2B1_NO_PROGRESS_MS   0U','tuning requires bounded')]:
         assert old in CFG
         (d/'bad_commissioning.h').write_text(CFG.replace(old,new),encoding='utf-8')
@@ -96,7 +103,8 @@ with TemporaryDirectory() as temp:
     (d/'integration.c').write_text(fixture.replace('/* PRODUCTION_FUNCTIONS */','\n'.join(functions)),encoding='utf-8')
     for source,name,extra in [(ROOT/'tools/m9_h2b1_host_test.c','controller',[]),
                               (d/'integration.c','main_hooks',[]),
-                              (d/'integration.c','production_tuning_hooks',['-DM9B1_USE_TUNING_PROFILE'])]:
+                              (d/'integration.c','low_output_hooks',['-DM9B1_USE_TUNING_PROFILE']),
+                              (d/'integration.c','production_assist_hooks',['-DM9B1_USE_ASSIST_PROFILE'])]:
         executable=d/name
         cmd=[cc,'-std=c11','-O2','-Wall','-Wextra','-Werror',
              '-I'+str(ROOT/'Core/Inc'),'-I'+str(ROOT/'Core/Src'),

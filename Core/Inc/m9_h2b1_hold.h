@@ -19,17 +19,25 @@ typedef enum {
   M9B1_SENSOR=4, M9B1_RANGE=5, M9B1_DISABLED=6,
   M9B1_CALIBRATION_REQUIRED=7, M9B1_BAD_CONFIG=8,
   M9B1_SERVICE_GAP=9, M9B1_PORT_FAULT=10,
-  M9B1_NO_PROGRESS=11, M9B1_EFFORT_BUDGET=12
+  M9B1_NO_PROGRESS=11, M9B1_EFFORT_BUDGET=12, M9B1_ASSIST_BUDGET=13
 } M9B1Reason;
 typedef enum {
   M9B1_POWER_LOCKED=0, M9B1_POWER_TUNING=1, M9B1_POWER_COMMISSIONED=2
 } M9B1PowerMode;
 #define M9B1_TUNING_LEFT_CEILING 30U
 #define M9B1_TUNING_RIGHT_CEILING 10U
+#define M9B1_ASSIST_LEFT_CEILING 175U
+#define M9B1_ASSIST_RIGHT_CEILING 85U
+#define M9B1_ASSIST_LEFT_MS 30U
+#define M9B1_ASSIST_RIGHT_MS 12U
+#define M9B1_ASSIST_ROUND_MAX 4U
+#define M9B1_ASSIST_PULSE 1U
+#define M9B1_ASSIST_SETTLE 2U
 typedef struct {
   uint16_t max_pwm, min_pwm;
   uint16_t kp_q8, kd_q8; /* PWM/RAW and PWM/(RAW/s), scaled by256. */
   uint16_t rise_per_second, reversal_zero_ms;
+  uint16_t assist_pwm, assist_ms;
 } M9B1AxisConfig;
 typedef struct {
   M9B1AxisConfig axis[2]; /* index0 LEFT, index1 RIGHT */
@@ -39,6 +47,8 @@ typedef struct {
   uint16_t sample_stale_ms, velocity_window_ms, max_jump_raw;
   uint16_t service_gap_ms;
   uint16_t tuning_window_ms, tuning_effort_ms, tuning_no_progress_ms;
+  uint16_t assist_still_ms, assist_off_ms, assist_cooldown_ms;
+  uint8_t assist_max_pulses;
   uint8_t power_mode;
 } M9B1Config;
 typedef struct {
@@ -49,7 +59,8 @@ typedef struct {
 typedef struct {
   uint32_t last_sample_ms, last_seq, velocity_ms, reversal_ms;
   uint32_t rise_remainder, good_samples;
-  uint32_t effort_ms, recovery_remainder, progress_ms, applied_ms;
+  uint32_t effort_ms, recovery_remainder, progress_on_ms, applied_ms;
+  uint32_t assist_since_ms, assist_still_since_ms, assist_sample_seq, assist_count;
   uint16_t raw, velocity_raw, peak_pwm, peak_error;
   uint16_t progress_error;
   int16_t error, pwm;
@@ -57,12 +68,15 @@ typedef struct {
   int8_t last_sign, pending_sign;
   uint8_t initialized, velocity_ready, position_latched, reversing;
   uint8_t progress_tracking;
+  int8_t assist_sign;
+  uint8_t assist_phase, assist_started, assist_still_tracking, assist_round;
 } M9B1Axis;
 typedef struct {
   M9B1Axis axis[2];
   uint16_t goal[2];
   uint32_t seq, started_ms, last_step_ms, updates;
   uint32_t applied_ms, last_applied_ms, retry_count;
+  uint32_t cooldown_since_ms;
   int16_t applied_pwm[2];
   uint8_t source, active, state, reason, lease, ever_applied, fault_axes;
 } M9B1Hold;
@@ -80,7 +94,7 @@ typedef struct {
   uint32_t (*lock)(void *context);
   void (*unlock)(void *context, uint32_t previous);
   uint8_t (*allowed)(void *context);
-  void (*pwm)(void *context, uint8_t axis, uint16_t value);
+  uint16_t (*pwm)(void *context, uint8_t axis, uint16_t value); /* actual write */
   void (*direction)(void *context, uint8_t axis, int8_t raw_sign);
   uint32_t (*now)(void *context);
 } M9B1Port;

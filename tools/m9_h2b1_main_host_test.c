@@ -33,6 +33,7 @@ static struct {uint32_t PR;} exti;
 static uint32_t clock_ms,primask,dir_calls;
 static uint16_t hardware_pwm[2];static GPIO_PinState hardware_dir[2];
 static uint32_t HAL_GetTick(void){return clock_ms;}
+static void HAL_IncTick(void){++clock_ms;}
 static uint32_t __get_PRIMASK(void){return primask;}
 static void __disable_irq(void){primask=1U;}
 static void __enable_irq(void){primask=0U;}
@@ -52,12 +53,17 @@ static M9B1Hold m9_h2b1_hold;
 static volatile uint32_t m9_h2b1_nc_epoch;
 static uint32_t m9_h2b1_seen_nc_epoch,m9_h2b1_sequence;
 static uint32_t m9_h2b1_report_ms,m9_h2b1_dropped;
-#if defined(M9B1_USE_TUNING_PROFILE)
+#if defined(M9B1_USE_ASSIST_PROFILE)
 #include "m9_h2b1_commissioning.h"
+#elif defined(M9B1_USE_TUNING_PROFILE)
+#define m9_h2b1_config m9_new_assist_profile
+#include "m9_h2b1_commissioning.h"
+#undef m9_h2b1_config
+static M9B1Config m9_h2b1_config;
 #else
 static const M9B1Config m9_h2b1_config={
- {{20,0,512,64,1000,50},{15,0,512,64,1000,50}},8,4,5,250,100,90,250,
- 0,0,0,M9B1_POWER_COMMISSIONED}; /* synthetic continuous fixture */
+ {{20,0,512,64,1000,50,0,0},{15,0,512,64,1000,50,0,0}},8,4,5,250,100,90,250,
+ 0,0,0,0,0,0,0,M9B1_POWER_COMMISSIONED}; /* synthetic continuous fixture */
 #endif
 static uint16_t steer_pos_left_raw=1876,steer_pos_right_raw=652;
 static uint32_t steer_pos_left_last_sample_ms,steer_pos_right_last_sample_ms;
@@ -132,9 +138,81 @@ static void pass(uint32_t ms)
 int main(void)
 {
  uint32_t ms;
+#if defined(M9B1_USE_TUNING_PROFILE)
+ m9_h2b1_config=m9_new_assist_profile;
+ m9_h2b1_config.axis[0].assist_pwm=m9_h2b1_config.axis[0].assist_ms=0U;
+ m9_h2b1_config.axis[1].assist_pwm=m9_h2b1_config.axis[1].assist_ms=0U;
+ m9_h2b1_config.assist_still_ms=m9_h2b1_config.assist_off_ms=0U;
+ m9_h2b1_config.assist_cooldown_ms=0U;m9_h2b1_config.assist_max_pulses=0U;
+#endif
  PS2_Pad.Connected=1U;PS2_Pad.Mode=0x73U;sample_at(0U);
  M9B1_Update();
  assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
+#if defined(M9B1_USE_ASSIST_PROFILE)
+ steer_pos_left_raw=1863U;steer_pos_right_raw=685U;
+ begin_center(2U);
+ {uint8_t high[2]={0,0};uint32_t start_ms[2]={0,0},seen[2]={0,0};
+  for(ms=1U;ms<=12000U;ms++){
+   SysTick_Handler();assert(clock_ms==ms);
+   if(ms%10U==0U)pass(ms);
+   for(unsigned i=0;i<2U;i++){
+    uint8_t active=(uint8_t)(hardware_pwm[i]>m9_h2b1_config.axis[i].max_pwm);
+    if(active && !high[i]){start_ms[i]=ms;++seen[i];}
+    if(!active && high[i])assert(ms-start_ms[i]<=m9_h2b1_config.axis[i].assist_ms);
+    high[i]=active;
+   }
+  }
+  assert(seen[0] && seen[1] && m9_h2b1_hold.retry_count);
+ }
+ /* Start a new target, then withhold ALL main servicing while a burst
+  * is powered: the ACTUAL SysTick handler must still cut it on time. */
+ Turn_Motors_Stop();sample_at(clock_ms);begin_center(2U);
+ for(ms=clock_ms+1U;ms<16000U && !(hardware_pwm[0]>30U || hardware_pwm[1]>10U);ms++){
+  SysTick_Handler();if(ms%10U==0U)pass(ms);
+ }
+ assert(hardware_pwm[0]>30U || hardware_pwm[1]>10U);
+ {uint32_t blocked=clock_ms;uint8_t expired;
+  for(unsigned i=0;i<100U;i++)SysTick_Handler();
+  assert(clock_ms==blocked+100U);expired=m9_b1_pulse_expired;
+  assert(expired);
+  for(unsigned i=0;i<2U;i++){
+   assert(hardware_pwm[i]<=m9_h2b1_config.axis[i].max_pwm);
+   if(expired & (1U<<i))assert(!hardware_pwm[i]);
+  }
+  /* An expired high write is acknowledged as ZERO and cannot re-arm. */
+  uint32_t irq=M9B1_HAL_Lock(0);
+  for(unsigned i=0;i<2U;i++)if(m9_b1_pulse_expired & (1U<<i))
+   assert(M9B1_HAL_Pwm(0,(uint8_t)i,m9_h2b1_config.axis[i].assist_pwm)==0U);
+  M9B1_HAL_Unlock(0,irq);
+  sample_at(clock_ms);M9B1_Update();
+  for(unsigned i=0;i<2U;i++)if(expired & (1U<<i))assert(!hardware_pwm[i]);
+ }
+ Turn_Motors_Stop();assert(!m9_b1_pulse_armed);
+ sample_at(clock_ms);begin_center(2U);
+ for(uint32_t elapsed=1U;elapsed<3000U && !(hardware_pwm[0]>30U || hardware_pwm[1]>10U);elapsed++){
+  SysTick_Handler();if(elapsed%10U==0U)pass(clock_ms);
+ }
+ assert(hardware_pwm[0]>30U || hardware_pwm[1]>10U);
+ Turn_Motors_Stop();assert(!m9_b1_pulse_armed && !hardware_pwm[0] && !hardware_pwm[1]);
+ /* A late assist deadline must not zero an unrelated new owner's PWM. */
+ hardware_pwm[0]=7U;hardware_pwm[1]=8U;
+ for(unsigned i=0;i<100U;i++)SysTick_Handler();
+ assert(hardware_pwm[0]==7U && hardware_pwm[1]==8U);
+ hardware_pwm[0]=hardware_pwm[1]=0U;
+ /* Repeat over the uint32 tick boundary, then NC interrupts a live pulse. */
+ sample_at(UINT32_MAX-250U);begin_center(2U);
+ for(uint32_t elapsed=1U;elapsed<3000U;elapsed++){
+  SysTick_Handler();if(elapsed%10U==0U)pass(clock_ms);
+  if(hardware_pwm[0]>30U || hardware_pwm[1]>10U){
+   Steering_SafetyOnLimitInterrupt(STEER_LIMIT_L_MIN_MASK);
+   raw_nc=1U;M9B1_PreOwnerService();raw_nc=0U;break;
+  }
+ }
+ assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
+ assert(!m9_b1_pulse_armed);
+ puts("PASS NEW actual main/HAL+SysTick: real assisted writes,1ms cut,blocked main,no rearm,owner handoff,tick wrap,NC");
+ return 0;
+#endif
 #if defined(M9B1_USE_TUNING_PROFILE)
  steer_pos_left_raw=1883;steer_pos_right_raw=659;
  begin_center(2U);

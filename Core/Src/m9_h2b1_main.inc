@@ -59,11 +59,45 @@ static uint8_t M9B1_HAL_Allowed(void *context)
       __HAL_TIM_GET_COMPARE(&htim14,TIM_CHANNEL_1)!=0U))return 0U;
   return 1U;
 }
-static void M9B1_HAL_Pwm(void *context,uint8_t axis,uint16_t value)
+/* Armed only inside the actuator critical section. The 1ms ISR may
+ * shorten a pulse; it never commands power, DIR, UART or I2C. */
+static volatile uint32_t m9_b1_pulse_deadline[2];
+static volatile uint8_t m9_b1_pulse_armed,m9_b1_pulse_expired;
+void M9B1_PulseTick(void)
 {
+  uint32_t now;unsigned i;
+  if(!m9_b1_pulse_armed)return;
+  now=HAL_GetTick();
+  for(i=0;i<2U;i++)if((m9_b1_pulse_armed & (1U<<i)) &&
+      (int32_t)(now-m9_b1_pulse_deadline[i])>=0){
+    if(i==0U)__HAL_TIM_SET_COMPARE(&htim12,TIM_CHANNEL_2,0U);
+    else __HAL_TIM_SET_COMPARE(&htim14,TIM_CHANNEL_1,0U);
+    m9_b1_pulse_armed&=(uint8_t)~(1U<<i);
+    m9_b1_pulse_expired|=(uint8_t)(1U<<i);
+  }
+}
+static uint16_t M9B1_HAL_Pwm(void *context,uint8_t axis,uint16_t value)
+{
+  uint8_t bit=(uint8_t)(1U<<axis);
+  const M9B1AxisConfig *cfg=&m9_h2b1_config.axis[axis];
   (void)context;
+  if(value>cfg->max_pwm){
+    if(m9_h2b1_hold.axis[axis].assist_phase!=M9B1_ASSIST_PULSE ||
+       value!=cfg->assist_pwm || (m9_b1_pulse_expired & bit))value=0U;
+    else if(!(m9_b1_pulse_armed & bit)){
+      m9_b1_pulse_deadline[axis]=HAL_GetTick()+cfg->assist_ms;
+      m9_b1_pulse_armed|=bit;
+    }else if((int32_t)(HAL_GetTick()-m9_b1_pulse_deadline[axis])>=0){
+      value=0U;m9_b1_pulse_expired|=bit;m9_b1_pulse_armed&=(uint8_t)~bit;
+    }
+  }else{
+    m9_b1_pulse_armed&=(uint8_t)~bit;
+    if(m9_h2b1_hold.axis[axis].assist_phase!=M9B1_ASSIST_PULSE)
+      m9_b1_pulse_expired&=(uint8_t)~bit;
+  }
   if(axis==0U)__HAL_TIM_SET_COMPARE(&htim12,TIM_CHANNEL_2,value);
   else __HAL_TIM_SET_COMPARE(&htim14,TIM_CHANNEL_1,value);
+  return value;
 }
 static void M9B1_HAL_Direction(void *context,uint8_t axis,int8_t raw_sign)
 {
