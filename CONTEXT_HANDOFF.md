@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **2026-11-09 — First MCU powered-tuning register-output/cutoff evidence (NOT HOLD response PASS):** private UART M9H2B1_HOLD_20261109_172834.txt has3 complete rows, SHA621a5ce87385600314404bc8866662c0102f4df4 seq1/source2 CENTER/profile1. WAIT_DATA at37ms -> HOLDING at109ms -> FAULT reason11(NO_PROGRESS) at1868ms, active0/lease0/faultAxes1. LEFT peakCCR30, acknowledged nonzero output1007ms, final/peak error23RAW (goal1886,raw1909); RIGHT peakCCR/output-time0, peak error3RAW. Firmware cut both on its response guard, not a captured Voice STOP. Driver torque, release timing, current and thermal result are not established. No automatic PWM increase; next required observation is whether LEFT was released promptly or still externally held during the no-progress interval. Docs-only update: keep MCU621a5ce, do not reflash or repeat old static logs for this record.
+
 > **2026-11-09 — USER-authorized powered H2-B1 tuning:** USER requests actual continuous two-axis HOLD using existing STOP/NC, without a prerequisite motor-supply disconnect test. New profile1=TUNING permits PWM after fresh eligible BOTH-DONE; POWER_COMMISSIONED remains0 and means current/thermal acceptance is pending, not power locked in profile1. Initial engineering caps LEFT30/RIGHT10CCR (3%/1%), independent PD/slew,200ms reversal blank; no-progress1s and recoverable output-time budget cut BOTH axes on tuning fault, with no auto-resume. No fixed HOLD session expiry. Boot has no target/output. Source/HOST verified locally; new CubeIDE build/flash/physical test still pending. See docs/M9_H2B1_POWERED_TUNING_2026_11_09.md. Older closed-power/pending notes below are dated history; do not demand the rejected disconnect pretest or repeat validated H1/H2-B0/unpowered B1 logs.
 
 > **2026-11-08 — H2-B1 MCU uncommissioned integration observed:** private UART firmware `4d004757f48f67c1b1b5192b8020c3e8d196ba9a`, four complete lines across seq1/source2 CENTER and seq2/source3 Voice angle. Both retain two goals beyond5s (5002/5001ms), active1/state2/reason7, commissioned0/lease0, all PWM/peakPWM/appliedMs/everApplied0. This is LIMITED MCU target-retention/telemetry PASS, not powered HOLD, current/thermal/load or fault-injection acceptance. Latest DOCX identifies DC775 geared motors: wheel110rpm x4, TURN LEFT30rpm, TURN RIGHT32rpm; manufacturer/winding/gearbox model and safe stationary current are not specified. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md. Earlier pending/819f635 notes below are dated history.
@@ -113,6 +115,8 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**2026-11-09 — First MCU powered-tuning register-output/cutoff evidence (NOT HOLD response PASS):** private UART M9H2B1_HOLD_20261109_172834.txt has3 complete rows, SHA621a5ce87385600314404bc8866662c0102f4df4 seq1/source2 CENTER/profile1. WAIT_DATA at37ms -> HOLDING at109ms -> FAULT reason11(NO_PROGRESS) at1868ms, active0/lease0/faultAxes1. LEFT peakCCR30, acknowledged nonzero output1007ms, final/peak error23RAW (goal1886,raw1909); RIGHT peakCCR/output-time0, peak error3RAW. Firmware cut both on its response guard, not a captured Voice STOP. Driver torque, release timing, current and thermal result are not established. No automatic PWM increase; next required observation is whether LEFT was released promptly or still externally held during the no-progress interval. Docs-only update: keep MCU621a5ce, do not reflash or repeat old static logs for this record.
 
 **2026-11-09 — USER-authorized powered H2-B1 tuning:** USER requests actual continuous two-axis HOLD using existing STOP/NC, without a prerequisite motor-supply disconnect test. New profile1=TUNING permits PWM after fresh eligible BOTH-DONE; POWER_COMMISSIONED remains0 and means current/thermal acceptance is pending, not power locked in profile1. Initial engineering caps LEFT30/RIGHT10CCR (3%/1%), independent PD/slew,200ms reversal blank; no-progress1s and recoverable output-time budget cut BOTH axes on tuning fault, with no auto-resume. No fixed HOLD session expiry. Boot has no target/output. Source/HOST verified locally; new CubeIDE build/flash/physical test still pending. See docs/M9_H2B1_POWERED_TUNING_2026_11_09.md. Older closed-power/pending notes below are dated history; do not demand the rejected disconnect pretest or repeat validated H1/H2-B0/unpowered B1 logs.
 
@@ -515,6 +519,8 @@ New milestone S14.3: use prior neutral sensor stillness to shorten only safe sta
 B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1461, 0 UART errors. Combined test four wheels user reports good, steering lag ~0.5s. GCC helper neutral/stale/coast/wrap checks succeeded, target code unbuilt.
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
+
+**Điểm dừng sau log172834:** MCU621a5ce đã chạy profile1, LEFT output1007ms peak30CCR rồi FAULT11/active0/lease0; RIGHT chưa phát lực. Không phải STOP terminal hoặc HOLD response PASS. Cần biết có nhả tay ngay hay tiếp tục giữ LEFT trong khoảng1s trước khi quyết định đổi cap/gain/guard. Không tự nâng PWM; không reflash cho docs-only record này.
 
 **Điểm dừng mới nhất (2026-11-09):** đã triển khai profile1=TUNING có PWM sau BOTH-DONE, trần30/10CCR và guard không tiến triển/ngân sách output; POWER_COMMISSIONED0 không phải khóa power ở mode1. Local actual-C/production main/formatter/sanitizer và các hồi quy PASS; xác minh GitHub exact-SHA CI trước CubeIDE Clean Build/flash/test thật. USER đã yêu cầu bỏ phép thử ngắt nguồn làm điều kiện tiên quyết; dùng STOP/NC hiện có, không đổi điều đó thành bằng chứng phần cứng. Chưa có log powered của source mới. Không lặp các log đã đạt.
 
@@ -2248,5 +2254,25 @@ END OF CONTEXT HANDOFF
 [14] Thông số: latest DOCX DC775 wheel110rpm x4,LEFT30/RIGHT32rpm; user running motor-wire currents0.8–1/2A and stopped0A retained without converting to safe HOLD ratings.
 [15] Tiếp quản: collector -UntilStopped -MaxEvents100 -TimeoutSeconds300, passive RX; ending collector never ends HOLD. UART adds profile,peakErr,effort,faultAxes,appliedLms/Rms; commissioned0 alone no longer means output locked.
 [16] Kiểm chứng: actual production mode1/core/HAL/main60s quiet+real mock writes/stall cut, budget recovery/tick wrap, compiler invalid-mode/guard/cap rejection, actual snprintf compile format and UART545<640; ASan/UBSan and H0/H1/H1REAL/H2A/B0/Voice STOP/autoARM regressions PASS locally. Hardware acceptance pending.
+
+## 2026-11-09 — First powered-tuning MCU evidence,17checkpoints
+
+[0] Phạm vi: analyze the user's actual first powered-tuning UART, preserve full two-axis HOLD and no motor-disconnect prerequisite.
+[1] Phiên bản: exact MCU621a5ce87385600314404bc8866662c0102f4df4; same pinned branch HEAD before docs-only update. Source CI42599987381 already SUCCESS.
+[2] Mục tiêu: separate register-output/guard evidence from successful mechanical holding or torque/current acceptance.
+[3] Yêu cầu: no automatic cap/gain/timeout increase, no old H1/B0/unpowered-log repeat, private raw TXT remains private.
+[4] Milestone: MCU output+NO_PROGRESS cutoff observed LEFT in one trial; H2-B1 mechanical HOLD/current/thermal not PASS and RIGHT powered response not exercised.
+[5] Kết quả:3 valid rows WAIT37ms/HOLD109ms/FAULT1868ms, same seq1/source2 CENTER/profile1; dropped0 and goal-raw=error agree.
+[6] Điểm dừng: state5/reason11 active0 lease0 faultAxes1, both commandedPWM0; terminal is a response-guard fault, not Voice STOP2.
+[7] Tài nguyên: private M9H2B1_HOLD_20261109_172834.txt; aggregates appended to current powered-tuning report only, no raw upload to public repo.
+[8] Quyết định: source unchanged. First gather observable release timing before selecting force/gain/guard changes.
+[9] Chẩn đoán: LEFT cap30 reached, acknowledged output1007ms and final/peak error23RAW; NO_PROGRESS indicates insufficient measured error improvement, not proof of a unique physical cause.
+[10] An toàn: guard removed both outputs/no auto-resume; this is a software observation, not independent driver-current measurement or thermal protection.
+[11] Kế hoạch: ask whether LEFT was released promptly after displacement or held externally through the interval; evaluate any existing observed motor current afterward.
+[12] Thông tin thiếu: release timing, actual recovery behavior/current/temperature; dense trace not present. Do not infer user did or did not release from this log.
+[13] Lịch sử: commissioning0/profile1 correctly means experimental powered permission; prior4d unpowered5s evidence stays separate.
+[14] Thông số: LEFT goal1886/raw1909/error-23/peak23,RIGHT goal662/raw660/error+2/peak3; RIGHT peakPWM0 and applied0.
+[15] Tiếp quản: preserve running MCU621a5ce. Collector UntilStopped can end at FAULT before subsequent spoken Stop; absence of STOP row does not prove recognition failure.
+[16] Kiểm chứng: file3 realCRLF rows, fullSHA, source/seq/profile/state sequence, zero final outputs/lease, per-axis times and arithmetic checked. Docs-only change preserves original386-line specification,17sections and required footer.
 
 END OF CONTEXT HANDOFF

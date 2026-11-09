@@ -1,5 +1,7 @@
 # M9 H2-B1 — Thử giữ góc có cấp lực, hai trục liên tục (09/11/2026)
 
+> **2026-11-09 — First MCU powered-tuning register-output/cutoff evidence (NOT HOLD response PASS):** private UART M9H2B1_HOLD_20261109_172834.txt has3 complete rows, SHA621a5ce87385600314404bc8866662c0102f4df4 seq1/source2 CENTER/profile1. WAIT_DATA at37ms -> HOLDING at109ms -> FAULT reason11(NO_PROGRESS) at1868ms, active0/lease0/faultAxes1. LEFT peakCCR30, acknowledged nonzero output1007ms, final/peak error23RAW (goal1886,raw1909); RIGHT peakCCR/output-time0, peak error3RAW. Firmware cut both on its response guard, not a captured Voice STOP. Driver torque, release timing, current and thermal result are not established. No automatic PWM increase; next required observation is whether LEFT was released promptly or still externally held during the no-progress interval. Docs-only update: keep MCU621a5ce, do not reflash or repeat old static logs for this record.
+
 ## Quyết định hiện hành
 
 USER yêu cầu test thực tế với STOP/NC hiện có, không thực hiện phép thử ngắt nguồn motor làm điều kiện tiên quyết. Yêu cầu này thay thế đề nghị kiểm tra ngắt nguồn của assistant. Không ghi việc người dùng từ chối phép thử thành một kết quả ngắt nguồn PASS hoặc thành giới hạn motor đã được xác nhận.
@@ -82,3 +84,31 @@ Reason3=NC,4=SENSOR,5=RANGE,9=SERVICE_GAP,10=PORT_FAULT vẫn giữ nghĩa. UART
 Local strict GCC PASS: core hai trục liên tục120s, HAL/main hooks60s; **chính profile30/10** đi qua adapter/main thật, phát hai output có giới hạn và cắt không tiến triển; budget recovery/tick wrap, invalid config, compiler rejection và formatter UART thật PASS. ASan/UBSan core PASS với leak detector tắt vì hạn chế môi trường. H0/H1/H1REAL/H2-A/B0 và Voice executor/FF/PS2/auto-ARM regressions PASS.
 
 Packet H2B1 worst-case545bytes trong buffer640bytes. Không thêm I2C, UART blocking hoặc ghi motor vào host tests. GitHub Actions phải được so đúng commit chứa thay đổi; Windows parser kiểm script mới. Máy thực hiện không có arm-none-eabi-gcc; **chưa cross-build CubeIDE, flash hay chạy motor bằng bản này**. File UART4d004757 trước đó chỉ xác nhận hai phiên chưa cấp lực; chưa có H2-B1 powered HARDWARE PASS. Động học chưa hoàn thành để tích hợp/nạp và SELECT tiếp tục hoãn.
+
+## 2026-11-09 — Lượt MCU đầu tiên của profile cấp lực thử
+
+Nguồn riêng tư: M9H2B1_HOLD_20261109_172834.txt; chỉ công khai tổng hợp, không đưa TXT gốc lên repo. Đã kiểm tra đủ3dòng cùng firmware621a5ce87385600314404bc8866662c0102f4df4, seq1/source2 CENTER/profile1; CRLF thật3, không có literal-backslash separator, dropped0. Quan hệ goal-raw=error khớp cả hai bên.
+
+| Mốc | elapsedMs | state/reason | active/lease |
+|---|---:|---|---|
+| Khởi tạo vận tốc | 37 | 1/0 WAIT_DATA | 1/0 |
+| Cho phép HOLD | 109 | 3/0 HOLDING | 1/1 |
+| Cắt bảo vệ | 1868 | 5/11 NO_PROGRESS | 0/0 |
+
+| Dữ liệu | LEFT | RIGHT |
+|---|---:|---:|
+| Goal RAW | 1886 | 662 |
+| RAW báo cuối | 1909 | 660 |
+| Sai số cuối RAW | -23 | +2 |
+| Sai số đỉnh RAW | 23 | 3 |
+| Đỉnh yêu cầu PWM CCR | 30 | 0 |
+| Thời gian adapter ghi nhận output khác0 | 1007ms | 0ms |
+| PWM báo cuối | 0 | 0 |
+
+everApplied1, appliedMs1007, effortL/R1008/0, faultAxes1=LEFT. RIGHT chưa vượt ngưỡng kích hoạt8RAW nên output0 phù hợp; chưa có bằng chứng phản lực giữ RIGHT. LEFT được ghi CCR khác0 và đạt cap30; guard không thấy mức giảm sai số ít nhất2RAW trong cửa sổ1000ms khi còn phát lực nên cắt cả hai. Đây là xác nhận đường output/guard ở phía MCU của một lượt, **không chứng minh driver đã tạo mô-men hoặc lực giữ đã đạt**.
+
+File kết thúc bởi FAULT11, không phải terminal STOP2. Không suy rằng khẩu lệnh Stop hỏng nếu nó được nói sau khi collector đã nhận FAULT và thoát. Không có trace vị trí dày theo thời gian hoặc thông tin nhả tay, dòng/nhiệt trong TXT này.
+
+**Điểm cần làm rõ trước thay đổi PWM/gain/timeout:** người vận hành có nhả tác động lên bánh LEFT ngay sau khi tạo lệch, hay còn giữ nó trong khoảng guard đang đo không tiến triển? Nếu đã nhả mà không có hồi phục thì mức lực hữu hiệu/cấu hình cần được đánh giá với quan sát dòng; nếu vẫn đang giữ thì chưa phải phép đo hồi phục sau nhả tải. Log tự nó chưa phân biệt hai tình huống và không xác nhận một nguyên nhân vật lý duy nhất.
+
+**Kết luận:** log hợp lệ, có MCU register-output LEFT và cắt NO_PROGRESS; H2-B1 HOLD response/current/thermal vẫn chưa PASS, RIGHT chưa được kích hoạt lực. Không tự nâng cap hoặc bỏ bảo vệ chỉ từ NO_PROGRESS. Bản ghi này không thay source, không yêu cầu nạp lại hoặc thu lại H1/H2-B0/unpowered B1 đã xác nhận.
