@@ -1,5 +1,7 @@
 # M9 H2-B1 — Trợ lực ngắn để thắng ma sát (09/11/2026)
 
+> **2026-11-09 — MCU log184953: trợ lực LEFT đã phát, chưa về center:** 13dòng hợp lệ trênb89b4d5c45c6173f5d726b9b1d9f7f755af05fe1. Seq3 LEFT kick0→4→8→12,peak175CCR,sai số tại các nhóm−89→−83→−78→−78RAW;cuối23053ms state6/reason13/active1,retry3,appliedLms3916. Xác nhận đường software/adapter burst hoạt động và budget4đợt nghỉ có giữ goal; không chứng minh mô-men,thời lượng điện hoặc tự về center. RIGHT sai số<=2RAW,output/kick0,chưa thử lực. Seq4 là CENTER mới,gần0sai số rồi state4/reason1=NEW_OWNER;không dùng làm bằng chứng HOLD tự hồi hoặc STOP2. Cần quan sát cơ khí bên trái nhích/giật theo burst hay đứng yên trước chỉnh tiếp. Docs-only:giữ MCUb89b4d5,không flash/lặp phép thu chỉ để chứng minh kick đã kích;không tự nâng lực từ file.
+
 ## Mục tiêu và căn cứ
 
 Người dùng yêu cầu thực hiện bước tạo phản lực sau log181422. MCU32520fe đã giữ goal khi lệch149RAW,tự retry4lần nhưng LEFT cuối vẫn lệch138RAW dù adapter ghi5166ms output,đỉnh30CCR. RIGHT chưa phát lực. Kết quả không chứng minh nguyên nhân duy nhất là ma sát; PWM thấp chưa tạo hiệu quả kéo về là điều cần thử cải thiện. Không đăng log gốc riêng tư.

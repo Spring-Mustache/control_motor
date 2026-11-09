@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **2026-11-09 — MCU log184953: trợ lực LEFT đã phát, chưa về center:** 13dòng hợp lệ trênb89b4d5c45c6173f5d726b9b1d9f7f755af05fe1. Seq3 LEFT kick0→4→8→12,peak175CCR,sai số tại các nhóm−89→−83→−78→−78RAW;cuối23053ms state6/reason13/active1,retry3,appliedLms3916. Xác nhận đường software/adapter burst hoạt động và budget4đợt nghỉ có giữ goal; không chứng minh mô-men,thời lượng điện hoặc tự về center. RIGHT sai số<=2RAW,output/kick0,chưa thử lực. Seq4 là CENTER mới,gần0sai số rồi state4/reason1=NEW_OWNER;không dùng làm bằng chứng HOLD tự hồi hoặc STOP2. Cần quan sát cơ khí bên trái nhích/giật theo burst hay đứng yên trước chỉnh tiếp. Docs-only:giữ MCUb89b4d5,không flash/lặp phép thu chỉ để chứng minh kick đã kích;không tự nâng lực từ file.
+
 > **2026-11-09 — HOLD trợ lực thắng ma sát, SOURCE/HOST chờ MCU:** USER yêu cầu thực hiện bước tạo phản lực sau log181422. PD nền vẫn30/10CCR; thêm burst LEFT175CCR/30ms,RIGHT85CCR/12ms từ giá trị tinh chỉnh CENTER hiện có. Chỉ trợ lực khi lệch>=8RAW,PD kéo đúng về goal,vận tốc<=20RAW/s ổn định200ms và có mẫu mới; sau burst PWM0>=200ms/mẫu mới. Tối đa4burst mỗi trục mỗi vòng; reason13 nghỉ hai trục,giữ goal,nghỉ>=3000ms và hồi đủ budget rồi retry. SysTick chỉ cắt burst hết hạn,không gia hạn bởi vòng main; adapter trả số PWM thực đã ghi,kickL/R đếm lần trợ lực. No-progress dùng thời gian output tích lũy qua khoảng0. Giữ STOP/NC/sensor/hành trình và bỏ32RAW; không bật commissioning2. Mức mới là lựa chọn thử nghiệm,không phải giới hạn dòng/nhiệt hoặc motor PASS. Xem docs/M9_H2B1_BREAKAWAY_ASSIST_2026_11_09.md.
 
 > **2026-11-09 — MCU log181422: giữ goal toàn hành trình + tự retry đã quan sát, phản lực chưa đạt:** 19 dòng hợp lệ trên32520fe0c86facf59756e6c0071985541f7f42d0. Seq2 giữ active1 dù peakError149RAW, tự retry4 lần tại8913/15602/23247/29948ms,LEFT peak30CCR/applied5166ms,cuối30960ms còn lệch−138RAW; không có RANGE5. Seq3 LEFT applied1001ms rồi STOP state4/reason2/active0/lease0 tại9385ms,còn lệch−120RAW. RIGHT peakPWM/applied0 vì sai số không quá4RAW. Xác nhận giới hạn sai số32 đã bỏ, retry và STOP phía phần mềm; không xác nhận lực/mô-men/return hoặc dòng/nhiệt. Không tăng PWM từ log này. Docs-only: giữ MCU32520fe,không cần flash lại hoặc lặp phép thử cùng30/10 chỉ để xác nhận hai lỗi logic đã sửa. Bước tiếp là đánh giá đường tạo lực/hiệu chỉnh actuator; thiếu lực thắng ma sát vẫn là giả thuyết.
@@ -81,6 +83,8 @@
 
 ## 0. Thông tin hồ sơ và phạm vi bao phủ
 
+**Kết quả MCU184953:** Dữ liệu mới13dòng thực tế của TXT184953,2seq,cùngfirmwareb89b4d5;đã kiểm số học goal−raw. Không đăng log gốc riêng tư.
+
 **Hiện hành — trợ lực sau181422:** Nguồn cập nhật: branch4887bc09a60fe24207703d7117f9f7dc01857bbe,log MCU32520fe và chỉ thị 'hãy thực hiện'. Cấu hình175/85,30/12 dựa sourceCENTER đang có; không dựng phép đo dòng/nhiệt.
 
 **Kết quả MCU181422:** Cập nhật từ19 dòng TXT181422 thực tế trên MCU32520fe; log được đọc/kiểm tra số học. Không đăng nguyên bản riêng tư.
@@ -131,6 +135,8 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**Kết quả MCU184953:** **2026-11-09 — MCU log184953: trợ lực LEFT đã phát, chưa về center:** 13dòng hợp lệ trênb89b4d5c45c6173f5d726b9b1d9f7f755af05fe1. Seq3 LEFT kick0→4→8→12,peak175CCR,sai số tại các nhóm−89→−83→−78→−78RAW;cuối23053ms state6/reason13/active1,retry3,appliedLms3916. Xác nhận đường software/adapter burst hoạt động và budget4đợt nghỉ có giữ goal; không chứng minh mô-men,thời lượng điện hoặc tự về center. RIGHT sai số<=2RAW,output/kick0,chưa thử lực. Seq4 là CENTER mới,gần0sai số rồi state4/reason1=NEW_OWNER;không dùng làm bằng chứng HOLD tự hồi hoặc STOP2. Cần quan sát cơ khí bên trái nhích/giật theo burst hay đứng yên trước chỉnh tiếp. Docs-only:giữ MCUb89b4d5,không flash/lặp phép thu chỉ để chứng minh kick đã kích;không tự nâng lực từ file.
 
 **Hiện hành — trợ lực sau181422:** **2026-11-09 — HOLD trợ lực thắng ma sát, SOURCE/HOST chờ MCU:** USER yêu cầu thực hiện bước tạo phản lực sau log181422. PD nền vẫn30/10CCR; thêm burst LEFT175CCR/30ms,RIGHT85CCR/12ms từ giá trị tinh chỉnh CENTER hiện có. Chỉ trợ lực khi lệch>=8RAW,PD kéo đúng về goal,vận tốc<=20RAW/s ổn định200ms và có mẫu mới; sau burst PWM0>=200ms/mẫu mới. Tối đa4burst mỗi trục mỗi vòng; reason13 nghỉ hai trục,giữ goal,nghỉ>=3000ms và hồi đủ budget rồi retry. SysTick chỉ cắt burst hết hạn,không gia hạn bởi vòng main; adapter trả số PWM thực đã ghi,kickL/R đếm lần trợ lực. No-progress dùng thời gian output tích lũy qua khoảng0. Giữ STOP/NC/sensor/hành trình và bỏ32RAW; không bật commissioning2. Mức mới là lựa chọn thử nghiệm,không phải giới hạn dòng/nhiệt hoặc motor PASS. Xem docs/M9_H2B1_BREAKAWAY_ASSIST_2026_11_09.md. Bước tiếp là Actions đúng SHA mới,CubeIDE Clean Build/flash/F8,collector UntilStopped và kiểm kickL/R,peakPWM cùng phản ứng cơ khí. Không cần bật Live Expressions.
 
@@ -422,6 +428,8 @@ USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjec
 
 ## 4. Roadmap và milestone
 
+**Kết quả MCU184953:** M9 H2-B1 MCU burst/adapter LEFT đã quan sát12lần và4burst/vòng;goal retention/cooldown tiếp tục. Return cơ khí chưa đạt,RIGHT powered response chưa thử,dòng/nhiệt/H3 chưa nghiệm thu.
+
 **Hiện hành — trợ lực sau181422:** M9 H2-B1 stiction assist SOURCE/HOST đang kiểm CI; STM32 build/flash/return thật,dòng/nhiệt và H3 tải chưa xác minh. Log32520fe vẫn chứng minh giữ goal/retry/STOP của bản cũ,không chứng minh burst mới.
 
 **Kết quả MCU181422:** M9 H2-B1 MCU goal-retention vượt32RAW và auto-retry đã quan sát trongseq2; STOP revoke quan sátseq3. Giữ góc cơ khí/return chưa đạt; RIGHT chưa được kích lực,không nghiệm thu hai trục/H3.
@@ -481,6 +489,8 @@ USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjec
 New milestone S14.3: use prior neutral sensor stillness to shorten only safe starts, no stop/NC/SOFT override; SOURCE-STAGED, target acceptance pending.
 
 ## 5. Công việc đã thực hiện và kết quả hiện tại
+
+**Kết quả MCU184953:** Seq3 peak175,kick12,applied3916ms tổngoutput,peakerror104,cuốierror−78. Nhóm đầu4kicks error−83,8kicks−78,12kicks vẫn−78. Không suy áp dụng3916ms đều là output175.
 
 **Hiện hành — trợ lực sau181422:** Đã thêm state assist từng trục,cửa sổ đứng yên,mẫu mới,pulse/settle4đợt và cooldown13. SysTick handler thật gọi cutter chỉPWM0; HAL port trả output thực,không tự rearm khi deadline đã hết. Thêm kickL/R và tests core/main/ISR.
 
@@ -572,6 +582,8 @@ B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
 
+**Kết quả MCU184953:** Điểm dừng sau flashb89b4d5: assist thực sự được adapter ghi nhận nhưng chưa kéo về. Giữ source;cần một quan sát cơ khí nhích/giật hay đứng yên để chọn kiểm actuator hoặc hiệu chỉnh xung;không hỏi lại số đo chưa có.
+
 **Hiện hành — trợ lực sau181422:** Chờ CI source mới và người dùng flash. Trợ lực không phát lúc boot hoặc trong vùng yên. Log phần cứng cuối vẫn32520fe,không gán burst mới cho file181422. Cần quan sát góc thật sau burst mới.
 
 **Kết quả MCU181422:** Điểm dừng mới: đã flash và chạy32520fe. Không sửa tiếp ngưỡng lệch hoặc yêu cầu bật Live Expressions. Vấn đề còn lại là tạo phản lực/cơ khí return; cap30/10 giữ nguyên,chưa chọn mức mới.
@@ -616,6 +628,8 @@ B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1
 Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE project settings/startup/logs, sync, run verifier, Clean Build/Flash, test Level1 A/B response and coast before considering Level2.
 
 ## 7. Tệp, tài nguyên và phiên bản cần chuyển sang B
+
+**Kết quả MCU184953:** Thêm TXT riêng tư M9H2B1_HOLD_20261109_184953.txt;chỉ tổng hợp trong báo cáo BREAKAWAY_ASSIST/handoff. Không công bốraw.
 
 **Hiện hành — trợ lực sau181422:** Tệp chính: m9_h2b1_hold.h/.c,commissioning.h,main.inc,main.c,main.h,stm32f7xx_it.c;fixtures/verifierH2B1; báo cáo BREAKAWAY_ASSIST. Raw logs giữ riêng tư.
 
@@ -688,6 +702,8 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 Rejected blindly deleting 100/160ms +100ms quiet or increasing PWM: prior tests show coast near SOFT. Chose boot-OFF fast path requiring BOTH AS5600 neutral quiet observed previously and fresh check after command; old gate on doubt.
 
 ## 9. Vấn đề, lỗi và bài học từ những lần thử trước
+
+**Kết quả MCU184953:** Các mẫu góc đo tiến gần goal11RAW qua hai nhóm,nhóm ba không cải thiện. Chưa biết tác động tay/cơ khí trong từng nhóm;không gán toàn bộ dịch chuyển cho motor hoặc chốt nguyên nhân thiếu lực duy nhất.
 
 **Hiện hành — trợ lực sau181422:** Log181422 cho thấy cố gắng30CCR nhiều lần nhưng lỗi−138RAW vẫn còn. Stiction là giả thuyết; burst mới thử khắc phục cơ cấu chưa nhúc nhích,không tuyên bố đây là nguyên nhân duy nhất hoặc đã giải quyết.
 
@@ -766,6 +782,8 @@ Safety: no fast start while moving/coasting, NC active, disarmed, sensors stale,
 
 ## 11. Kế hoạch tiếp tục có thể thực hiện
 
+**Kết quả MCU184953:** Không cần nạp lại cho cập nhật tài liệu. Trước hiệu chỉnh tiếp,lấy quan sát người dùng về nhích/giật theo đợt hoặc đứng yên hoàn toàn;không mặc định tăng PWM/thời lượng chỉ vì có kick.
+
 **Hiện hành — trợ lực sau181422:** CI exactSHA ->git fetch/merge --ff-only tại D:\STM32 task\control_motor,giữ dirtysettings ->Clean Build/flash/F8 ->collector ->CENTER ->đẩy nhẹ/thả trên giá ->quan sát phản ứng/rung ->STOP ->TXT. Không yêu cầu disconnect pretest hoặc lặp H1/B0.
 
 **Kết quả MCU181422:** Giữ firmware32520fe; bước tiếp đánh giá actuator và ngưỡng tạo lực. Không cần flash docs-only hoặc lặp cùng30/10 để kiểm lại threshold/retry đã quan sát. Không tuyên bố sửa cơ khí xong.
@@ -829,6 +847,8 @@ Windows: git status, git fetch, merge --ff-only on same branch, python tools/ver
 
 ## 12. Câu hỏi còn mở và thông tin cần bổ sung
 
+**Kết quả MCU184953:** Thiếu quan sát cơ khí mới,thời lượng điện thật,mô-men/dòng/nhiệt và phản hồi RIGHT. Không cần kiểm lại Live Expressions,SHA hoặc kick activation đã xác nhận ở log này.
+
 **Hiện hành — trợ lực sau181422:** Còn thiếu log source trợ lực mới,góc có trở về thật không,mô-men/dòng/nhiệt. Không hỏi lại số đo chưa có hoặc thời điểm thả tay đã trả lời. Không coi kickCount hay HOST là lực/motor PASS.
 
 **Kết quả MCU181422:** Thông tin cần bổ sung cho nghiệm thu lực vẫn là phản ứng cơ khí,đường output thật và dữ liệu điện/nhiệt phù hợp. Không hỏi lại việc thả tay/đo dòng đã trả lời; source/core gates không còn là phần chưa xác nhận.
@@ -858,6 +878,8 @@ Windows: git status, git fetch, merge --ff-only on same branch, python tools/ver
 Missing: new STM32 build log/flashed ELF, actual current and measured coast at Level2, new A/B latency CSV, scope signal-to-power evidence. Not required to implement guarded source patch.
 
 ## 13. Dòng thời gian và diễn biến quan trọng
+
+**Kết quả MCU184953:** Bản trợ lựcb89 đã chạyMCU;log184953 quan sát12burstLEFT. Vấn đề từ chưa có trợ lực chuyển sang trợ lực chưa đưa góc về mục tiêu.
 
 **Hiện hành — trợ lực sau181422:** Sau xác nhận lỗi32RAW/retry được sửa nhưng lực30CCR chưa kéo về,USER yêu cầu thực hiện hiệu chỉnh actuator. Bản mới thêm burst có feedback/settle và cutofftick,không tăng lực liên tục.
 
@@ -897,6 +919,8 @@ Các mốc phút của file (`yyyyMMdd_HHmmss`) là **tên file capture**, khôn
 13:21 2026-10-31 combined M8S11 1461 rows, user sees wheel response good but steering 0.5s lag. ~13:37 user requests fix and reports Level2 speed satisfactory. New S14.3 source follows.
 
 ## 14. Phụ lục nội dung cần giữ chính xác
+
+**Kết quả MCU184953:** Seq3 thời điểm10006/kick4/e−83,16497/kick8/e−78,23053/kick12/e−78;goal1886,raw1964 cuối. Seq4 goal1886/raw1886,e0/kick0,rút owner1 tại2416ms. Không có STOP2 trong file.
 
 **Hiện hành — trợ lực sau181422:** Nền30/10CCR;assist175/85CCR,duration30/12ms,still200ms,|v|<=20RAW/s,off200ms,4pulse/vòng,rest>=3000ms+budget recovery. Reason13=assist round budget,kickL/R=acknowledged burst starts. Giữ8/4/deadband5,không max_error_raw.
 
@@ -1042,6 +1066,8 @@ S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <
 
 ## 15. Chỉ dẫn để hội thoại B tiếp quản
 
+**Kết quả MCU184953:** Ưu tiên log184953 trước ghi chú source chưaflash. Đừng lấy CENTER mới seq4 làm nghiệm thu HOLD return;đừng coi reason13/active1 là hủy mục tiêu hoặc lỗi cảm biến.
+
 **Hiện hành — trợ lực sau181422:** Đọc báo cáo assist mới nhất trước các ghi chú chỉ30/10. Build lại cả main/IRQ/header vì port callback và cấu trúc config đã đổi. Không chỉnh Live Expressions hoặc gọi source/CI là flashPASS.
 
 **Kết quả MCU181422:** Tiếp quản kết quả MCU181422 trước các ghi chú chưaflash bản32520fe. Không coi lần CENTER mới seq3 trở về1889 là HOLD tự kéo lại; đó là phiên CENTER mới.
@@ -1061,6 +1087,8 @@ S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <
 Next assistant must inspect new HEAD/Release; require evidence clean build and Flash; collect M8S00_S143 plus CSV, diagnose actual CCR and AS5600 lag. Do not ask repeated COM4 or D:\STM32 task\control_motor unless changed.
 
 ## 16. Kiểm tra chất lượng và khoảng trống bàn giao
+
+**Kết quả MCU184953:** 13dòng,2seq,fullSHA,raw/goal/error và tăngkick kiểm đúng. Seq3 không có terminal được thu trước seq4;dropped2→3 phản ánh bản tin chờ bị thay thế. Không dựng hành vi nút/lệnh gâyNEW_OWNER hoặc kết quả điện/nhiệt.
 
 **Hiện hành — trợ lực sau181422:** Kiểm core/production profile/main/HAL và chính SysTick_Handler bằng HOST: pulsebound,tickwrap,mainblocked,expiredno-rearm,STOP/NC/highoutput,newowner không bị deadlinecũ cắt; sanitizer và regressions.17mục/386dòng/footer giữ;target/hardware còn thiếu.
 
