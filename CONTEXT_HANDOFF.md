@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **2026-11-09 — MCU log181422: giữ goal toàn hành trình + tự retry đã quan sát, phản lực chưa đạt:** 19 dòng hợp lệ trên32520fe0c86facf59756e6c0071985541f7f42d0. Seq2 giữ active1 dù peakError149RAW, tự retry4 lần tại8913/15602/23247/29948ms,LEFT peak30CCR/applied5166ms,cuối30960ms còn lệch−138RAW; không có RANGE5. Seq3 LEFT applied1001ms rồi STOP state4/reason2/active0/lease0 tại9385ms,còn lệch−120RAW. RIGHT peakPWM/applied0 vì sai số không quá4RAW. Xác nhận giới hạn sai số32 đã bỏ, retry và STOP phía phần mềm; không xác nhận lực/mô-men/return hoặc dòng/nhiệt. Không tăng PWM từ log này. Docs-only: giữ MCU32520fe,không cần flash lại hoặc lặp phép thử cùng30/10 chỉ để xác nhận hai lỗi logic đã sửa. Bước tiếp là đánh giá đường tạo lực/hiệu chỉnh actuator; thiếu lực thắng ma sát vẫn là giả thuyết.
+
 > **2026-11-09 — Bỏ giới hạn sai số HOLD32RAW sau log175629 (SOURCE/HOST, chưa flash):** USER yêu cầu bánh bị đẩy lệch trong hành trình hợp lệ phải tiếp tục được kéo về. Đã xóa max_error_raw và hai nhánh hủy goal theo sai số trong Begin/Step, không thay32 bằng một trần lệch khác. Main vẫn kiểm tra góc đo và goal theo hành trình hiệu chuẩn; STOP/NC, sensor stale/jump, service/port và owner mới vẫn hủy goal. Profile30/10CCR và cơ chế nghỉ/retry11/12 không đổi. HOST tái hiện chính LEFT1919/goal1886/error−33 và sai số33..400RAW cả hai dấu/trục, vẫn giữ goal; lỗi ngoài hành trình vẫn ngắt. MCU cuối xác nhận làaf6a43d, lực kéo về thật/dòng/nhiệt chưa đạt. Xem docs/M9_H2B1_FULL_TRAVEL_RECOVERY_2026_11_09.md. Cập nhật này thay thế mọi ghi chú giữ maxError32RAW trước đó.
 
 > **2026-11-09 — HOLD tự thử lại có giới hạn (SOURCE/HOST, CHƯA THỬ TRÊN XE):** USER xác nhận đẩy lệch rồi thả tay nhưng bánh không quay lại, chưa có số đo dòng; yêu cầu luôn cố gắng tạo lại phản lực và không muốn chờ đo dòng. Đã đổi riêng NO_PROGRESS11/EFFORT_BUDGET12 thành COOLDOWN6/active1: giữ nguyên hai goal, đưa cả hai PWM về0, hồi đủ ngân sách output rồi tính lại điều khiển từ góc mới và tự thử tiếp. Không tăng trần30/10CCR, không thêm hoặc tuyên bố có giới hạn dòng. STOP/NC/sensor/range/owner vẫn hủy goal, không tự khởi động lại. Đây là triển khai có giới hạn của yêu cầu; không phải cấp lực vô hạn hoặc đã sửa được phản ứng cơ khí. Xem docs/M9_H2B1_PERSISTENT_RETRY_2026_11_09.md.
@@ -77,6 +79,8 @@
 
 ## 0. Thông tin hồ sơ và phạm vi bao phủ
 
+**Kết quả MCU181422:** Cập nhật từ19 dòng TXT181422 thực tế trên MCU32520fe; log được đọc/kiểm tra số học. Không đăng nguyên bản riêng tư.
+
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Phạm vi mới: yêu cầu hiện tại và log riêng175629 trên MCUaf6a43d. Nguồn gốc386dòng không đổi. Kiểm thử tổng hợp không phải số đo phản lực.
 
 **Hiện hành — retry 09/11:** Cập nhật từ HEAD194266126f0a0dd760a09bd0858e619e0a46e8c1 và hội thoại hiện tại; chỉ xác nhận nguồn/kiểm thử thực sự đọc/chạy. Người dùng đã trả lời về việc thả tay; chưa có dữ liệu dòng/nhiệt mới. Không tuyên bố bao quát những hội thoại không truy cập được.
@@ -123,6 +127,8 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**Kết quả MCU181422:** **2026-11-09 — MCU log181422: giữ goal toàn hành trình + tự retry đã quan sát, phản lực chưa đạt:** 19 dòng hợp lệ trên32520fe0c86facf59756e6c0071985541f7f42d0. Seq2 giữ active1 dù peakError149RAW, tự retry4 lần tại8913/15602/23247/29948ms,LEFT peak30CCR/applied5166ms,cuối30960ms còn lệch−138RAW; không có RANGE5. Seq3 LEFT applied1001ms rồi STOP state4/reason2/active0/lease0 tại9385ms,còn lệch−120RAW. RIGHT peakPWM/applied0 vì sai số không quá4RAW. Xác nhận giới hạn sai số32 đã bỏ, retry và STOP phía phần mềm; không xác nhận lực/mô-men/return hoặc dòng/nhiệt. Không tăng PWM từ log này. Docs-only: giữ MCU32520fe,không cần flash lại hoặc lặp phép thử cùng30/10 chỉ để xác nhận hai lỗi logic đã sửa. Bước tiếp là đánh giá đường tạo lực/hiệu chỉnh actuator; thiếu lực thắng ma sát vẫn là giả thuyết.
 
 **Hiện hành — bỏ ngưỡng lệch sau175629:** **2026-11-09 — Bỏ giới hạn sai số HOLD32RAW sau log175629 (SOURCE/HOST, chưa flash):** USER yêu cầu bánh bị đẩy lệch trong hành trình hợp lệ phải tiếp tục được kéo về. Đã xóa max_error_raw và hai nhánh hủy goal theo sai số trong Begin/Step, không thay32 bằng một trần lệch khác. Main vẫn kiểm tra góc đo và goal theo hành trình hiệu chuẩn; STOP/NC, sensor stale/jump, service/port và owner mới vẫn hủy goal. Profile30/10CCR và cơ chế nghỉ/retry11/12 không đổi. HOST tái hiện chính LEFT1919/goal1886/error−33 và sai số33..400RAW cả hai dấu/trục, vẫn giữ goal; lỗi ngoài hành trình vẫn ngắt. MCU cuối xác nhận làaf6a43d, lực kéo về thật/dòng/nhiệt chưa đạt. Xem docs/M9_H2B1_FULL_TRAVEL_RECOVERY_2026_11_09.md. Cập nhật này thay thế mọi ghi chú giữ maxError32RAW trước đó. Bước tiếp: kiểm tra CI đúng commit mới, cập nhật Windows bằng fast-forward, Clean Build/flash/F8 rồi thu log mới. Không cần kích Live Expressions.
 
@@ -406,6 +412,8 @@ USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjec
 
 ## 4. Roadmap và milestone
 
+**Kết quả MCU181422:** M9 H2-B1 MCU goal-retention vượt32RAW và auto-retry đã quan sát trongseq2; STOP revoke quan sátseq3. Giữ góc cơ khí/return chưa đạt; RIGHT chưa được kích lực,không nghiệm thu hai trục/H3.
+
 **Hiện hành — bỏ ngưỡng lệch sau175629:** M9 H2-B1 full-travel goal retention: SOURCE/HOST đã thực hiện, CI đúng SHA xác minh sau push. CubeIDE/flash/HARDWARE phản lực/return và H3 có tải chưa xác minh.
 
 **Hiện hành — retry 09/11:** M9 H2-B1 persistent retry: SOURCE-STAGED + HOST native-C; exact-SHA CI kiểm tra sau push. CubeIDE/FLASH/khả năng kéo lại center/dòng/nhiệt/H3 phối hợp có tải CHƯA KIỂM CHỨNG.
@@ -461,6 +469,8 @@ USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjec
 New milestone S14.3: use prior neutral sensor stillness to shorten only safe starts, no stop/NC/SOFT override; SOURCE-STAGED, target acceptance pending.
 
 ## 5. Công việc đã thực hiện và kết quả hiện tại
+
+**Kết quả MCU181422:** Seq2 peak149RAW,active1 suốt15dòng,4retry,LEFT5166msoutput;seq3 STOP2 sau1001msoutput. Không có RANGE5. Mức PWM30CCR lặp lại vẫn không có hồi về mục tiêu trong các dòng cuối.
 
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Đã xóa field max_error_raw, cập nhật cấu hình/fixtures, bỏ kiểm sai số trong Begin và Step. PreOwnerService phân biệt ngoài hành trình=RANGE5 với lỗi cảm biến=SENSOR4. Native-C/main/HAL và sanitizer kiểm riêng.
 
@@ -548,6 +558,8 @@ B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
 
+**Kết quả MCU181422:** Điểm dừng mới: đã flash và chạy32520fe. Không sửa tiếp ngưỡng lệch hoặc yêu cầu bật Live Expressions. Vấn đề còn lại là tạo phản lực/cơ khí return; cap30/10 giữ nguyên,chưa chọn mức mới.
+
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Sau sửa32RAW: chờ CI commit mới rồi target build/flash. MCUaf6a43d vẫn là bản cũ có ngưỡng32, không coi log175629 là thử phần mềm sửa mới. Không hứa lực30CCR đã đủ.
 
 **Hiện hành — retry 09/11:** Điểm tiếp theo là xác minh CI của commit retry rồi build/flash source mới. MCU gần nhất được log vẫn621a5ce; code mới chưa có UART. 30CCR bên trái từng không sửa được sai số; retry không tự làm tăng mô-men, không hứa motor sẽ kéo về ở cùng cap.
@@ -589,6 +601,8 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 
 ## 7. Tệp, tài nguyên và phiên bản cần chuyển sang B
 
+**Kết quả MCU181422:** Thêm tài nguyên riêng tư M9H2B1_HOLD_20261109_181422.txt,19dòng/2seq; chỉ aggregate trong báo cáo full-travel,không upload TXT lên publicrepo.
+
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Source chính Core/Inc/m9_h2b1_hold.h, m9_h2b1_commissioning.h, Core/Src/m9_h2b1_hold.c và m9_h2b1_main.inc; tests/verifier H2B1; báo cáo docs/M9_H2B1_FULL_TRAVEL_RECOVERY_2026_11_09.md. TXT175629 vẫn riêng tư.
 
 **Hiện hành — retry 09/11:** Tệp chính: Core/Inc/m9_h2b1_hold.h, Core/Inc/m9_h2b1_commissioning.h, Core/Src/m9_h2b1_hold.c, Core/Src/main.c, tools/m9_h2b1_*host_test.c, tools/verify_m9_h2b1_hold.py, tools/capture_m9_h2b1_hold.ps1 và docs/M9_H2B1_PERSISTENT_RETRY_2026_11_09.md. Raw TXT vẫn riêng tư, không đăng public.
@@ -624,6 +638,8 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 
 ## 8. Lịch sử quyết định và các phương án đã cân nhắc
 
+**Kết quả MCU181422:** Không tự coi log PWM là bằng chứng lực. Các thay đổi32RAW/retry được xác nhận ở MCU phạm vi này; không tự tăng cap hoặc bỏ cooldown từ file gửi lên.
+
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Quyết định mới thay thế việc giới hạn sai số quanh goal ở32RAW. Không nâng trần thành64/128 hoặc một giá trị khác. Điều kiện biên cơ khí và chất lượng cảm biến độc lập vẫn giữ.
 
 **Hiện hành — retry 09/11:** Thay thế quyết định hủy goal vĩnh viễn chỉ cho hai sự kiện tuning11/12: giờ nghỉ/retry. Giữ nguyên hủy goal không tự hồi phục cho STOP/NC/sensor/range/owner/service/port. Không tăng cap/gain/minPWM từ yêu cầu chưa có đo dòng.
@@ -652,6 +668,8 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 Rejected blindly deleting 100/160ms +100ms quiet or increasing PWM: prior tests show coast near SOFT. Chose boot-OFF fast path requiring BOTH AS5600 neutral quiet observed previously and fresh check after command; old gate on doubt.
 
 ## 9. Vấn đề, lỗi và bài học từ những lần thử trước
+
+**Kết quả MCU181422:** Các lần retry1,3,4 có sai số đầu/cuối lần lượt−86/−86,−138/−138,−138/−138RAW. Phần mềm cố gắng nhưng chưa sửa được góc; không gán mọi thay đổi RAW trong phiên cho motor vì lực ngoài/thời điểm nhả không được ghi.
 
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Logaf6a43d: HOLD3/active1,LEFT peak30/output773ms,goal1886/raw1919/e−33 rồi FAULT5/reason5. Đã xác định nhánh lỗi phần mềm max_error_raw gây hủy; chưa xác định nguyên nhân motor thiếu phản lực.
 
@@ -693,6 +711,8 @@ Software before-CCR wait vs motor after-CCR lag distinguished; latter may persis
 
 ## 10. Rủi ro, giả định và phụ thuộc
 
+**Kết quả MCU181422:** Dòng/nhiệt/mô-men vẫn chưa đo. repeated30CCR không chứng minh giới hạn điện/cơ an toàn hoặc đủ lực. Không tự nâng PWM liên tục từ thông số CENTER.
+
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Bỏ ngưỡng sai số không được bỏ hành trình: cached raw và goal vẫn qua Steering_SafetyHardEnvelopeValid, NC có ưu tiên. PWM/gain không đổi; dòng/nhiệt chưa biết và ngân sách thời gian không phải giới hạn dòng.
 
 **Hiện hành — retry 09/11:** Thử lại định kỳ vẫn có nguy cơ nóng/kẹt cơ khí; ngân sách thời gian không phải dòng/I2t/nhiệt. Không tuyên bố việc giữ cap làm phần cứng an toàn đã nghiệm thu. STOP/NC/cảm biến/hard envelope vẫn có ưu tiên cao hơn retry.
@@ -721,6 +741,8 @@ Software before-CCR wait vs motor after-CCR lag distinguished; latter may persis
 Safety: no fast start while moving/coasting, NC active, disarmed, sensors stale, input not neutral, escape/R1/R2/Select. Physical independent cutoff still needed; no automatic Level2 selection.
 
 ## 11. Kế hoạch tiếp tục có thể thực hiện
+
+**Kết quả MCU181422:** Giữ firmware32520fe; bước tiếp đánh giá actuator và ngưỡng tạo lực. Không cần flash docs-only hoặc lặp cùng30/10 để kiểm lại threshold/retry đã quan sát. Không tuyên bố sửa cơ khí xong.
 
 **Hiện hành — bỏ ngưỡng lệch sau175629:** CI đúng SHA -> git fetch/merge --ff-only -> CubeIDE Clean Build/flash/F8 -> mở capture_m9_h2b1_hold.ps1 UntilStopped -> CENTER, tác động nhẹ/thả trong hành trình -> STOP và TXT. Kiểm goal còn hiệu lực khi lệch>32, không suy cơ khí PASS từ synthetic test.
 
@@ -781,6 +803,8 @@ Windows: git status, git fetch, merge --ff-only on same branch, python tools/ver
 
 ## 12. Câu hỏi còn mở và thông tin cần bổ sung
 
+**Kết quả MCU181422:** Thông tin cần bổ sung cho nghiệm thu lực vẫn là phản ứng cơ khí,đường output thật và dữ liệu điện/nhiệt phù hợp. Không hỏi lại việc thả tay/đo dòng đã trả lời; source/core gates không còn là phần chưa xác nhận.
+
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Không hỏi lại việc thả tay, Live Expressions hay số đo đã được trả lời. Thiếu log của source sửa mới, phản lực/return thật và dòng/nhiệt. Có thể tiếp tục source/CI, chưa thể kết luận đủ lực.
 
 **Hiện hành — retry 09/11:** Đã có câu trả lời thả tay và chưa có số đo; không hỏi lặp lại. Dòng/nhiệt/mô-men thật và PWM đủ thắng ma sát chưa xác định; không chặn triển khai source giữ goal/retry, nhưng chưa có căn cứ nâng lực hoặc kết luận hardware PASS.
@@ -806,6 +830,8 @@ Windows: git status, git fetch, merge --ff-only on same branch, python tools/ver
 Missing: new STM32 build log/flashed ELF, actual current and measured coast at Level2, new A/B latency CSV, scope signal-to-power evidence. Not required to implement guarded source patch.
 
 ## 13. Dòng thời gian và diễn biến quan trọng
+
+**Kết quả MCU181422:** Sau flash bản bỏ32RAW,log181422 xác nhậnseq2 lệch tới149RAW vẫn giữ goal và retry4lần;seq3 kết thúc bằng STOP. Vướng mắc hiện tại chuyển sang hiệu quả tạo lực.
 
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Sau retryaf6a43d, log175629 cho thấy một nhánh hủy khác: sai số33 vượt32. USER yêu cầu sửa ngay; bản mới loại bỏ nhánh sai số, giữ nhánh hành trình và cảm biến.
 
@@ -841,6 +867,8 @@ Các mốc phút của file (`yyyyMMdd_HHmmss`) là **tên file capture**, khôn
 13:21 2026-10-31 combined M8S11 1461 rows, user sees wheel response good but steering 0.5s lag. ~13:37 user requests fix and reports Level2 speed satisfactory. New S14.3 source follows.
 
 ## 14. Phụ lục nội dung cần giữ chính xác
+
+**Kết quả MCU181422:** Seq2 cuối30960ms goalL1886/rawL2024/e−138,peak149,peakPWM30,applied5166,retry4. Seq3 cuối9385ms goalL1886/rawL2006/e−120,peak133,applied1001,STOP2/active0. RIGHT goal662/raw659,e+3,applied0.
 
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Không còn max_error_raw. 8RAW vào hiệu chỉnh/4RAW ra/deadband5 giữ nguyên. Max jump90RAW là thay đổi GIỮA HAI MẪU, không phải sai số tổng so với goal; stale250ms,cap30/10,reversal200ms và cooldown/retry không đổi.
 
@@ -982,6 +1010,8 @@ S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <
 
 ## 15. Chỉ dẫn để hội thoại B tiếp quản
 
+**Kết quả MCU181422:** Tiếp quản kết quả MCU181422 trước các ghi chú chưaflash bản32520fe. Không coi lần CENTER mới seq3 trở về1889 là HOLD tự kéo lại; đó là phiên CENTER mới.
+
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Ưu tiên bản full-travel sau log175629, đọc ghi chú32RAW trước đó như lịch sử. Xác minh branch HEAD/CI, giữ dirty .settings/startup; không reset hoặc reflash bảnaf rồi kỳ vọng hết ngưỡng32.
 
 **Hiện hành — retry 09/11:** Tiếp quản bản ghi retry mới nhất trước các mục lịch sử hủy goal11/12. Không đồng nhất log cũ621a5ce với commit mới, HOST với motor PASS, hoặc user muốn không giới hạn với việc đã bỏ bảo vệ. Không reset/clean Git của người dùng, không yêu cầu disconnect test đã bị loại.
@@ -997,6 +1027,8 @@ S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <
 Next assistant must inspect new HEAD/Release; require evidence clean build and Flash; collect M8S00_S143 plus CSV, diagnose actual CCR and AS5600 lag. Do not ask repeated COM4 or D:\STM32 task\control_motor unless changed.
 
 ## 16. Kiểm tra chất lượng và khoảng trống bàn giao
+
+**Kết quả MCU181422:** Đã kiểm19dòng,2seq,cùngfullSHA,goal−raw=error,state/reason,thống kê và STOP terminal. dropped1→2 là thống kê bản tin chờ bị thay thế,không suy lỗi điều khiển. Seq2 không có terminal được thu trước seq3; không dựng kết quả STOP choseq2.
 
 **Hiện hành — bỏ ngưỡng lệch sau175629:** Ghi đúng trạng thái source/host/CI/target/flash/hardware. Bản gốc386dòng,17mục và footer giữ nguyên. Kiểm ca33RAW lẫn400RAW, hard-envelope và STOP/NC; không tuyên bố motor đã tự trở về.
 

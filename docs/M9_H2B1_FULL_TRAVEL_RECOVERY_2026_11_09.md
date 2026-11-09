@@ -1,5 +1,7 @@
 # M9 H2-B1 — Phục hồi góc trong toàn hành trình hợp lệ (09/11/2026)
 
+> **2026-11-09 — MCU log181422: giữ goal toàn hành trình + tự retry đã quan sát, phản lực chưa đạt:** 19 dòng hợp lệ trên32520fe0c86facf59756e6c0071985541f7f42d0. Seq2 giữ active1 dù peakError149RAW, tự retry4 lần tại8913/15602/23247/29948ms,LEFT peak30CCR/applied5166ms,cuối30960ms còn lệch−138RAW; không có RANGE5. Seq3 LEFT applied1001ms rồi STOP state4/reason2/active0/lease0 tại9385ms,còn lệch−120RAW. RIGHT peakPWM/applied0 vì sai số không quá4RAW. Xác nhận giới hạn sai số32 đã bỏ, retry và STOP phía phần mềm; không xác nhận lực/mô-men/return hoặc dòng/nhiệt. Không tăng PWM từ log này. Docs-only: giữ MCU32520fe,không cần flash lại hoặc lặp phép thử cùng30/10 chỉ để xác nhận hai lỗi logic đã sửa. Bước tiếp là đánh giá đường tạo lực/hiệu chỉnh actuator; thiếu lực thắng ma sát vẫn là giả thuyết.
+
 ## Vấn đề và yêu cầu
 
 Người dùng báo HOLD không tạo phản ứng thấy được và hỏi có cần kích biến Live Expressions. Log riêng M9H2B1_HOLD_20261109_175629.txt có các dòng hoàn chỉnh trên MCUaf6a43dbe28a524dff94dfbfc106b3de2c1efbfd: state3/active1/lease1 rồi state5/reason5/active0 tại2823ms,LEFT goal1886/raw1919/error−33,peakPWM30,appliedLms773,RIGHT error2/output0,retryCount0. Dòng đầu chứa mảnh firmware cũ ghép với M8R1_FINE, không dùng làm một bản ghi HOLD hoàn chỉnh. Không đăng TXT gốc lên repository public.
