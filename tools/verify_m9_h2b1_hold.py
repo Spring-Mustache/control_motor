@@ -36,6 +36,12 @@ assert '#define M9H2B1_LEFT_MAX_PWM      30U' in CFG
 assert '#define M9H2B1_RIGHT_MAX_PWM     10U' in CFG
 assert 'tuning_guard' in CORE and 'M9B1_EFFORT_BUDGET' in CORE
 assert 'M9B1_NO_PROGRESS' in CORE and 'fault_axes' in CORE
+assert 'max_error_raw' not in CORE+CFG+(ROOT/'Core/Inc/m9_h2b1_hold.h').read_text(encoding='utf-8')
+assert 'Steering_SafetyHardEnvelopeValid(1U,in->raw[0])' in PORT
+assert 'Steering_SafetyHardEnvelopeValid(0U,in->raw[1])' in PORT
+assert 'Steering_SafetyHardEnvelopeValid(1U,m9_h2b1_hold.goal[0])' in PORT
+assert 'Steering_SafetyHardEnvelopeValid(0U,m9_h2b1_hold.goal[1])' in PORT
+assert 'if(!in.geometry_ok){M9B1_Stop(M9B1_RANGE);return;}' in PORT
 assert '3000' not in CORE and 'MAX_POLICY_MS' not in CORE
 assert 'wheels_stopped' not in PORT.replace('No requirement for wheels_stopped here.','')
 assert 'HAL_I2C' not in PORT and 'AS5600_Read' not in PORT

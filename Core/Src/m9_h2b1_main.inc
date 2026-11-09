@@ -115,7 +115,8 @@ static void M9B1_PreOwnerService(void)
      PS2_Pad.Select || PS2_Pad.L1 || PS2_Pad.L2){
     M9B1_Stop(M9B1_NEW_OWNER);return;
   }
-  if(!in.geometry_ok || !in.valid[0] || !in.valid[1] ||
+  if(!in.geometry_ok){M9B1_Stop(M9B1_RANGE);return;}
+  if(!in.valid[0] || !in.valid[1] ||
      (uint32_t)(in.now_ms-in.sample_ms[0])>m9_h2b1_config.sample_stale_ms ||
      (uint32_t)(in.now_ms-in.sample_ms[1])>m9_h2b1_config.sample_stale_ms)
     M9B1_Stop(M9B1_SENSOR);

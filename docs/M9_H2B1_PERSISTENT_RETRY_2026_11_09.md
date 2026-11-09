@@ -1,5 +1,7 @@
 # M9 H2-B1 — Giữ mục tiêu và tự thử lại sau nhiễu (09/11/2026)
 
+> **2026-11-09 — Bỏ giới hạn sai số HOLD32RAW sau log175629 (SOURCE/HOST, chưa flash):** USER yêu cầu bánh bị đẩy lệch trong hành trình hợp lệ phải tiếp tục được kéo về. Đã xóa max_error_raw và hai nhánh hủy goal theo sai số trong Begin/Step, không thay32 bằng một trần lệch khác. Main vẫn kiểm tra góc đo và goal theo hành trình hiệu chuẩn; STOP/NC, sensor stale/jump, service/port và owner mới vẫn hủy goal. Profile30/10CCR và cơ chế nghỉ/retry11/12 không đổi. HOST tái hiện chính LEFT1919/goal1886/error−33 và sai số33..400RAW cả hai dấu/trục, vẫn giữ goal; lỗi ngoài hành trình vẫn ngắt. MCU cuối xác nhận làaf6a43d, lực kéo về thật/dòng/nhiệt chưa đạt. Xem docs/M9_H2B1_FULL_TRAVEL_RECOVERY_2026_11_09.md. Cập nhật này thay thế mọi ghi chú giữ maxError32RAW trước đó.
+
 ## Yêu cầu và phạm vi thực hiện
 
 Người dùng xác nhận đẩy lệch bánh rồi thả tay, bánh không tự quay về; chưa có số đo dòng. Yêu cầu mới là thực hiện luôn để hệ thống tiếp tục cố gắng tạo phản lực khi bị tác động, không chờ đo dòng hoặc đặt giới hạn dòng.

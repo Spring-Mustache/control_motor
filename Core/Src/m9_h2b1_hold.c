@@ -24,8 +24,7 @@ uint8_t M9B1_ConfigValid(const M9B1Config *c)
 {
   unsigned i;
   if(c==0 || c->enter_raw<=c->exit_raw || c->exit_raw>c->deadband_raw ||
-     c->deadband_raw>=c->enter_raw || c->max_error_raw<c->enter_raw ||
-     c->max_error_raw>=2048U || c->sample_stale_ms==0U ||
+     c->deadband_raw>=c->enter_raw || c->sample_stale_ms==0U ||
      c->velocity_window_ms<20U || c->velocity_window_ms>c->sample_stale_ms ||
      c->service_gap_ms==0U || c->max_jump_raw==0U || c->max_jump_raw>=2048U ||
      c->power_mode>M9B1_POWER_COMMISSIONED)return 0U;
@@ -84,7 +83,6 @@ uint8_t M9B1_Begin(M9B1Hold *h,const M9B1Config *c,const M9B1Input *in,
     a->last_sample_ms=in->sample_ms[i];a->velocity_ms=in->sample_ms[i];
     a->last_seq=in->sample_seq[i];a->initialized=1U;
     a->error=delta(a->raw,h->goal[i]);a->peak_error=magnitude(a->error);
-    if(a->peak_error>c->max_error_raw){M9B1_Revoke(h,M9B1_RANGE);return 0U;}
   }
   h->active=1U;h->state=M9B1_WAIT_DATA;return 1U;
 }
@@ -200,9 +198,6 @@ void M9B1_Step(M9B1Hold *h,const M9B1Config *c,const M9B1Input *in)
   for(i=0;i<2U;i++){
     if(!sample(&h->axis[i],c,in,i,h->goal[i])){
       M9B1_Revoke(h,M9B1_SENSOR);return;
-    }
-    if(magnitude(h->axis[i].error)>c->max_error_raw){
-      M9B1_Revoke(h,M9B1_RANGE);return;
     }
   }
   inc32(&h->updates);

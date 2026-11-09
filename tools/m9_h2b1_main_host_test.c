@@ -56,7 +56,7 @@ static uint32_t m9_h2b1_report_ms,m9_h2b1_dropped;
 #include "m9_h2b1_commissioning.h"
 #else
 static const M9B1Config m9_h2b1_config={
- {{20,0,512,64,1000,50},{15,0,512,64,1000,50}},8,4,5,32,250,100,90,250,
+ {{20,0,512,64,1000,50},{15,0,512,64,1000,50}},8,4,5,250,100,90,250,
  0,0,0,M9B1_POWER_COMMISSIONED}; /* synthetic continuous fixture */
 #endif
 static uint16_t steer_pos_left_raw=1876,steer_pos_right_raw=652;
@@ -162,6 +162,31 @@ int main(void)
  for(;ms<=90000;ms+=10)pass(ms);
  assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
  assert(m9_h2b1_hold.reason==M9B1_STOP);
+ /* Reproduce the measured LEFT1919/CENTER1886 error-33 in the ACTUAL
+  * main adapter, then progressively larger valid displacement. */
+ sample_at(ms);steer_pos_left_raw=1886U;steer_pos_right_raw=662U;
+ begin_center(2U);
+ for(uint32_t end=ms+100U;ms<=end;ms+=10U)pass(ms);
+ steer_pos_left_raw=1919U;steer_pos_right_raw=695U;pass(ms);ms+=10U;
+ assert(m9_h2b1_hold.active && m9_h2b1_hold.axis[0].error==-33);
+ for(uint16_t raw=1950U;raw<=2220U;raw+=30U){
+   steer_pos_left_raw=raw;pass(ms);ms+=10U;assert(m9_h2b1_hold.active);
+ }
+ for(uint16_t raw=725U;raw<=995U;raw+=30U){
+   steer_pos_right_raw=raw;pass(ms);ms+=10U;assert(m9_h2b1_hold.active);
+ }
+ for(uint32_t end=ms+10000U;ms<=end;ms+=10U)pass(ms);
+ assert(m9_h2b1_hold.active && m9_h2b1_hold.retry_count);
+ assert(m9_h2b1_hold.goal[0]==1886U && m9_h2b1_hold.goal[1]==662U);
+ /* Leaving the fixture's physical LEFT envelope is a real RANGE stop,
+  * including during cooldown. No automatic re-arm after returning. */
+ steer_pos_left_raw=2300U;pass(ms);ms+=10U;
+ assert(!m9_h2b1_hold.active && m9_h2b1_hold.reason==M9B1_RANGE);
+ assert(!hardware_pwm[0] && !hardware_pwm[1]);
+ steer_pos_left_raw=1886U;steer_pos_right_raw=662U;
+ for(uint32_t end=ms+10000U;ms<=end;ms+=10U)pass(ms);
+ assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
+ puts("PASS main/HAL large displacement: real error-33 log case, both axes >300RAW, retained goals/retry, physical envelope cutoff");
  puts("PASS production tuning HAL/main: quiet60s, two-axis power, cooldown retains goal, automatic bounded retry, STOP during cooldown stays stopped");
  return 0;
 #endif

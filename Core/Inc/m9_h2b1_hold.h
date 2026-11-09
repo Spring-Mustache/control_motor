@@ -33,7 +33,9 @@ typedef struct {
 } M9B1AxisConfig;
 typedef struct {
   M9B1AxisConfig axis[2]; /* index0 LEFT, index1 RIGHT */
-  uint16_t enter_raw, exit_raw, deadband_raw, max_error_raw;
+  /* Position error starts correction; it is not a cancellation limit.
+   * The main adapter validates measured/goal geometry independently. */
+  uint16_t enter_raw, exit_raw, deadband_raw;
   uint16_t sample_stale_ms, velocity_window_ms, max_jump_raw;
   uint16_t service_gap_ms;
   uint16_t tuning_window_ms, tuning_effort_ms, tuning_no_progress_ms;

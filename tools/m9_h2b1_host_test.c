@@ -21,7 +21,7 @@ static uint32_t now(void *v){return ((Mock *)v)->now;}
 static M9B1Config config(void)
 {
   M9B1Config c={{{20,0,512,64,1000,50},{15,0,512,64,1000,50}},
-    8,4,5,32,250,100,90,250,0,0,0,M9B1_POWER_COMMISSIONED};return c;
+    8,4,5,250,100,90,250,0,0,0,M9B1_POWER_COMMISSIONED};return c;
 }
 static M9B1Input input(uint32_t t,uint16_t l,uint16_t r)
 {
@@ -86,7 +86,7 @@ static void revocations(void)
       case 2:in.nc_mask=1;break;case 3:in.valid[1]=0;break;
       case 4:in.sample_ms[0]=in.now_ms-251U;break;
       case 5:in.geometry_ok=0;break;case 6:in.enabled=0;break;
-      case 7:in.raw[0]=1100U;break;case 8:in.raw[0]=960U;break;
+      case 7:in.raw[0]=1100U;break;case 8:in.raw[0]=4096U;break;
       default:in=input(400U,985U,1015U);break;
     }
     m.now=in.now_ms;M9B1_Step(&h,&c,&in);(void)M9B1_Apply(&h,&c,&p);
@@ -228,7 +228,7 @@ static void repeated_retry_and_safety(void)
     switch(k){
       case 0:in.safety_ok=0U;break;case 1:in.nc_mask=1U;break;
       case 2:in.owners_free=0U;break;case 3:in.valid[1]=0U;break;
-      case 4:in.sample_ms[0]=t-251U;break;case 5:in.raw[0]=1033U;break;
+      case 4:in.sample_ms[0]=t-251U;break;case 5:in.geometry_ok=0U;break;
       default:in.enabled=0U;break;
     }
     m.now=t;M9B1_Step(&h,&c,&in);(void)M9B1_Apply(&h,&c,&p);
@@ -261,12 +261,49 @@ static void direction_change_during_rest(void)
   for(;t<=resumed+1000U;t+=10)tick(&h,&c,&m,&p,t,1020U,1000U);
   assert(h.active && m.pwm[0] && m.dir[0]==-1 && h.goal[0]==1000U);
 }
+static void large_error_keeps_goal(void)
+{
+  M9B1Config c=m9_h2b1_config;M9B1Hold h;Mock m;M9B1Port p;
+  uint32_t t;unsigned sign;
+  for(sign=0U;sign<2U;sign++){
+    int32_t d=sign?1:-1;uint16_t l,r;
+    start(&h,&c,&m,&p,0U,1000U,1000U);
+    for(t=10U;t<=100U;t+=10U)tick(&h,&c,&m,&p,t,1000U,1000U);
+    /* Reproduce a 33-RAW push, then continue smoothly to 400 RAW.
+     * geometry_ok is the caller's independent physical envelope proof. */
+    for(int32_t error=33;error<=393;error+=30){
+      l=(uint16_t)(1000+d*error);r=(uint16_t)(1000-d*error);
+      tick(&h,&c,&m,&p,t,l,r);t+=10U;
+      assert(h.active && h.reason!=M9B1_RANGE && h.seq==1U);
+    }
+    l=(uint16_t)(1000+d*400);r=(uint16_t)(1000-d*400);
+    for(;t<=10000U;t+=10U)tick(&h,&c,&m,&p,t,l,r);
+    assert(h.active && h.retry_count && h.goal[0]==1000U && h.goal[1]==1000U);
+    assert(h.axis[0].peak_error==400U && h.axis[1].peak_error==400U);
+    assert(h.axis[0].peak_pwm<=30U && h.axis[1].peak_pwm<=10U);
+    /* A smooth measured return settles, with the same target retained. */
+    for(int32_t error=370;error>=10;error-=30){
+      tick(&h,&c,&m,&p,t,(uint16_t)(1000+d*error),(uint16_t)(1000-d*error));t+=10U;
+    }
+    for(uint32_t end=t+10000U;t<end;t+=10U)tick(&h,&c,&m,&p,t,1000U,1000U);
+    assert(h.active && !m.pwm[0] && !m.pwm[1]);
+    /* Large initial error is accepted too, when caller geometry is valid. */
+    M9B1_Cut(&h,&p,M9B1_STOP);start(&h,&c,&m,&p,0U,l,r);
+    assert(h.active && h.axis[0].peak_error==400U);
+    tick(&h,&c,&m,&p,100U,l,r);assert(h.active);
+    {M9B1Input in=input(110U,l,r);in.geometry_ok=0U;m.now=110U;
+     M9B1_Step(&h,&c,&in);(void)M9B1_Apply(&h,&c,&p);
+     assert(!h.active && h.reason==M9B1_RANGE && !m.pwm[0] && !m.pwm[1]);}
+  }
+  puts("PASS large-error HOLD: 33..400 RAW both signs/axes, retry and smooth return; physical geometry still revokes");
+}
 int main(void)
 {
   continuous_and_independent();release_damping();revocations();
   commissioned_interlock();atomic_rechecks();wrap_and_jitter();
   production_tuning_profile();effort_recovery_and_wrap();repeated_retry_and_safety();
   direction_change_during_rest();
+  large_error_keeps_goal();
   puts("PASS H2-B1 actual C: persistent dual-axis 120s, damping/reversal, fault revocation, atomic output, power interlock, wrap/jitter");
   return 0;
 }
