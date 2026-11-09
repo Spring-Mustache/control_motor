@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+> **2026-11-09 — USER-authorized powered H2-B1 tuning:** USER requests actual continuous two-axis HOLD using existing STOP/NC, without a prerequisite motor-supply disconnect test. New profile1=TUNING permits PWM after fresh eligible BOTH-DONE; POWER_COMMISSIONED remains0 and means current/thermal acceptance is pending, not power locked in profile1. Initial engineering caps LEFT30/RIGHT10CCR (3%/1%), independent PD/slew,200ms reversal blank; no-progress1s and recoverable output-time budget cut BOTH axes on tuning fault, with no auto-resume. No fixed HOLD session expiry. Boot has no target/output. Source/HOST verified locally; new CubeIDE build/flash/physical test still pending. See docs/M9_H2B1_POWERED_TUNING_2026_11_09.md. Older closed-power/pending notes below are dated history; do not demand the rejected disconnect pretest or repeat validated H1/H2-B0/unpowered B1 logs.
+
 > **2026-11-08 — H2-B1 MCU uncommissioned integration observed:** private UART firmware `4d004757f48f67c1b1b5192b8020c3e8d196ba9a`, four complete lines across seq1/source2 CENTER and seq2/source3 Voice angle. Both retain two goals beyond5s (5002/5001ms), active1/state2/reason7, commissioned0/lease0, all PWM/peakPWM/appliedMs/everApplied0. This is LIMITED MCU target-retention/telemetry PASS, not powered HOLD, current/thermal/load or fault-injection acceptance. Latest DOCX identifies DC775 geared motors: wheel110rpm x4, TURN LEFT30rpm, TURN RIGHT32rpm; manufacturer/winding/gearbox model and safe stationary current are not specified. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md. Earlier pending/819f635 notes below are dated history.
 
 > **H2-B1 SOURCE/HOST CI VERIFIED (2026-11-08):** source `ac4fc082167bb13b299cba089bc8998e4d1bd2da`, GitHub Actions [42467841303](https://github.com/Spring-Mustache/control_motor/actions/runs/42467841303) completed SUCCESS. Linux full persistent two-axis controller + production main hooks and all legacy regressions PASS; Windows native PowerShell5.1 parser PASS. Physical commissioning remains0; CubeIDE/MCU/HOLD torque/thermal/load validation pending. A following docs-only HEAD is not a new actuator implementation.
@@ -111,6 +113,8 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**2026-11-09 — USER-authorized powered H2-B1 tuning:** USER requests actual continuous two-axis HOLD using existing STOP/NC, without a prerequisite motor-supply disconnect test. New profile1=TUNING permits PWM after fresh eligible BOTH-DONE; POWER_COMMISSIONED remains0 and means current/thermal acceptance is pending, not power locked in profile1. Initial engineering caps LEFT30/RIGHT10CCR (3%/1%), independent PD/slew,200ms reversal blank; no-progress1s and recoverable output-time budget cut BOTH axes on tuning fault, with no auto-resume. No fixed HOLD session expiry. Boot has no target/output. Source/HOST verified locally; new CubeIDE build/flash/physical test still pending. See docs/M9_H2B1_POWERED_TUNING_2026_11_09.md. Older closed-power/pending notes below are dated history; do not demand the rejected disconnect pretest or repeat validated H1/H2-B0/unpowered B1 logs.
 
 **2026-11-08 — H2-B1 MCU uncommissioned integration observed:** private UART firmware `4d004757f48f67c1b1b5192b8020c3e8d196ba9a`, four complete lines across seq1/source2 CENTER and seq2/source3 Voice angle. Both retain two goals beyond5s (5002/5001ms), active1/state2/reason7, commissioned0/lease0, all PWM/peakPWM/appliedMs/everApplied0. This is LIMITED MCU target-retention/telemetry PASS, not powered HOLD, current/thermal/load or fault-injection acceptance. Latest DOCX identifies DC775 geared motors: wheel110rpm x4, TURN LEFT30rpm, TURN RIGHT32rpm; manufacturer/winding/gearbox model and safe stationary current are not specified. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md. Earlier pending/819f635 notes below are dated history.
 
@@ -511,6 +515,8 @@ New milestone S14.3: use prior neutral sensor stillness to shorten only safe sta
 B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1461, 0 UART errors. Combined test four wheels user reports good, steering lag ~0.5s. GCC helper neutral/stale/coast/wrap checks succeeded, target code unbuilt.
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
+
+**Điểm dừng mới nhất (2026-11-09):** đã triển khai profile1=TUNING có PWM sau BOTH-DONE, trần30/10CCR và guard không tiến triển/ngân sách output; POWER_COMMISSIONED0 không phải khóa power ở mode1. Local actual-C/production main/formatter/sanitizer và các hồi quy PASS; xác minh GitHub exact-SHA CI trước CubeIDE Clean Build/flash/test thật. USER đã yêu cầu bỏ phép thử ngắt nguồn làm điều kiện tiên quyết; dùng STOP/NC hiện có, không đổi điều đó thành bằng chứng phần cứng. Chưa có log powered của source mới. Không lặp các log đã đạt.
 
 **Điểm dừng mới nhất (log165103):** H2-B1 SOURCE/HOST CI PASS và MCU giữ mục tiêu/telemetry chưa commissioning đã quan sát hai phiên trên5s tại4d004757. UART chứng minh firmware này đang thực thi; chưa có transcript Clean Build/flash riêng. Lực HOLD vẫn khóa0, commissioning/gain/PWM/đảo chiều/nhiệt và H3 có tải chưa nghiệm thu. DC77530/32rpm mới xác định họ motor/tốc độ, chưa xác định dòng đứng giữ. Không lặp H1/H2-B0 hoặc hai lượt tĩnh vừa xác nhận.
 
@@ -2223,5 +2229,24 @@ END OF CONTEXT HANDOFF
 [15] Tiếp quản: read newest top status/report; target execution inferred from UART SHA, not a recorded CubeIDE build transcript; no torque/thermal/fault/load conclusion.
 [16] Kiểm chứng: four complete rows checked for SHA,state,zero-power,goal-raw=error,monotonic per-session updates and elapsed>5s; docs-only scope preserves original handoff headings/spec and firmware.
 
+## 2026-11-09 — Powered two-axis H2-B1 tuning, 17 checkpoints
+
+[0] Phạm vi: USER explicitly requests actual powered full H2-B1 with existing STOP/NC and rejects motor-supply disconnect test as prerequisite. Do not require confirmation for that same rejected test.
+[1] Phiên bản: source base exact227f75a0b81d61b971528bc0879b6f5f79afa6e4; last physical UART4d004757 is old unpowered evidence only.
+[2] Mục tiêu: persistent two-axis correction after eligible BOTH-DONE, with real CCR power allowed by explicitly experimental tuning profile.
+[3] Yêu cầu: no session expiry/single-axis substitute; keep kinematics incomplete/SELECT deferred and private UART private; no new controls or motor-supply disconnect request.
+[4] Milestones: H2-B1 powered tuning source and actual-C HOST tests ready; target build/flash and powered MCU/current/thermal/mechanical acceptance still pending.
+[5] Kết quả: power_mode LOCKED0/TUNING1/COMMISSIONED2; production mode1 permits bounded power while POWER_COMMISSIONED0 honestly records unaccepted physical envelope.
+[6] Điểm dừng: publish/verify exact-SHA Actions, then user CubeIDE Clean Build/flash/Resume and one true two-axis HOLD disturbance/release/STOP capture; cannot call it executed on physical car here.
+[7] Tài nguyên: docs/M9_H2B1_POWERED_TUNING_2026_11_09.md is current parameters/protocol; full-HOLD08 report retained as source/history.
+[8] Quyết định: initial caps30/10CCR=3%/1% of1000counts; Kp2/0.75,Kd0.125/0.046875,rise60/20CCR/s,zero200ms. These are engineering test defaults, not motor/datasheet/current ratings.
+[9] Chẩn đoán: reason11 NO_PROGRESS if acknowledged output persists without2RAW error improvement in1000ms; reason12 EFFORT_BUDGET. First fault-axis bit retained; cuts both/no auto-resume.
+[10] An toàn: STOP/NC/owner/EXTI/epoch/age/jump/range/atomic guards retained. Test budget1500ms nonzero per axis replenishes only during zero at1500/8500; no fixed-window boundary reset. Not amp/I2t/thermal protection or independent hardware cutoff.
+[11] Kế hoạch: expected first quiet state3/profile1/commissioned0; then need nonzero acknowledged output and actual observed angular correction, both-axis logs and terminal STOP. Do not auto-raise caps after guard trip.
+[12] Thông tin còn thiếu: motor physical variant, calibrated standstill-current/thermal envelope, installed driver stop/reversal behavior; user request authorizes tuning but does not establish those facts.
+[13] Lịch sử: previous insistence on a motor-disconnect pretest superseded by explicit USER instruction09/11. Existing4d unpowered log remains limited PASS, no repeat.
+[14] Thông số: latest DOCX DC775 wheel110rpm x4,LEFT30/RIGHT32rpm; user running motor-wire currents0.8–1/2A and stopped0A retained without converting to safe HOLD ratings.
+[15] Tiếp quản: collector -UntilStopped -MaxEvents100 -TimeoutSeconds300, passive RX; ending collector never ends HOLD. UART adds profile,peakErr,effort,faultAxes,appliedLms/Rms; commissioned0 alone no longer means output locked.
+[16] Kiểm chứng: actual production mode1/core/HAL/main60s quiet+real mock writes/stall cut, budget recovery/tick wrap, compiler invalid-mode/guard/cap rejection, actual snprintf compile format and UART545<640; ASan/UBSan and H0/H1/H1REAL/H2A/B0/Voice STOP/autoARM regressions PASS locally. Hardware acceptance pending.
 
 END OF CONTEXT HANDOFF

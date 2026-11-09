@@ -4,7 +4,9 @@
 
 /* Persistent, TWO-axis position HOLD. There is deliberately no session
  * expiry and no single-axis bench mode. PWM units below are real timer
- * counts; gains/limits must be commissioned, never copied from H1 scores.
+ * counts. TUNING enables an explicitly experimental guarded profile;
+ * COMMISSIONED is a separate physical acceptance state, never inferred
+ * from a PWM cap, a host test or H1 shadow scores.
  */
 #define M9H2B1_INTEGRATED 1
 typedef enum {
@@ -15,8 +17,14 @@ typedef enum {
   M9B1_NONE=0, M9B1_NEW_OWNER=1, M9B1_STOP=2, M9B1_NC=3,
   M9B1_SENSOR=4, M9B1_RANGE=5, M9B1_DISABLED=6,
   M9B1_CALIBRATION_REQUIRED=7, M9B1_BAD_CONFIG=8,
-  M9B1_SERVICE_GAP=9, M9B1_PORT_FAULT=10
+  M9B1_SERVICE_GAP=9, M9B1_PORT_FAULT=10,
+  M9B1_NO_PROGRESS=11, M9B1_EFFORT_BUDGET=12
 } M9B1Reason;
+typedef enum {
+  M9B1_POWER_LOCKED=0, M9B1_POWER_TUNING=1, M9B1_POWER_COMMISSIONED=2
+} M9B1PowerMode;
+#define M9B1_TUNING_LEFT_CEILING 30U
+#define M9B1_TUNING_RIGHT_CEILING 10U
 typedef struct {
   uint16_t max_pwm, min_pwm;
   uint16_t kp_q8, kd_q8; /* PWM/RAW and PWM/(RAW/s), scaled by256. */
@@ -27,7 +35,8 @@ typedef struct {
   uint16_t enter_raw, exit_raw, deadband_raw, max_error_raw;
   uint16_t sample_stale_ms, velocity_window_ms, max_jump_raw;
   uint16_t service_gap_ms;
-  uint8_t power_commissioned;
+  uint16_t tuning_window_ms, tuning_effort_ms, tuning_no_progress_ms;
+  uint8_t power_mode;
 } M9B1Config;
 typedef struct {
   uint32_t now_ms, sample_ms[2], sample_seq[2];
@@ -37,11 +46,14 @@ typedef struct {
 typedef struct {
   uint32_t last_sample_ms, last_seq, velocity_ms, reversal_ms;
   uint32_t rise_remainder, good_samples;
+  uint32_t effort_ms, recovery_remainder, progress_ms, applied_ms;
   uint16_t raw, velocity_raw, peak_pwm, peak_error;
+  uint16_t progress_error;
   int16_t error, pwm;
   int32_t velocity;
   int8_t last_sign, pending_sign;
   uint8_t initialized, velocity_ready, position_latched, reversing;
+  uint8_t progress_tracking;
 } M9B1Axis;
 typedef struct {
   M9B1Axis axis[2];
@@ -49,7 +61,7 @@ typedef struct {
   uint32_t seq, started_ms, last_step_ms, updates;
   uint32_t applied_ms, last_applied_ms;
   int16_t applied_pwm[2];
-  uint8_t source, active, state, reason, lease, ever_applied;
+  uint8_t source, active, state, reason, lease, ever_applied, fault_axes;
 } M9B1Hold;
 void M9B1_Reset(M9B1Hold *h);
 uint8_t M9B1_ConfigValid(const M9B1Config *c);

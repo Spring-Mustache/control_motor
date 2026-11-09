@@ -28,11 +28,16 @@ uint8_t M9B1_ConfigValid(const M9B1Config *c)
      c->max_error_raw>=2048U || c->sample_stale_ms==0U ||
      c->velocity_window_ms<20U || c->velocity_window_ms>c->sample_stale_ms ||
      c->service_gap_ms==0U || c->max_jump_raw==0U || c->max_jump_raw>=2048U ||
-     c->power_commissioned>1U)return 0U;
+     c->power_mode>M9B1_POWER_COMMISSIONED)return 0U;
+  if(c->power_mode==M9B1_POWER_TUNING &&
+     (!c->tuning_effort_ms || c->tuning_window_ms<=c->tuning_effort_ms ||
+      !c->tuning_no_progress_ms || c->tuning_no_progress_ms>5000U ||
+      c->axis[0].max_pwm>M9B1_TUNING_LEFT_CEILING ||
+      c->axis[1].max_pwm>M9B1_TUNING_RIGHT_CEILING))return 0U;
   for(i=0;i<2U;i++){
     const M9B1AxisConfig *a=&c->axis[i];
     if(a->max_pwm>999U || a->min_pwm>a->max_pwm)return 0U;
-    if(c->power_commissioned && (!a->max_pwm || !a->kp_q8 || !a->kd_q8 ||
+    if(c->power_mode!=M9B1_POWER_LOCKED && (!a->max_pwm || !a->kp_q8 || !a->kd_q8 ||
         !a->rise_per_second || !a->reversal_zero_ms))return 0U;
   }
   return 1U;
@@ -104,6 +109,44 @@ static uint8_t sample(M9B1Axis *a,const M9B1Config *c,const M9B1Input *in,
   if(magnitude(a->error)>a->peak_error)a->peak_error=magnitude(a->error);
   return 1U;
 }
+/* This is an output-time/response guard, NOT current or I2t protection.
+ * Charge actual acknowledged output time, then recover only while zero.
+ * No fixed-window reset: crossing a clock boundary cannot double a burst.
+ * Both axes are cut on any tuning fault; the goal never auto-resumes.
+ */
+static uint8_t tuning_guard(M9B1Hold *h,const M9B1Config *c,
+                              uint32_t now,uint32_t dt)
+{
+  unsigned i;
+  if(c->power_mode!=M9B1_POWER_TUNING)return M9B1_NONE;
+  for(i=0;i<2U;i++){
+    M9B1Axis *a=&h->axis[i];
+    uint16_t error=magnitude(a->error);
+    if(h->applied_pwm[i]){
+      if(a->effort_ms+dt>c->tuning_effort_ms){
+        h->fault_axes|=(uint8_t)(1U<<i);return M9B1_EFFORT_BUDGET;
+      }
+      a->effort_ms+=dt;a->recovery_remainder=0U;
+    }else{
+      uint32_t recovery,denominator=(uint32_t)c->tuning_window_ms-c->tuning_effort_ms;
+      a->recovery_remainder+=dt*(uint32_t)c->tuning_effort_ms;
+      recovery=a->recovery_remainder/denominator;
+      a->recovery_remainder%=denominator;
+      if(recovery>=a->effort_ms){a->effort_ms=0U;a->recovery_remainder=0U;}
+      else a->effort_ms-=recovery;
+    }
+    if(!h->applied_pwm[i] || error<=c->exit_raw){a->progress_tracking=0U;continue;}
+    if(!a->progress_tracking){
+      a->progress_tracking=1U;a->progress_error=error;a->progress_ms=now-dt;
+    }else if((uint32_t)error+2U<=a->progress_error){
+      a->progress_error=error;a->progress_ms=now;
+    }
+    if((uint32_t)(now-a->progress_ms)>=c->tuning_no_progress_ms){
+      h->fault_axes|=(uint8_t)(1U<<i);return M9B1_NO_PROGRESS;
+    }
+  }
+  return M9B1_NONE;
+}
 static int16_t demand(M9B1Axis *a,const M9B1AxisConfig *cfg,
                        const M9B1Config *c,uint32_t now,uint32_t dt)
 {
@@ -158,17 +201,23 @@ void M9B1_Step(M9B1Hold *h,const M9B1Config *c,const M9B1Input *in)
     }
   }
   inc32(&h->updates);
-  if(!c->power_commissioned){zero_demand(h);h->state=M9B1_UNCOMMISSIONED;
+  if(c->power_mode==M9B1_POWER_LOCKED){zero_demand(h);h->state=M9B1_UNCOMMISSIONED;
     h->reason=M9B1_CALIBRATION_REQUIRED;return;}
   if(!h->axis[0].velocity_ready || !h->axis[1].velocity_ready){
     zero_demand(h);h->state=M9B1_WAIT_DATA;return;
   }
+  reason=tuning_guard(h,c,in->now_ms,dt);
+  if(reason){M9B1_Revoke(h,reason);return;}
   for(i=0;i<2U;i++)(void)demand(&h->axis[i],&c->axis[i],c,in->now_ms,dt);
   h->state=M9B1_HOLDING;h->reason=M9B1_NONE;
 }
 void M9B1_Applied(M9B1Hold *h,uint32_t now,int16_t left,int16_t right)
 {
-  uint32_t dt=(uint32_t)(now-h->last_applied_ms);
+  unsigned i;uint32_t dt=(uint32_t)(now-h->last_applied_ms);
+  for(i=0;i<2U;i++)if(h->applied_pwm[i]){
+    if(UINT32_MAX-h->axis[i].applied_ms<dt)h->axis[i].applied_ms=UINT32_MAX;
+    else h->axis[i].applied_ms+=dt;
+  }
   if(h->applied_pwm[0] || h->applied_pwm[1]){
     if(UINT32_MAX-h->applied_ms<dt)h->applied_ms=UINT32_MAX;
     else h->applied_ms+=dt;
@@ -196,7 +245,7 @@ uint8_t M9B1_Apply(M9B1Hold *h,const M9B1Config *c,const M9B1Port *p)
   uint32_t irq;unsigned i;int16_t command[2];
   if(!port_valid(p)){M9B1_Revoke(h,M9B1_PORT_FAULT);return 0U;}
   if(!h->active || h->state!=M9B1_HOLDING || !M9B1_ConfigValid(c) ||
-     !c->power_commissioned){
+     c->power_mode==M9B1_POWER_LOCKED){
     if(h->lease)M9B1_Cut(h,p,h->reason);
     return 0U;
   }

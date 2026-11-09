@@ -8221,13 +8221,16 @@ static void M8S11_StreamUpdate(void)
     const M9B1Hold *b=&m9_h2b1_hold;
     n=snprintf((char *)m8_s11_tx_line,sizeof(m8_s11_tx_line),
       "M9H2B1_HOLD,sha=%s,seq=%lu,source=%u,state=%u,reason=%u,"
-      "active=%u,commissioned=%u,lease=%u,elapsedMs=%lu,"
+      "active=%u,commissioned=%u,profile=%u,lease=%u,elapsedMs=%lu,"
       "goalL=%u,goalR=%u,rawL=%u,rawR=%u,eL=%d,eR=%d,vL=%ld,vR=%ld,"
       "pwmL=%d,pwmR=%d,peakPwmL=%u,peakPwmR=%u,"
+      "peakErrL=%u,peakErrR=%u,effortL=%lu,effortR=%lu,faultAxes=%u,"
+      "appliedLms=%lu,appliedRms=%lu,"
       "appliedMs=%lu,everApplied=%u,updates=%lu,dropped=%lu\r\n",
       FW_BUILD_GIT_SHA,(unsigned long)b->seq,(unsigned)b->source,
       (unsigned)b->state,(unsigned)b->reason,(unsigned)b->active,
-      (unsigned)m9_h2b1_config.power_commissioned,(unsigned)b->lease,
+      (unsigned)M9H2B1_POWER_COMMISSIONED,
+      (unsigned)m9_h2b1_config.power_mode,(unsigned)b->lease,
       (unsigned long)(HAL_GetTick()-b->started_ms),
       (unsigned)b->goal[0],(unsigned)b->goal[1],
       (unsigned)b->axis[0].raw,(unsigned)b->axis[1].raw,
@@ -8235,6 +8238,10 @@ static void M8S11_StreamUpdate(void)
       (long)b->axis[0].velocity,(long)b->axis[1].velocity,
       (int)b->axis[0].pwm,(int)b->axis[1].pwm,
       (unsigned)b->axis[0].peak_pwm,(unsigned)b->axis[1].peak_pwm,
+      (unsigned)b->axis[0].peak_error,(unsigned)b->axis[1].peak_error,
+      (unsigned long)b->axis[0].effort_ms,(unsigned long)b->axis[1].effort_ms,
+      (unsigned)b->fault_axes,
+      (unsigned long)b->axis[0].applied_ms,(unsigned long)b->axis[1].applied_ms,
       (unsigned long)b->applied_ms,(unsigned)b->ever_applied,
       (unsigned long)b->updates,(unsigned long)m9_h2b1_dropped);
     if (M8S11_SendLine(n) != 0U) m9_h2b1_pending=0U;

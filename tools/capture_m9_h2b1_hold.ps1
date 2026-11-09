@@ -3,6 +3,7 @@
  [string]$Port="",
  [ValidateRange(30,3600)][int]$TimeoutSeconds=300,
  [ValidateRange(1,100)][int]$MaxEvents=4,
+ [switch]$UntilStopped,
  [string]$OutputDirectory=".\logs"
 )
 $ErrorActionPreference="Stop"
@@ -49,8 +50,15 @@ try{
   }else{Write-Warning "Full MCU SHA absent; preserve record."}
   $events++
   Write-Host "HOLD $($events)/$($MaxEvents): $line"
-  if($line -match '(^|,)commissioned=0(,|$)'){
+  if($line -match '(^|,)profile=1(,|$)'){
+   Write-Warning "TUNING profile CAN POWER BOTH MOTORS; commissioned=0 means thermal/current acceptance is pending."
+  }elseif($line -match '(^|,)commissioned=0(,|$)'){
    Write-Warning "Physical power UNCOMMISSIONED. This record is NOT powered HOLD validation."
+  }
+  if($UntilStopped -and $line -match '(^|,)active=0(,|$)' -and
+     $line -match '(^|,)state=(4|5)(,|$)'){
+   Write-Host "Terminal STOP/revoke/fault captured; inspect reason/everApplied/appliedLms/appliedRms."
+   break
   }
  }
 }finally{

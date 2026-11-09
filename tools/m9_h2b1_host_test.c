@@ -21,7 +21,7 @@ static uint32_t now(void *v){return ((Mock *)v)->now;}
 static M9B1Config config(void)
 {
   M9B1Config c={{{20,0,512,64,1000,50},{15,0,512,64,1000,50}},
-    8,4,5,32,250,100,90,250,1};return c;
+    8,4,5,32,250,100,90,250,0,0,0,M9B1_POWER_COMMISSIONED};return c;
 }
 static M9B1Input input(uint32_t t,uint16_t l,uint16_t r)
 {
@@ -99,12 +99,13 @@ static void commissioned_interlock(void)
 {
   M9B1Hold h;Mock m;M9B1Port p;M9B1Config c=m9_h2b1_config;
   uint32_t t;M9B1Input in;
-  assert(!c.power_commissioned && c.axis[0].max_pwm==0 && c.axis[1].max_pwm==0);
+  c.power_mode=M9B1_POWER_LOCKED;
   start(&h,&c,&m,&p,0U,985U,1015U);
   for(t=10;t<60000;t+=10)tick(&h,&c,&m,&p,t,985U,1015U);
   assert(h.active && h.state==M9B1_UNCOMMISSIONED && !h.lease && !m.writes);
   assert(!h.ever_applied && h.reason==M9B1_CALIBRATION_REQUIRED);
-  M9B1_Reset(&h);c.power_commissioned=1U;in=input(0U,1000U,1000U);
+  M9B1_Reset(&h);c.power_mode=M9B1_POWER_COMMISSIONED;
+  c.axis[0].max_pwm=0U;in=input(0U,1000U,1000U);
   assert(!M9B1_Begin(&h,&c,&in,1,2,1000,1000) && h.reason==M9B1_BAD_CONFIG);
 }
 static void atomic_rechecks(void)
@@ -132,10 +133,53 @@ static void wrap_and_jitter(void)
   assert(h.active && !h.axis[0].pwm && !h.axis[1].pwm && !h.ever_applied);
   assert(h.axis[0].velocity==0 && h.axis[1].velocity==0);
 }
+static void production_tuning_profile(void)
+{
+  M9B1Config c=m9_h2b1_config;M9B1Hold h;Mock m;M9B1Port p;
+  uint32_t t,applied;
+  assert(c.power_mode==M9B1_POWER_TUNING && !M9H2B1_POWER_COMMISSIONED);
+  assert(c.axis[0].max_pwm==30U && c.axis[1].max_pwm==10U);
+  assert(M9B1_ConfigValid(&c));
+  start(&h,&c,&m,&p,0,1000,1000);
+  for(t=10;t<=120000;t+=10)tick(&h,&c,&m,&p,t,1000,1000);
+  assert(h.active && !h.ever_applied && !h.axis[0].effort_ms);
+  /* The production profile really applies both axes, with independent caps. */
+  for(;t<=120500;t+=10)tick(&h,&c,&m,&p,t,988,1012);
+  assert(h.active && m.pwm[0] && m.pwm[1]);
+  assert(m.dir[0]==1 && m.dir[1]==-1);
+  assert(m.pwm[0]<=30U && m.pwm[1]<=10U && h.ever_applied);
+  applied=h.applied_ms;assert(applied>0 && h.axis[0].applied_ms>0 && h.axis[1].applied_ms>0);
+  for(;t<=122000 && h.active;t+=10)tick(&h,&c,&m,&p,t,988,1012);
+  assert(!h.active && h.reason==M9B1_NO_PROGRESS && h.fault_axes);
+  assert(!h.lease && !m.pwm[0] && !m.pwm[1]);
+  tick(&h,&c,&m,&p,t+10,1000,1000);assert(!h.active); /* new goal required */
+  /* Tuning cannot remove guards or silently raise the electrical test caps. */
+  c=m9_h2b1_config;c.axis[1].max_pwm=11U;assert(!M9B1_ConfigValid(&c));
+  c=m9_h2b1_config;c.tuning_no_progress_ms=0;assert(!M9B1_ConfigValid(&c));
+  c=m9_h2b1_config;c.tuning_window_ms=c.tuning_effort_ms;assert(!M9B1_ConfigValid(&c));
+}
+static void effort_recovery_and_wrap(void)
+{
+  M9B1Config c=m9_h2b1_config;M9B1Hold h;Mock m;M9B1Port p;
+  uint32_t offset=UINT32_MAX-300U,t,before;
+  /* HOST-only long progress timeout isolates the effort-budget fault. */
+  c.tuning_no_progress_ms=5000;
+  start(&h,&c,&m,&p,offset,988,1012);
+  for(t=10;t<=1000;t+=10)tick(&h,&c,&m,&p,offset+t,988,1012);
+  before=h.axis[0].effort_ms;assert(before>500 && before<1500);
+  /* Returning to goal drops output; zero time recovers gradually, not by reset. */
+  for(;t<=2000;t+=10)tick(&h,&c,&m,&p,offset+t,1000,1000);
+  assert(h.active && !m.pwm[0] && h.axis[0].effort_ms<before);
+  assert(h.axis[0].effort_ms>0);
+  for(;t<=5000 && h.active;t+=10)tick(&h,&c,&m,&p,offset+t,988,1012);
+  assert(!h.active && h.reason==M9B1_EFFORT_BUDGET && h.fault_axes);
+  assert(!m.pwm[0] && !m.pwm[1] && !h.lease);
+}
 int main(void)
 {
   continuous_and_independent();release_damping();revocations();
   commissioned_interlock();atomic_rechecks();wrap_and_jitter();
+  production_tuning_profile();effort_recovery_and_wrap();
   puts("PASS H2-B1 actual C: persistent dual-axis 120s, damping/reversal, fault revocation, atomic output, power interlock, wrap/jitter");
   return 0;
 }

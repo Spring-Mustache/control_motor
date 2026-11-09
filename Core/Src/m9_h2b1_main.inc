@@ -1,6 +1,6 @@
 /* Included by main.c after the existing steering/safety helpers.
  * Full persistent two-axis owner. No extra I2C, no blocking UART.
- * Commissioning constants remain closed; this is not a current loop.
+ * Physical acceptance and powered tuning are distinct; no current loop.
  */
 static void M9B1_MainInput(M9B1Input *in)
 {
@@ -90,8 +90,8 @@ static void M9B1_Stop(uint8_t reason)
 static uint8_t M9B1_KeepOutput(void)
 {
   /* Retain a valid target also during velocity initialization or while
-   * commissioning is closed. This is not an actuator permission:
-   * only M9B1_Apply can claim a commissioned HOLDING power lease. */
+   * the power profile is locked. This is not an actuator permission:
+   * only M9B1_Apply can claim an authorized HOLDING power lease. */
   return (uint8_t)(m9_h2b1_hold.active && M9B1_HAL_Allowed(0));
 }
 static void M9B1_PreOwnerService(void)

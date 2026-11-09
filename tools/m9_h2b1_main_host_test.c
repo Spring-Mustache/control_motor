@@ -52,8 +52,13 @@ static M9B1Hold m9_h2b1_hold;
 static volatile uint32_t m9_h2b1_nc_epoch;
 static uint32_t m9_h2b1_seen_nc_epoch,m9_h2b1_sequence;
 static uint32_t m9_h2b1_report_ms,m9_h2b1_dropped;
+#if defined(M9B1_USE_TUNING_PROFILE)
+#include "m9_h2b1_commissioning.h"
+#else
 static const M9B1Config m9_h2b1_config={
- {{20,0,512,64,1000,50},{15,0,512,64,1000,50}},8,4,5,32,250,100,90,250,1};
+ {{20,0,512,64,1000,50},{15,0,512,64,1000,50}},8,4,5,32,250,100,90,250,
+ 0,0,0,M9B1_POWER_COMMISSIONED}; /* synthetic continuous fixture */
+#endif
 static uint16_t steer_pos_left_raw=1876,steer_pos_right_raw=652;
 static uint32_t steer_pos_left_last_sample_ms,steer_pos_right_last_sample_ms;
 static uint32_t steer_pos_left_new_sample_count,steer_pos_right_new_sample_count;
@@ -128,6 +133,24 @@ int main(void)
 {
  uint32_t ms;
  PS2_Pad.Connected=1U;PS2_Pad.Mode=0x73U;sample_at(0U);
+ M9B1_Update();
+ assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
+#if defined(M9B1_USE_TUNING_PROFILE)
+ steer_pos_left_raw=1883;steer_pos_right_raw=659;
+ begin_center(2U);
+ for(ms=10;ms<=60000;ms+=10)pass(ms);
+ assert(m9_h2b1_hold.active && !m9_h2b1_hold.ever_applied);
+ steer_pos_left_raw=1874;steer_pos_right_raw=650;
+ for(;ms<=60500;ms+=10)pass(ms);
+ assert(hardware_pwm[0] && hardware_pwm[0]<=30U);
+ assert(hardware_pwm[1] && hardware_pwm[1]<=10U);
+ assert(hardware_dir[0]==GPIO_PIN_RESET && hardware_dir[1]==GPIO_PIN_SET);
+ for(;ms<=62000 && m9_h2b1_hold.active;ms+=10)pass(ms);
+ assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
+ assert(m9_h2b1_hold.reason==M9B1_NO_PROGRESS && m9_h2b1_hold.fault_axes);
+ puts("PASS production tuning profile through actual HAL/main hooks: persistent quiet60s, two-axis power, bounded caps, no-progress cut");
+ return 0;
+#endif
  begin_center(2U);assert(M9B1_KeepOutput());
  for(ms=10;ms<=60000;ms+=10)pass(ms);
  assert(m9_h2b1_hold.active&&m9_h2b1_hold.lease);
