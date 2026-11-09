@@ -1,5 +1,18 @@
 # CONTEXT HANDOFF
 
+**HIỆN HÀNH 2026-11-09 — TẠM DỪNG M9, SỬA VOICE ROTATE TRÊN NỀN M8.**
+Theo chỉ thị mới của người vận hành, nhánh đang làm là `feature/m8-r1-voice-center-right-late-fine-10raw`,
+phát triển trực tiếp từ mốc tiền đề M9 `d367618d4d9c4c382a9a7208f9b878dfefa21ace`.
+Xác minh HEAD của nhánh này; các chỉ dẫn M8-S15 cũ bên dưới là lịch sử.
+M9 HOLD tạm dừng, được giữ riêng tại `feature/m9-steering-active-position-hold`
+(HEAD đã kiểm tra `3df43edde8f53b5e84561704189a83ac8286a56b`);
+MCU cuối cùng có log M9 xác nhận là `b89b4d5c45c6173f5d726b9b1d9f7f755af05fe1`,
+chưa được coi là đã flash 3df43ed. Không merge M9 vào nhánh sửa M8.
+Mục tiêu hiện tại: Rotate LEFT = R2 → L2, RIGHT = R2 → L1, giữ xoay đủ số giây
+sau khi bộ điều khiển bánh chấp nhận khởi động; giữ nguyên NC/STOP/PS2/PID.
+Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_ROTATE_STARTUP_2026_11_09.md](docs/M8_VC02_ROTATE_STARTUP_2026_11_09.md).
+
+
 > **HỒ SƠ SỐNG 17 MỤC:** Giữ nguyên dữ kiện và quyết định lịch sử A, đồng thời **cập nhật lớp hiện hành** sau thay đổi code/nhận định/lần đo. **Không lấy SHA hoặc trạng thái ở ảnh chụp gốc làm HEAD.** Người tiếp quản phải xác minh trước nhánh đang làm `feature/m8-s15-dual-target-common-time` và SHA thực tế ở GitHub, rồi đọc mục 1 hiện hành, toàn bộ 0–16 và roadmap cùng SHA. Nhánh M7-S15 cũ là mốc rollback trước PI, không phải nơi tiếp tục M8-S15. Git commit là nguồn chính, Actions kiểm tra mỗi push; Release chỉ theo milestone/yêu cầu.
 
 ---
@@ -70,6 +83,19 @@
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**HIỆN HÀNH 2026-11-09 — TẠM DỪNG M9, SỬA VOICE ROTATE TRÊN NỀN M8.**
+Theo chỉ thị mới của người vận hành, nhánh đang làm là `feature/m8-r1-voice-center-right-late-fine-10raw`,
+phát triển trực tiếp từ mốc tiền đề M9 `d367618d4d9c4c382a9a7208f9b878dfefa21ace`.
+Xác minh HEAD của nhánh này; các chỉ dẫn M8-S15 cũ bên dưới là lịch sử.
+M9 HOLD tạm dừng, được giữ riêng tại `feature/m9-steering-active-position-hold`
+(HEAD đã kiểm tra `3df43edde8f53b5e84561704189a83ac8286a56b`);
+MCU cuối cùng có log M9 xác nhận là `b89b4d5c45c6173f5d726b9b1d9f7f755af05fe1`,
+chưa được coi là đã flash 3df43ed. Không merge M9 vào nhánh sửa M8.
+Mục tiêu hiện tại: Rotate LEFT = R2 → L2, RIGHT = R2 → L1, giữ xoay đủ số giây
+sau khi bộ điều khiển bánh chấp nhận khởi động; giữ nguyên NC/STOP/PS2/PID.
+Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_ROTATE_STARTUP_2026_11_09.md](docs/M8_VC02_ROTATE_STARTUP_2026_11_09.md).
+
 
 ### S15.3 proposed RIGHT-only ACTIVE pilot, default OFF (2026-11-02)
 
@@ -1633,5 +1659,29 @@ END OF CONTEXT HANDOFF
 [14] R1 right from MIN/MAX safety guards also unchanged, separate per-motor escape and NC release debounce preserved.
 [15] Source pass doesn't ensure hardware smoothness; only user physical data adjudicates next step.
 [16] The user explicitly asked to improve both trigger origins, so one common center-mode patch avoids treating voice misrecognition as the cause of this R1 hunting.
+
+
+## Cập nhật 2026-11-09 — M8 Voice Rotate, M9 paused
+
+- Đổi phạm vi theo người dùng: dừng M9 HOLD; dùng đúng nền d367618d, giữ nhánh M9 riêng.
+- Nguồn chứng minh lỗi: Voice gọi `WheelControl_SetSpinDirection` một lần rồi hủy
+  ngay nếu API chưa active; API thực có thể defer vì PID target/encoder/RPM/PWM.
+  PS2 L1/L2 giữ nút thì gọi lại. Chưa có log Rotate trên xe để kết luận đây là
+  nguyên nhân duy nhất của hiện tượng người dùng báo.
+- Sửa: stage2 chờ API chấp nhận tối đa 2000ms, không tiêu hao duration;
+  bắt đầu đồng hồ khi accepted; đã vào spin mà mất owner thì hủy, không tự khởi động lại.
+  R2 giữ deadline6500ms, cả hai MIN physical NC và không MAX; đang chờ/spin mất NC
+  vẫn emergency; FF/PS2 và PID/ramp/cap400 không đổi.
+- `M8_ROTATE` là snapshot thụ động, UART IRQ sau motor idle, lưu lý do dừng,
+  R2/wait/spin duration, NC và kết quả hai trục. Pending chưa gửi không bị ghi đè.
+- HOST integration dùng actual C executor + arbiter + PS2 ownership + real wheel
+  spin admission/target API. Mã cũ fail tại lần defer đầu; mã mới PASS LEFT/RIGHT
+  5/10/120s, R2/wait excluded, C1..C5, FF/PS2/NC, timeout, lost owner, rollover.
+- Chưa có CubeIDE target build, flash hoặc xác nhận chuyển động trên xe của bản sửa.
+  GitHub CI của SHA mới phải được kiểm tra riêng; không tự ghi PASS trước khi run xong.
+- Bước tiếp theo: switch nhánh M8 và ff-only, Clean Build/flash/Resume từ thư mục
+  Windows chính; chạy `tools/capture_m8_vc02_rotate.ps1`, thử LEFT5/RIGHT5/LEFT10/RIGHT10.
+  Không yêu cầu bật Live Expressions. Nếu còn dừng ngắn, đọc result/started/NC trong
+  chính log MCU mới, không tăng lực hoặc bỏ NC theo giả thuyết.
 
 END OF CONTEXT HANDOFF

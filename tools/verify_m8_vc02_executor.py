@@ -16,6 +16,7 @@ def extract(name):
    if d==0:return SRC[i:n+1]
  raise ValueError(name)
 funcs=["static void Voice_ResetPendingCommand(",
+       "static void Voice_RotateCapture(",
        "static void Voice_S154CancelAll(",
        "static uint16_t Voice_SpeedLevelToPWM(",
        "static uint8_t Voice_IsOpenLoopCommandSupported(",
@@ -55,6 +56,7 @@ enum {VC02_SPEED_VERY_SLOW=1,VC02_SPEED_SLOW=2,
 #define STEER_LIMIT_L_MAX_MASK 0x08U
 #define STEER_LIMIT_R_MAX_MASK 0x01U
 #define VOICE_ROTATE_R2_WAIT_LIMIT_MS 6500U
+#define VOICE_ROTATE_SPIN_WAIT_LIMIT_MS 2000U
 static VoicePendingCommand_t voice_pending_command={0};
 static volatile VoiceVehicleCommand_t voice_completed_command={0},voice_active_command={0};
 static volatile VoiceBuildResult_t voice_last_build_result=VOICE_BUILD_RESULT_NONE;
@@ -107,10 +109,14 @@ static void Wheel_EmergencyStop(void){
  fake_emergency++;fake_spin_active=0;fake_spin_dir=0;fake_wheel_pwm=0;
 }
 """
+# Compile the actual passive record declarations with the executor too.
+before += SRC.split("/* M8_ROTATE_STATE_BEGIN:",1)[1].split("/* M8_ROTATE_STATE_END */",1)[0].split("*/",1)[1]
 after=r"""
 static void reset(void) {
  voice_command_ready=0;voice_command_complete=0;
  voice_execution_active=0;voice_rotate_stage=0;voice_rotate_direction=0;
+ voice_rotate_spin_started=0;voice_rotate_diag_pending=0;
+ voice_rotate_result=0;voice_execution_start_tick=0;
  voice_pos_request=0;voice_pos_owned=0;voice_pos_rejected=0;
  steer_pos_active=0;steer_safety_motion_permit=1;steer_safety_trip_latched=0;
  control_stop_latched=0;steer_pos_result=0;steer_pos_left_result=0;
@@ -145,11 +151,11 @@ int main(void){
  voice_pos_owned=0;steer_pos_active=0;steer_pos_result=2;
  steer_pos_left_result=3;steer_pos_right_result=3;
  fake_nc=0x06;fake_ms=3000;Voice_ExecuteMotorControl();
- assert(voice_rotate_stage==2&&voice_execution_start_tick==3000&&
+ assert(voice_rotate_stage==2&&voice_execution_start_tick==0&&
         !fake_spin_active);
  fake_ms=3050;Voice_ExecuteMotorControl();
  assert(fake_spin_active&&fake_spin_dir==-1&&fake_spin_duty==400);
- fake_ms=13000;Voice_ExecuteMotorControl();
+ fake_ms=13050;Voice_ExecuteMotorControl();
  assert(!voice_execution_active&&!voice_rotate_stage&&
         fake_spin_dir==0&&fake_wheel_pwm==0);
  reset();voice_pos_enable=1;voice_pivot_enable=1;

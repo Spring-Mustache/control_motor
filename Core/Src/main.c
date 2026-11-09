@@ -624,12 +624,28 @@ volatile uint32_t voice_speed_active_update_count = 0U;
 volatile uint32_t voice_execution_finish_count = 0U;
 volatile uint32_t voice_unsupported_command_count = 0U;
 volatile uint32_t voice_ignored_during_execution_count = 0U;
-volatile uint8_t voice_rotate_stage = 0U; /* 0 idle; 1 WAIT_R2; 2 SPIN */
+volatile uint8_t voice_rotate_stage = 0U; /* 0 idle; 1 WAIT_R2; 2 WAIT_SPIN/SPIN */
 volatile int8_t voice_rotate_direction = 0;
 volatile uint32_t voice_rotate_wait_start_ms = 0U;
 volatile uint32_t voice_rotate_reject_count = 0U;
 volatile uint32_t voice_rotate_nc_cut_count = 0U;
 #define VOICE_ROTATE_R2_WAIT_LIMIT_MS 6500U
+#define VOICE_ROTATE_SPIN_WAIT_LIMIT_MS 2000U
+/* M8_ROTATE_STATE_BEGIN: passive run record, no UART in motion owner. */
+volatile uint8_t voice_rotate_spin_started = 0U;
+volatile uint8_t voice_rotate_result = 0U;
+volatile uint32_t voice_rotate_spin_wait_ms = 0U;
+volatile uint32_t voice_rotate_r2_ms = 0U;
+volatile uint32_t voice_rotate_deferred_count = 0U;
+typedef struct {
+  uint32_t seq, requested_ms, r2_ms, wait_ms, spin_ms, deferred, dropped;
+  int8_t direction;
+  uint8_t result, stage, started, nc, result_l, result_r, pos_result, trip;
+} VoiceRotateDiag_t;
+static VoiceRotateDiag_t voice_rotate_diag;
+static uint8_t voice_rotate_diag_pending = 0U;
+static uint32_t voice_rotate_diag_count = 0U, voice_rotate_diag_dropped = 0U;
+/* M8_ROTATE_STATE_END */
 
 /* M7-S01: visible directly in CubeIDE Live Expressions.
  * Bit0 R_MAX (PF5); bit1 R_MIN (PF8); bit2 L_MIN (PD10); bit3 L_MAX (PD11).
@@ -7441,6 +7457,35 @@ static void M8S11_StreamUpdate(void)
   if (period < 50U) period = 50U;
   if (period > 250U) period = 250U;
 
+  if ((voice_rotate_diag_pending != 0U) &&
+      (m8_s11_stream_state == 0U) && (m8_s11_stream_enable == 0U) &&
+      (wheel_log_active == 0U) && (wheel_log_dump_active == 0U) &&
+      (wheel_log_dump_request == 0U) && (m8_s00_dump_request == 0U) &&
+      (voice_execution_active == 0U) && (voice_pos_request == 0U) &&
+      (voice_pos_owned == 0U) && (steer_pos_active == 0U) &&
+      (steer_manual_active == 0U) && (steer_cal_active == 0U) &&
+      (steer_test_running == 0U) &&
+      (Steering_PositionWheelsStopped() != 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) == 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) == 0U) &&
+      (huart3.gState == HAL_UART_STATE_READY))
+  {
+    const VoiceRotateDiag_t *d = &voice_rotate_diag;
+    n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+        "M8_ROTATE,sha=%s,seq=%lu,dir=%d,result=%u,stage=%u,"
+        "started=%u,requestedMs=%lu,r2Ms=%lu,waitMs=%lu,spinMs=%lu,"
+        "deferred=%lu,nc=%u,pos=%u,resultL=%u,resultR=%u,trip=%u,dropped=%lu\r\n",
+        FW_BUILD_GIT_SHA,(unsigned long)d->seq,(int)d->direction,
+        (unsigned)d->result,(unsigned)d->stage,(unsigned)d->started,
+        (unsigned long)d->requested_ms,(unsigned long)d->r2_ms,
+        (unsigned long)d->wait_ms,(unsigned long)d->spin_ms,
+        (unsigned long)d->deferred,(unsigned)d->nc,(unsigned)d->pos_result,
+        (unsigned)d->result_l,(unsigned)d->result_r,(unsigned)d->trip,
+        (unsigned long)d->dropped);
+    if(M8S11_SendLine(n)!=0U)voice_rotate_diag_pending=0U;
+    return;
+  }
+
   /* Automatic Voice RIGHT fine summary; only at safe motor/serial idle.
    * Uses the existing M8S11 nonblocking UART IRQ TX buffer, never a
    * blocking print while auto-ARM is active. No actuator writes.
@@ -12326,8 +12371,42 @@ static uint8_t Voice_HasPendingData(void)
 /* A single STOP or PS2 takeover cancels BOTH independently owned Voice
  * streams. Existing steering owner is disarmed by its own finish path.
  */
+/* Result: 1 duration complete; 2 R2 rejected/safety; 3 R2 timeout;
+ * 4 R2 incomplete; 5 NC/safety during spin; 6 spin startup timeout;
+ * 7 spin owner lost; 8 PS2 takeover; 9 FF; 10 other cancellation.
+ * Snapshot before owner cleanup. Pending evidence is never overwritten.
+ */
+static void Voice_RotateCapture(uint8_t result)
+{
+  if(voice_rotate_stage==0U)return;
+  voice_rotate_result=result;
+  if(voice_rotate_diag_pending!=0U)
+  {
+    voice_rotate_diag_dropped++;
+    return;
+  }
+  voice_rotate_diag=(VoiceRotateDiag_t){
+    .seq=++voice_rotate_diag_count,
+    .requested_ms=voice_execution_duration_ms,
+    .r2_ms=voice_rotate_r2_ms,
+    .wait_ms=voice_rotate_spin_wait_ms,
+    .spin_ms=(voice_rotate_spin_started!=0U)?
+       (uint32_t)(HAL_GetTick()-voice_execution_start_tick):0U,
+    .deferred=voice_rotate_deferred_count,
+    .dropped=voice_rotate_diag_dropped,
+    .direction=voice_rotate_direction,.result=result,
+    .stage=voice_rotate_stage,.started=voice_rotate_spin_started,
+    .nc=Steering_TestRawLimitMask(),.result_l=steer_pos_left_result,
+    .result_r=steer_pos_right_result,.pos_result=steer_pos_result,
+    .trip=steer_safety_trip_latched
+  };
+  voice_rotate_diag_pending=1U;
+}
+
 static void Voice_S154CancelAll(void)
 {
+  Voice_RotateCapture((voice_rotate_result!=0U)?voice_rotate_result:10U);
+  voice_rotate_spin_started=0U;
   Voice_ResetPendingCommand();
   voice_command_complete=0U;
   voice_command_ready=0U;
@@ -12351,6 +12430,7 @@ static void Voice_CancelByPS2(void)
       (voice_command_ready!=0U)||(voice_execution_active!=0U)||
       (voice_pos_request!=0U)||(voice_pos_owned!=0U)||
       (voice_rotate_stage!=0U));
+  if(voice_rotate_stage!=0U)voice_rotate_result=8U;
   Voice_S154CancelAll();
   if(had_voice!=0U)voice_cancel_by_ps2_count++;
 }
@@ -12360,6 +12440,7 @@ static void Voice_CancelByPS2(void)
  */
 static void Control_RequestStop(void)
 {
+  if(voice_rotate_stage!=0U)voice_rotate_result=9U;
   Voice_S154CancelAll();
   control_stop_latched=1U;
   control_stop_count++;
@@ -12435,7 +12516,7 @@ static uint8_t Voice_IsOpenLoopCommandSupported(
  */
 /* S15.4 I1: commands are decoded first and then executed by the
  * original wheel owner and R1/R2 position owner. New powered steering/
- * pivot options are boot OFF, not granted by receiving UART alone.
+ * pivot flags do not bypass the master motion/sensor/NC guards.
  */
 static void Voice_StartExecution(void)
 {
@@ -12468,6 +12549,13 @@ static void Voice_StartExecution(void)
       voice_unsupported_command_count++;return;
     }
     voice_rotate_direction=(kind==VOICE_MOVE_ROTATE)?-1:1;
+    voice_rotate_spin_started=0U;
+    voice_rotate_result=0U;
+    voice_rotate_r2_ms=0U;
+    voice_rotate_spin_wait_ms=0U;
+    voice_rotate_deferred_count=0U;
+    voice_execution_start_tick=0U;
+    voice_execution_elapsed_ms=0U;
     voice_rotate_stage=1U; /* WAIT_R2, no wheel motion */
     voice_rotate_wait_start_ms=HAL_GetTick();
     voice_execution_active=1U;
@@ -12520,6 +12608,8 @@ static void Voice_ExecuteMotorControl(void)
        ((uint32_t)(now-voice_rotate_wait_start_ms)>
           VOICE_ROTATE_R2_WAIT_LIMIT_MS))
     {
+      voice_rotate_r2_ms=(uint32_t)(now-voice_rotate_wait_start_ms);
+      voice_rotate_result=(voice_rotate_r2_ms>VOICE_ROTATE_R2_WAIT_LIMIT_MS)?3U:2U;
       Voice_S154CancelAll();
       voice_rotate_reject_count++;
       return;
@@ -12534,39 +12624,70 @@ static void Voice_ExecuteMotorControl(void)
            STEER_LIMIT_R_MAX_MASK)!=0U))
       {
         voice_rotate_stage=2U;
-        voice_execution_start_tick=now; /* duration starts after R2 */
+        voice_rotate_r2_ms=(uint32_t)(now-voice_rotate_wait_start_ms);
+        voice_rotate_wait_start_ms=now; /* separate bounded spin startup */
         voice_execution_elapsed_ms=0U;
         WheelControl_SetCommandProfile(WHEEL_COMMAND_PROFILE_FIXED);
       }
       else if(steer_pos_result!=1U)
       {
+        voice_rotate_r2_ms=(uint32_t)(now-voice_rotate_wait_start_ms);
+        voice_rotate_result=4U;
         Voice_S154CancelAll();
         voice_rotate_reject_count++;
       }
     }
     return;
   }
-  voice_execution_elapsed_ms=(uint32_t)(now-voice_execution_start_tick);
   if(voice_rotate_stage==2U)
   {
     nc=Steering_TestRawLimitMask();
     if((steer_safety_trip_latched!=0U)||(control_stop_latched!=0U)||
+       (steer_safety_motion_permit!=1U)||
        (VoiceS154_PivotNcReady(nc,STEER_LIMIT_L_MIN_MASK,
           STEER_LIMIT_R_MIN_MASK,STEER_LIMIT_L_MAX_MASK,
           STEER_LIMIT_R_MAX_MASK)==0U))
     {
       Wheel_EmergencyStop(); /* NC release during spin is immediate */
       voice_rotate_nc_cut_count++;
+      Voice_RotateCapture(5U);
       voice_execution_active=0U;
       voice_rotate_stage=0U;
+      voice_rotate_spin_started=0U;
       return;
     }
-    if(voice_execution_elapsed_ms>=voice_execution_duration_ms)
+    if(voice_rotate_spin_started==0U)
     {
+      voice_rotate_spin_wait_ms=(uint32_t)(now-voice_rotate_wait_start_ms);
+      voice_execution_elapsed_ms=0U;
+      if(voice_rotate_spin_wait_ms>=VOICE_ROTATE_SPIN_WAIT_LIMIT_MS)
+      {
+        voice_rotate_result=6U;
+        Voice_S154CancelAll();
+        voice_rotate_reject_count++;
+        return;
+      }
+    }
+    else
+    {
+      voice_execution_elapsed_ms=(uint32_t)(now-voice_execution_start_tick);
+      if(WheelControl_SpinIsActive()==0U)
+      {
+        voice_rotate_result=7U;
+        Voice_S154CancelAll();
+        voice_rotate_reject_count++;
+        return;
+      }
+    }
+    if((voice_rotate_spin_started!=0U)&&
+       (voice_execution_elapsed_ms>=voice_execution_duration_ms))
+    {
+      Voice_RotateCapture(1U);
       WheelControl_SetSpinDirection(0,0);
       WheelControl_SetTargetPWM(0);
       voice_execution_active=0U;
       voice_rotate_stage=0U;
+      voice_rotate_spin_started=0U;
       voice_execution_finish_count++;
       return;
     }
@@ -12580,14 +12701,21 @@ static void Voice_ExecuteMotorControl(void)
     }
     if(WheelControl_SpinIsActive()==0U)
     {
-      /* Wheel spin owner refused startup, never claim execution. */
-      WheelControl_SetTargetPWM(0);
-      voice_execution_active=0U;
-      voice_rotate_stage=0U;
-      voice_rotate_reject_count++;
+      /* Same held-request retry as L1/L2. A deferred request is NOT
+       * an executed timed spin. Wheel controller keeps all idle/PID/
+       * encoder gates; WAIT_SPIN is bounded and still STOP/PS2/NC gated.
+       */
+      voice_rotate_deferred_count++;
+    }
+    else if(voice_rotate_spin_started==0U)
+    {
+      voice_rotate_spin_started=1U;
+      voice_execution_start_tick=now; /* accepted spin, excludes R2/wait */
+      voice_execution_elapsed_ms=0U;
     }
     return;
   }
+  voice_execution_elapsed_ms=(uint32_t)(now-voice_execution_start_tick);
   if(voice_execution_elapsed_ms>=voice_execution_duration_ms)
   {
     WheelControl_SetTargetPWM(0);

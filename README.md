@@ -1,5 +1,18 @@
 # Xe tăng cướp bóng — STM32F767ZI
 
+**HIỆN HÀNH 2026-11-09 — TẠM DỪNG M9, SỬA VOICE ROTATE TRÊN NỀN M8.**
+Theo chỉ thị mới của người vận hành, nhánh đang làm là `feature/m8-r1-voice-center-right-late-fine-10raw`,
+phát triển trực tiếp từ mốc tiền đề M9 `d367618d4d9c4c382a9a7208f9b878dfefa21ace`.
+Xác minh HEAD của nhánh này; các chỉ dẫn M8-S15 cũ bên dưới là lịch sử.
+M9 HOLD tạm dừng, được giữ riêng tại `feature/m9-steering-active-position-hold`
+(HEAD đã kiểm tra `3df43edde8f53b5e84561704189a83ac8286a56b`);
+MCU cuối cùng có log M9 xác nhận là `b89b4d5c45c6173f5d726b9b1d9f7f755af05fe1`,
+chưa được coi là đã flash 3df43ed. Không merge M9 vào nhánh sửa M8.
+Mục tiêu hiện tại: Rotate LEFT = R2 → L2, RIGHT = R2 → L1, giữ xoay đủ số giây
+sau khi bộ điều khiển bánh chấp nhận khởi động; giữ nguyên NC/STOP/PS2/PID.
+Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_ROTATE_STARTUP_2026_11_09.md](docs/M8_VC02_ROTATE_STARTUP_2026_11_09.md).
+
+
 Firmware 4 motor bánh + 2 motor đánh lái, PS2, VC-02, encoder/AS5600, công tắc NC/STOP.
 
 ## Mở cuộc hội thoại ChatGPT mới

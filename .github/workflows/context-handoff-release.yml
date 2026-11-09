@@ -124,6 +124,9 @@ jobs:
       - name: Verify VC-02 I1 real C wheel/steering executor safety state machine
         run: python3 tools/verify_m8_vc02_executor.py
 
+      - name: Verify Voice Rotate with actual wheel spin admission and arbiter C
+        run: python3 tools/verify_m8_vc02_rotate_integration.py
+
       - name: Verify FF soft brake and PS2 emergency takeover with actual C HOST
         run: python3 tools/verify_m8_vc02_stop_swap.py
 
@@ -168,6 +171,7 @@ jobs:
           foreach ($path in @(".\\tools\\capture_m8_s152.ps1",
                                ".\\tools\\capture_m8_s154_right_fine.ps1",
                                ".\\tools\\capture_m8_r1_center.ps1",
+                               ".\\tools\\capture_m8_vc02_rotate.ps1",
                                ".\\tools\\stamp_firmware_build.ps1")) {
             $tokens = $null
             $errors = $null

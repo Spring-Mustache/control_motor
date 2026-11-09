@@ -1,5 +1,18 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
+**HIỆN HÀNH 2026-11-09 — TẠM DỪNG M9, SỬA VOICE ROTATE TRÊN NỀN M8.**
+Theo chỉ thị mới của người vận hành, nhánh đang làm là `feature/m8-r1-voice-center-right-late-fine-10raw`,
+phát triển trực tiếp từ mốc tiền đề M9 `d367618d4d9c4c382a9a7208f9b878dfefa21ace`.
+Xác minh HEAD của nhánh này; các chỉ dẫn M8-S15 cũ bên dưới là lịch sử.
+M9 HOLD tạm dừng, được giữ riêng tại `feature/m9-steering-active-position-hold`
+(HEAD đã kiểm tra `3df43edde8f53b5e84561704189a83ac8286a56b`);
+MCU cuối cùng có log M9 xác nhận là `b89b4d5c45c6173f5d726b9b1d9f7f755af05fe1`,
+chưa được coi là đã flash 3df43ed. Không merge M9 vào nhánh sửa M8.
+Mục tiêu hiện tại: Rotate LEFT = R2 → L2, RIGHT = R2 → L1, giữ xoay đủ số giây
+sau khi bộ điều khiển bánh chấp nhận khởi động; giữ nguyên NC/STOP/PS2/PID.
+Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_ROTATE_STARTUP_2026_11_09.md](M8_VC02_ROTATE_STARTUP_2026_11_09.md).
+
+
 ## TRẠNG THÁI HIỆN HÀNH để tiếp quản (cập nhật kế hoạch 2026-11-01)
 
 **ĐỊNH HƯỚNG PHẠM VI MỚI NHẤT [USER, 2026-11-01]:** chỉ hoàn thành chặng phát triển M8-S15 đến **S15.4** rồi quay về **tích hợp VC-02 với cơ cấu điều khiển xe**. S15.5 target góc/Ackermann **TẠM HOÃN vì chưa có động học**; S15.6 không còn là giai đoạn ưu tiên trước VC-02, hồi quy sáu motor/Gate A/B vẫn cần nghiệm thu riêng trong chặng tích hợp tiếp theo. VC02 parser/builder đã có nhưng executor hiện chỉ tiến/lùi thẳng; TURN/ANGLE/ROTATE chưa được kết nối thực thi motor. Chi tiết và thứ tự VC02-I1/I2/I3 đề xuất: `docs/M8_S15_MILESTONE_PLAN_2026_11_01.md`. Không đụng firmware hoặc kích hoạt RIGHT 300CCR.
@@ -1245,3 +1258,27 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - [NEW OPERATOR OBSERVATION] RIGHT cycles forward/back several times when Voice B0 CENTER or PS2 R1, both position-mode1 center target662RAW. Before R1 log, cause not proven. Current center RIGHT entry15RAW whereas proven Voice4 RIGHT fine entry10; hypothesize earlier cutoff leads to extra fine pulses after coast.
 - [ISOLATED A/B] feature/m8-r1-voice-center-right-late-fine-10raw from physical 9db12228..., new default1 flag only RIGHT mode1 after valid calibrated NC geometry => cutoff10RAW, fallback15. LEFT R1, Voice4, R2, Voice45, PWM/fine pulse/tolerance/STOP/PS2/NC unchanged.
 - [AUTO DIAG] M8R1_FINE for both R1 sources, includes trigger origin, last pulse stats, reversals, endpoint precision and timings; native tools/capture_m8_r1_center.ps1 default8. Exact CI compiled actual C/PowerShell then CubeIDE clean Build/Flash + guarded PS2 R1 & Voice CENTER physical log needed. No target/hardware PASS claimed yet. See docs/M8_R1_VOICE_CENTER_RIGHT_LATE_FINE_2026_11_05.md.
+
+## Milestone repair 2026-11-09 — M8 Voice Rotate, M9 paused
+
+- Đổi phạm vi theo người dùng: dừng M9 HOLD; dùng đúng nền d367618d, giữ nhánh M9 riêng.
+- Nguồn chứng minh lỗi: Voice gọi `WheelControl_SetSpinDirection` một lần rồi hủy
+  ngay nếu API chưa active; API thực có thể defer vì PID target/encoder/RPM/PWM.
+  PS2 L1/L2 giữ nút thì gọi lại. Chưa có log Rotate trên xe để kết luận đây là
+  nguyên nhân duy nhất của hiện tượng người dùng báo.
+- Sửa: stage2 chờ API chấp nhận tối đa 2000ms, không tiêu hao duration;
+  bắt đầu đồng hồ khi accepted; đã vào spin mà mất owner thì hủy, không tự khởi động lại.
+  R2 giữ deadline6500ms, cả hai MIN physical NC và không MAX; đang chờ/spin mất NC
+  vẫn emergency; FF/PS2 và PID/ramp/cap400 không đổi.
+- `M8_ROTATE` là snapshot thụ động, UART IRQ sau motor idle, lưu lý do dừng,
+  R2/wait/spin duration, NC và kết quả hai trục. Pending chưa gửi không bị ghi đè.
+- HOST integration dùng actual C executor + arbiter + PS2 ownership + real wheel
+  spin admission/target API. Mã cũ fail tại lần defer đầu; mã mới PASS LEFT/RIGHT
+  5/10/120s, R2/wait excluded, C1..C5, FF/PS2/NC, timeout, lost owner, rollover.
+- Chưa có CubeIDE target build, flash hoặc xác nhận chuyển động trên xe của bản sửa.
+  GitHub CI của SHA mới phải được kiểm tra riêng; không tự ghi PASS trước khi run xong.
+- Bước tiếp theo: switch nhánh M8 và ff-only, Clean Build/flash/Resume từ thư mục
+  Windows chính; chạy `tools/capture_m8_vc02_rotate.ps1`, thử LEFT5/RIGHT5/LEFT10/RIGHT10.
+  Không yêu cầu bật Live Expressions. Nếu còn dừng ngắn, đọc result/started/NC trong
+  chính log MCU mới, không tăng lực hoặc bỏ NC theo giả thuyết.
+
