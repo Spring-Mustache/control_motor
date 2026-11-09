@@ -6,7 +6,8 @@
  * without a prerequisite motor-supply disconnect test (2026-11-09).
  * Initial engineering test values, NOT motor or thermal calibration.
  * Continuous PD remains CCR30/10. Separate short stiction-assist pulses
- * use existing CENTER fine values175/85CCR and30/12ms, with settle,
+ * use LEFT CENTER travel cap300CCR in a feedback-shortened <=200ms
+ * recovery window. RIGHT keeps fine values85CCR/12ms, with settle,
  * finite attempts and SysTick cutoff. These are experimental choices,
  * NOT verified motor/current/thermal limits or a continuous PWM floor.
  * No external ammeter/temperature feedback reaches MCU.
@@ -20,9 +21,9 @@
 #define M9H2B1_POWER_MODE        1U /* 0 locked, 1 tuning, 2 commissioned */
 #define M9H2B1_LEFT_MAX_PWM      30U
 #define M9H2B1_RIGHT_MAX_PWM     10U
-#define M9H2B1_LEFT_ASSIST_PWM  175U
+#define M9H2B1_LEFT_ASSIST_PWM  300U
 #define M9H2B1_RIGHT_ASSIST_PWM  85U
-#define M9H2B1_LEFT_ASSIST_MS    30U
+#define M9H2B1_LEFT_ASSIST_MS   200U
 #define M9H2B1_RIGHT_ASSIST_MS   12U
 #define M9H2B1_ASSIST_STILL_MS  200U
 #define M9H2B1_ASSIST_OFF_MS    200U

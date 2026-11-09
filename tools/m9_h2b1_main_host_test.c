@@ -164,6 +164,17 @@ int main(void)
   }
   assert(seen[0] && seen[1] && m9_h2b1_hold.retry_count);
  }
+ /* Fresh goal feedback must disarm a LEFT200ms window before deadline. */
+ Turn_Motors_Stop();sample_at(clock_ms);begin_center(2U);
+ for(uint32_t elapsed=1U;elapsed<3000U && hardware_pwm[0]<=30U;elapsed++){
+  SysTick_Handler();if(elapsed%10U==0U)pass(clock_ms);
+ }
+ assert(hardware_pwm[0]==300U);
+ steer_pos_left_raw=1886U;steer_pos_right_raw=662U;
+ for(unsigned i=0;i<10U;i++)SysTick_Handler();
+ pass(clock_ms);
+ assert(m9_h2b1_hold.active && !hardware_pwm[0] && !(m9_b1_pulse_armed & 1U));
+ steer_pos_left_raw=1863U;steer_pos_right_raw=685U;
  /* Start a new target, then withhold ALL main servicing while a burst
   * is powered: the ACTUAL SysTick handler must still cut it on time. */
  Turn_Motors_Stop();sample_at(clock_ms);begin_center(2U);
@@ -172,8 +183,8 @@ int main(void)
  }
  assert(hardware_pwm[0]>30U || hardware_pwm[1]>10U);
  {uint32_t blocked=clock_ms;uint8_t expired;
-  for(unsigned i=0;i<100U;i++)SysTick_Handler();
-  assert(clock_ms==blocked+100U);expired=m9_b1_pulse_expired;
+  for(unsigned i=0;i<225U;i++)SysTick_Handler();
+  assert(clock_ms==blocked+225U);expired=m9_b1_pulse_expired;
   assert(expired);
   for(unsigned i=0;i<2U;i++){
    assert(hardware_pwm[i]<=m9_h2b1_config.axis[i].max_pwm);
@@ -210,7 +221,7 @@ int main(void)
  }
  assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
  assert(!m9_b1_pulse_armed);
- puts("PASS NEW actual main/HAL+SysTick: real assisted writes,1ms cut,blocked main,no rearm,owner handoff,tick wrap,NC");
+ puts("PASS actual main/HAL+SysTick: LEFT300/200ms,early goal cut,1ms timeout,blocked main225ms,no rearm,owner handoff,tick wrap,NC");
  return 0;
 #endif
 #if defined(M9B1_USE_TUNING_PROFILE)

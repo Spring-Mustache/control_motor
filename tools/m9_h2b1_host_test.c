@@ -312,8 +312,8 @@ static void production_breakaway_assist(void)
   M9B1Config c=m9_h2b1_config;M9B1Hold h;Mock m;M9B1Port p;
   uint32_t t,start_ms[2]={0,0},end_ms[2]={0,0},rest_ms=0U,seen[2]={0,0};
   uint8_t high[2]={0,0},previous_state=0U;unsigned i;
-  assert(c.axis[0].assist_pwm==175U && c.axis[1].assist_pwm==85U);
-  assert(c.axis[0].assist_ms==30U && c.axis[1].assist_ms==12U);
+  assert(c.axis[0].assist_pwm==300U && c.axis[1].assist_pwm==85U);
+  assert(c.axis[0].assist_ms==200U && c.axis[1].assist_ms==12U);
   start(&h,&c,&m,&p,0U,977U,1023U);
   for(t=1U;t<=30000U;t++){
     tick(&h,&c,&m,&p,t,977U,1023U);
@@ -339,7 +339,7 @@ static void production_breakaway_assist(void)
     previous_state=h.state;
   }
   assert(seen[0]>=4U && seen[1]>=4U && h.retry_count);
-  assert(h.axis[0].peak_pwm==175U && h.axis[1].peak_pwm==85U);
+  assert(h.axis[0].peak_pwm==300U && h.axis[1].peak_pwm==85U);
   assert(h.axis[0].assist_count==seen[0] && h.axis[1].assist_count==seen[1]);
   /* Returning to the goal removes assistance; it remains quiet for new noise. */
   for(;t<=40000U;t++)tick(&h,&c,&m,&p,t,1000U,1000U);
@@ -353,12 +353,13 @@ static void production_breakaway_assist(void)
   M9B1_Cut(&h,&p,M9B1_STOP);assert(!m.pwm[0] && !m.pwm[1] && !h.active);
   for(;t<=50000U;t++)tick(&h,&c,&m,&p,t,1020U,980U);
   assert(!h.active && !m.pwm[0] && !m.pwm[1]);
-  c=m9_h2b1_config;c.axis[0].assist_pwm=176U;assert(!M9B1_ConfigValid(&c));
+  c=m9_h2b1_config;c.axis[0].assist_pwm=301U;assert(!M9B1_ConfigValid(&c));
+  c=m9_h2b1_config;c.axis[0].assist_ms=201U;assert(!M9B1_ConfigValid(&c));
   c=m9_h2b1_config;c.axis[1].assist_ms=13U;assert(!M9B1_ConfigValid(&c));
   c=m9_h2b1_config;c.assist_off_ms=199U;assert(!M9B1_ConfigValid(&c));
   c=m9_h2b1_config;c.assist_cooldown_ms=2999U;assert(!M9B1_ConfigValid(&c));
   c=m9_h2b1_config;c.assist_max_pulses=5U;assert(!M9B1_ConfigValid(&c));
-  puts("PASS NEW production assist: 175/85 actual mock writes,30/12ms pulses,settle,four-pulse cap,rest,quiet goal and STOP");
+  puts("PASS production recovery: 300/85 actual mock writes,200/12ms maxima,settle,four-window cap,rest,quiet goal and STOP");
 }
 static void powered_progress_across_zero_gaps(void)
 {
@@ -372,6 +373,20 @@ static void powered_progress_across_zero_gaps(void)
   assert(!m.pwm[0] && !m.pwm[1]);
   puts("PASS no-progress uses cumulative acknowledged output across zero gaps");
 }
+static void recovery_ends_on_fresh_goal_feedback(void)
+{
+  M9B1Config c=m9_h2b1_config;M9B1Hold h;Mock m;M9B1Port p;uint32_t t;
+  start(&h,&c,&m,&p,0U,1080U,1000U);
+  for(t=1U;t<1500U && m.pwm[0]<=30U;t++)tick(&h,&c,&m,&p,t,1080U,1000U);
+  assert(m.pwm[0]==300U && h.axis[0].assist_count==1U);
+  /* A fresh, plausible goal sample must cut the 200ms window early. */
+  tick(&h,&c,&m,&p,t+10U,1000U,1000U);
+  assert(h.active && !m.pwm[0] && h.axis[0].assist_phase==M9B1_ASSIST_SETTLE);
+  assert(h.goal[0]==1000U && h.axis[0].assist_count==1U);
+  for(uint32_t end=t+1000U;t<end;t++)tick(&h,&c,&m,&p,t+20U,1000U,1000U);
+  assert(h.active && !m.pwm[0] && h.axis[0].assist_count==1U);
+  puts("PASS LEFT recovery300/200ms: fresh goal feedback ends the window early");
+}
 int main(void)
 {
   continuous_and_independent();release_damping();revocations();
@@ -381,6 +396,7 @@ int main(void)
   large_error_keeps_goal();
   production_breakaway_assist();
   powered_progress_across_zero_gaps();
+  recovery_ends_on_fresh_goal_feedback();
   puts("PASS H2-B1 actual C: persistent dual-axis 120s, damping/reversal, fault revocation, atomic output, power interlock, wrap/jitter");
   return 0;
 }

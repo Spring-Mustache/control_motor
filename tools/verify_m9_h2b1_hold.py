@@ -35,6 +35,9 @@ assert '#define M9H2B1_POWER_COMMISSIONED 0U' in CFG
 assert '#define M9H2B1_POWER_MODE        1U' in CFG
 assert '#define M9H2B1_LEFT_MAX_PWM      30U' in CFG
 assert '#define M9H2B1_RIGHT_MAX_PWM     10U' in CFG
+assert '#define M9H2B1_LEFT_ASSIST_PWM  300U' in CFG
+assert '#define M9H2B1_LEFT_ASSIST_MS   200U' in CFG
+assert 'volatile uint16_t steer_pos_left_pwm_max = 300U;' in MAIN
 assert 'tuning_guard' in CORE and 'M9B1_EFFORT_BUDGET' in CORE
 assert 'M9B1_NO_PROGRESS' in CORE and 'fault_axes' in CORE
 assert 'max_error_raw' not in CORE+CFG+(ROOT/'Core/Inc/m9_h2b1_hold.h').read_text(encoding='utf-8')
@@ -89,7 +92,8 @@ with TemporaryDirectory() as temp:
         ('M9H2B1_POWER_MODE        1U','M9H2B1_POWER_MODE        2U','requires physical acceptance'),
         ('M9H2B1_LEFT_MAX_PWM      30U','M9H2B1_LEFT_MAX_PWM      0U','requires valid'),
         ('M9H2B1_LEFT_MAX_PWM      30U','M9H2B1_LEFT_MAX_PWM      31U','tuning requires bounded'),
-        ('M9H2B1_LEFT_ASSIST_PWM  175U','M9H2B1_LEFT_ASSIST_PWM  176U','assist requires bounded'),
+        ('M9H2B1_LEFT_ASSIST_PWM  300U','M9H2B1_LEFT_ASSIST_PWM  301U','assist requires bounded'),
+        ('M9H2B1_LEFT_ASSIST_MS   200U','M9H2B1_LEFT_ASSIST_MS   201U','assist requires bounded'),
         ('M9H2B1_RIGHT_ASSIST_MS   12U','M9H2B1_RIGHT_ASSIST_MS   13U','assist requires bounded'),
         ('M9H2B1_ASSIST_REST_MS  3000U','M9H2B1_ASSIST_REST_MS  2999U','assist requires bounded'),
         ('M9H2B1_NO_PROGRESS_MS   1000U','M9H2B1_NO_PROGRESS_MS   0U','tuning requires bounded')]:
