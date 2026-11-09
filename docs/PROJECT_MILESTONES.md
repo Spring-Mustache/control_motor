@@ -1,5 +1,21 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
+**HIỆN HÀNH 2026-11-09 — TIẾP TỤC M9 TRÊN NỀN ROTATE ĐÃ FIX.**
+Theo chỉ thị mới, M9 đã được tiếp tục trên `feature/m9-steering-active-position-hold`.
+Nền firmware là `b382354ec1592589843f4b579643e5b1abbbecf0`, đã có xác nhận Rotate
+RIGHT5s/LEFT10s; hồ sơ nền là `22e7eb5cd18c2441e89af1170831efe39fbc38a8`.
+Tích hợp toàn bộ M9 mới nhất từ `3df43edde8f53b5e84561704189a83ac8286a56b`.
+Commit tích hợp dùng22e7eb5 làm parent thứ nhất và3df43ed làm parent thứ hai,
+giữ cả lịch sử, không force-push và không đổi nhánh M8 đã thử thành công.
+Các ghi chú M9 tạm dừng bên dưới là lịch sử đã được chỉ thị này thay thế.
+Cả hai fix Rotate được giữ: R2 tiếp tục khi chỉ có RPM bánh thụ động; timer spin
+chỉ tính từ lúc wheel API nhận lệnh. M9 nhường HOLD ngay khi Rotate hoàn chỉnh
+đang chờ arbitration, cắt lease/deadline cũ trước khi R2 ghi PWM đầu tiên.
+Giữ candidate M9 LEFT300CCR/<=200ms, RIGHT85CCR/<=12ms và PD30/10 như3df43ed;
+chưa có log hardware xác nhận candidate HOLD này. Rotate PASS của b382354e
+không tự chuyển thành hardware PASS của bản M9 tích hợp. Xem [báo cáo tích hợp](M9_ROTATE_BASE_INTEGRATION_2026_11_09.md).
+
+
 **XÁC NHẬN HIỆN HÀNH 2026-11-09 — ROTATE ĐÃ HOẠT ĐỘNG TRONG HAI LẦN THỬ MỚI.**
 Người vận hành xác nhận đã sửa được lỗi. Log MCU `b382354ec1592589843f4b579643e5b1abbbecf0`
 ghi RIGHT yêu cầu5s, thời gian lệnh xoay5006ms; LEFT yêu cầu10s, thời gian10002ms.
@@ -35,6 +51,84 @@ Mục tiêu hiện tại: Rotate LEFT = R2 → L2, RIGHT = R2 → L1, giữ xoay
 sau khi bộ điều khiển bánh chấp nhận khởi động; giữ nguyên NC/STOP/PS2/PID.
 Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_ROTATE_STARTUP_2026_11_09.md](M8_VC02_ROTATE_STARTUP_2026_11_09.md).
 
+> **2026-11-09 — LEFT recovery300CCR/<=200ms, SOURCE/HOST chờ MCU:** USER báo ERR và iOVER đều tắt,RUN nhấp nháy,motor có tiếng rít nhưng đĩa lái đứng yên. LED/RUN không đo mô-men; chưa xác định nguyên nhân duy nhất. Ghi chúM8 đã có ca175CCR/30–45ms không dịch cảm biến,assistant đã bỏ sót khi chọn burst đầu. Bản mới dùng LEFT300CCR (trần chạy CENTER hiện có),cửa sổ tối đa200ms,cắt sớm theo goal/damping/STOP/NC/cảm biến và deadlineSysTick. Đây là cấu hình thử do assistant chọn,không phải giới hạn dòng/nhiệt đã nghiệm thu. RIGHT vẫn85CCR/12ms do chưa có powered test. PD nền30/10,4cửa sổ/vòng,cooldown>=3s+budget hồi,không max_error_raw. Host300/200,goal cut sớm,mainblocked225ms và sanitizer kiểm riêng; CI exactSHA trước flash. MCU cuối vẫnb89b4d5. Xem docs/M9_H2B1_LEFT_RECOVERY_WINDOW_2026_11_09.md.
+
+> **2026-11-09 — MCU log184953: trợ lực LEFT đã phát, chưa về center:** 13dòng hợp lệ trênb89b4d5c45c6173f5d726b9b1d9f7f755af05fe1. Seq3 LEFT kick0→4→8→12,peak175CCR,sai số tại các nhóm−89→−83→−78→−78RAW;cuối23053ms state6/reason13/active1,retry3,appliedLms3916. Xác nhận đường software/adapter burst hoạt động và budget4đợt nghỉ có giữ goal; không chứng minh mô-men,thời lượng điện hoặc tự về center. RIGHT sai số<=2RAW,output/kick0,chưa thử lực. Seq4 là CENTER mới,gần0sai số rồi state4/reason1=NEW_OWNER;không dùng làm bằng chứng HOLD tự hồi hoặc STOP2. Cần quan sát cơ khí bên trái nhích/giật theo burst hay đứng yên trước chỉnh tiếp. Docs-only:giữ MCUb89b4d5,không flash/lặp phép thu chỉ để chứng minh kick đã kích;không tự nâng lực từ file.
+
+> **2026-11-09 — HOLD trợ lực thắng ma sát, SOURCE/HOST chờ MCU:** USER yêu cầu thực hiện bước tạo phản lực sau log181422. PD nền vẫn30/10CCR; thêm burst LEFT175CCR/30ms,RIGHT85CCR/12ms từ giá trị tinh chỉnh CENTER hiện có. Chỉ trợ lực khi lệch>=8RAW,PD kéo đúng về goal,vận tốc<=20RAW/s ổn định200ms và có mẫu mới; sau burst PWM0>=200ms/mẫu mới. Tối đa4burst mỗi trục mỗi vòng; reason13 nghỉ hai trục,giữ goal,nghỉ>=3000ms và hồi đủ budget rồi retry. SysTick chỉ cắt burst hết hạn,không gia hạn bởi vòng main; adapter trả số PWM thực đã ghi,kickL/R đếm lần trợ lực. No-progress dùng thời gian output tích lũy qua khoảng0. Giữ STOP/NC/sensor/hành trình và bỏ32RAW; không bật commissioning2. Mức mới là lựa chọn thử nghiệm,không phải giới hạn dòng/nhiệt hoặc motor PASS. Xem docs/M9_H2B1_BREAKAWAY_ASSIST_2026_11_09.md.
+
+> **2026-11-09 — MCU log181422: giữ goal toàn hành trình + tự retry đã quan sát, phản lực chưa đạt:** 19 dòng hợp lệ trên32520fe0c86facf59756e6c0071985541f7f42d0. Seq2 giữ active1 dù peakError149RAW, tự retry4 lần tại8913/15602/23247/29948ms,LEFT peak30CCR/applied5166ms,cuối30960ms còn lệch−138RAW; không có RANGE5. Seq3 LEFT applied1001ms rồi STOP state4/reason2/active0/lease0 tại9385ms,còn lệch−120RAW. RIGHT peakPWM/applied0 vì sai số không quá4RAW. Xác nhận giới hạn sai số32 đã bỏ, retry và STOP phía phần mềm; không xác nhận lực/mô-men/return hoặc dòng/nhiệt. Không tăng PWM từ log này. Docs-only: giữ MCU32520fe,không cần flash lại hoặc lặp phép thử cùng30/10 chỉ để xác nhận hai lỗi logic đã sửa. Bước tiếp là đánh giá đường tạo lực/hiệu chỉnh actuator; thiếu lực thắng ma sát vẫn là giả thuyết.
+
+> **2026-11-09 — Bỏ giới hạn sai số HOLD32RAW sau log175629 (SOURCE/HOST, chưa flash):** USER yêu cầu bánh bị đẩy lệch trong hành trình hợp lệ phải tiếp tục được kéo về. Đã xóa max_error_raw và hai nhánh hủy goal theo sai số trong Begin/Step, không thay32 bằng một trần lệch khác. Main vẫn kiểm tra góc đo và goal theo hành trình hiệu chuẩn; STOP/NC, sensor stale/jump, service/port và owner mới vẫn hủy goal. Profile30/10CCR và cơ chế nghỉ/retry11/12 không đổi. HOST tái hiện chính LEFT1919/goal1886/error−33 và sai số33..400RAW cả hai dấu/trục, vẫn giữ goal; lỗi ngoài hành trình vẫn ngắt. MCU cuối xác nhận làaf6a43d, lực kéo về thật/dòng/nhiệt chưa đạt. Xem docs/M9_H2B1_FULL_TRAVEL_RECOVERY_2026_11_09.md. Cập nhật này thay thế mọi ghi chú giữ maxError32RAW trước đó.
+
+> **2026-11-09 — HOLD tự thử lại có giới hạn (SOURCE/HOST, CHƯA THỬ TRÊN XE):** USER xác nhận đẩy lệch rồi thả tay nhưng bánh không quay lại, chưa có số đo dòng; yêu cầu luôn cố gắng tạo lại phản lực và không muốn chờ đo dòng. Đã đổi riêng NO_PROGRESS11/EFFORT_BUDGET12 thành COOLDOWN6/active1: giữ nguyên hai goal, đưa cả hai PWM về0, hồi đủ ngân sách output rồi tính lại điều khiển từ góc mới và tự thử tiếp. Không tăng trần30/10CCR, không thêm hoặc tuyên bố có giới hạn dòng. STOP/NC/sensor/range/owner vẫn hủy goal, không tự khởi động lại. Đây là triển khai có giới hạn của yêu cầu; không phải cấp lực vô hạn hoặc đã sửa được phản ứng cơ khí. Xem docs/M9_H2B1_PERSISTENT_RETRY_2026_11_09.md.
+
+> **2026-11-09 — First MCU powered-tuning register-output/cutoff evidence (NOT HOLD response PASS):** private UART M9H2B1_HOLD_20261109_172834.txt has3 complete rows, SHA621a5ce87385600314404bc8866662c0102f4df4 seq1/source2 CENTER/profile1. WAIT_DATA at37ms -> HOLDING at109ms -> FAULT reason11(NO_PROGRESS) at1868ms, active0/lease0/faultAxes1. LEFT peakCCR30, acknowledged nonzero output1007ms, final/peak error23RAW (goal1886,raw1909); RIGHT peakCCR/output-time0, peak error3RAW. Firmware cut both on its response guard, not a captured Voice STOP. Driver torque, release timing, current and thermal result are not established. No automatic PWM increase; next required observation is whether LEFT was released promptly or still externally held during the no-progress interval. Docs-only update: keep MCU621a5ce, do not reflash or repeat old static logs for this record.
+
+> **2026-11-09 — USER-authorized powered H2-B1 tuning:** USER requests actual continuous two-axis HOLD using existing STOP/NC, without a prerequisite motor-supply disconnect test. New profile1=TUNING permits PWM after fresh eligible BOTH-DONE; POWER_COMMISSIONED remains0 and means current/thermal acceptance is pending, not power locked in profile1. Initial engineering caps LEFT30/RIGHT10CCR (3%/1%), independent PD/slew,200ms reversal blank; no-progress1s and recoverable output-time budget cut BOTH axes on tuning fault, with no auto-resume. No fixed HOLD session expiry. Boot has no target/output. Source/HOST verified locally; new CubeIDE build/flash/physical test still pending. See docs/M9_H2B1_POWERED_TUNING_2026_11_09.md. Older closed-power/pending notes below are dated history; do not demand the rejected disconnect pretest or repeat validated H1/H2-B0/unpowered B1 logs.
+
+> **2026-11-08 — H2-B1 MCU uncommissioned integration observed:** private UART firmware `4d004757f48f67c1b1b5192b8020c3e8d196ba9a`, four complete lines across seq1/source2 CENTER and seq2/source3 Voice angle. Both retain two goals beyond5s (5002/5001ms), active1/state2/reason7, commissioned0/lease0, all PWM/peakPWM/appliedMs/everApplied0. This is LIMITED MCU target-retention/telemetry PASS, not powered HOLD, current/thermal/load or fault-injection acceptance. Latest DOCX identifies DC775 geared motors: wheel110rpm x4, TURN LEFT30rpm, TURN RIGHT32rpm; manufacturer/winding/gearbox model and safe stationary current are not specified. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md. Earlier pending/819f635 notes below are dated history.
+
+> **H2-B1 SOURCE/HOST CI VERIFIED (2026-11-08):** source `ac4fc082167bb13b299cba089bc8998e4d1bd2da`, GitHub Actions [42467841303](https://github.com/Spring-Mustache/control_motor/actions/runs/42467841303) completed SUCCESS. Linux full persistent two-axis controller + production main hooks and all legacy regressions PASS; Windows native PowerShell5.1 parser PASS. Physical commissioning remains0; CubeIDE/MCU/HOLD torque/thermal/load validation pending. A following docs-only HEAD is not a new actuator implementation.
+
+> **2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
+
+> **2026-11-08 — USER-REPORTED motor-lead current baseline:** User measured on wires FROM driver TO motor (not driver input). During CENTER travel LEFT0.8–1A and RIGHT≈2A; after stopping meter reads0A on both. Earlier LEFT5A/RIGHT10A were estimates from discussed motor powers80/200W, NOT verified continuous/stall/HOLD ratings. These readings are a running-current baseline, not safe HOLD limits; meter type/bandwidth and thermal/standstill-current envelope remain unverified. MCU firmware stays819f635; H2-B1 powered output has not been implemented.
+
+## HIỆN HÀNH 2026-11-08 — H2-B0 MCU static integration/telemetry PASS một lượt; H2-B1/H3 pending
+
+**2026-11-08 — H2-B0 MCU STATIC INTEGRATION/TELEMETRY PASS (1 healthy Voice CENTER run):** Private user log `M9H2_GUARD_20261108_151606.txt`, MCU firmware `819f635aafbe9dde3ee0e4b9c5c8e6cbc282e0c2`, seq1/source2. H2-A state6/reason1 and H2-B0 bState3/bReason1 completed 3003ms, 268 guard updates; freshL/R267/268; sensorErr/deniedNC/deniedOwner/blockBits/dropped0; normal VOICE1->IDLE0 accepted. bPeakL/R0 and bEligibleL/R0; bCcrL/R=dutyL/R=0, powered0. This validates one quiet static integration window, NOT nonzero-candidate/disturbance/STOP-NC fault-injection or powered HOLD. H2-B1/H3 remain pending; no firmware changes in this documentation update.
+
+**USER clarification (2026-11-08):** Động học chưa hoàn thành để tích hợp/nạp vào firmware; SELECT tạm hoãn. Không tự đồng nhất hai trạng thái hoặc coi nội suy RAW của Voice là động học bánh xe hoàn chỉnh.
+
+Chi tiết mới: [H2-B0 MCU result](M9_H2B_POWER_GATE_2026_11_08.md). Các trạng thái SOURCE-only hoặc MCU pending cũ phía dưới là snapshot trước file151606.
+
+## HIỆN HÀNH 2026-11-08 — H2-B0 SOURCE/HOST CI PASS, MCU new log pending; H2-B1 powered pending
+
+**M9 H2-B0 SOURCE CI VERIFIED 2026-11-08:** Firmware source 9e4f4533, Actions42460572191 SUCCESS Linux+Windows, physical output locked0; CubeIDE/MCU pending. [H2-B0 detailed report](M9_H2B_POWER_GATE_2026_11_08.md).
+
+**M9 H2-B0 SOURCE 2026-11-08:** Bounded hold candidate policy after H2-A guarded DONE, hyst 8/4 RAW, veto wrong-sign score; compiled physically LOCKED output0, additional UART bFields, no actual new PWM. H2-B1 powered pending measured motor/driver electrical and STOP/NC. See docs/M9_H2B_POWER_GATE_2026_11_08.md.
+
+**M9-H2-A REAL MCU 3s PASS 2026-11-08:** Firmware SHA `5dd1502`, one full Voice CENTER source2 seq2; H2 state6 reason1 duration3000ms modeStart1->modeNow0 modeOK1, deniedOwner/NC0 sensorErr0 blockBits0 duty0 powered0, H0/H1 3s each PASS. Not powered hold H2-B. [M9 H2A detailed data](M9_H2_GUARD_SOURCE_2026_11_07.md).
+
+**M9-H2-A HANDOFF FIX SOURCE CI PASS 2026-11-08:** `977533f` GitHub Actions `42459137638` completed SUCCESS Linux C + Windows PS5.1; only normal post-DONE Voice->IDLE/PS2->IDLE allowed, reject takeover, H2 PWM remains hard zero. Target CubeIDE/MCU retest 3s PENDING.
+
+**M9-H2-A MCU LOG UPDATE 2026-11-08:** Dòng H2-A từ MCU SHA 8214610 abort 13ms reason3/blockBits256 do mode VOICE->IDLE sau DONE bị guard cũ coi mất quyền. Dữ liệu duty0/powered0 và không lỗi sensor/NC. Đã sửa chính xác whitelist handoff, giữ STOP/NC/owner/voice pending gates, thêm UART modeStart/Now/OK; CI SHA mới và hardware 3sec pending. File UART thứ hai bị ghép H0_DRIFT+M8R1_FINE, không có H2. [H2 report](M9_H2_GUARD_SOURCE_2026_11_07.md).
+
+**M9-H2-A SOURCE + EXACT HOST CI PASS 2026-11-07:** Commit `55db22f67c81517ada48106f5a506b7b367b7e4c` GitHub Actions `42370515934` COMPLETED/SUCCESS, Linux actual-C and Windows PowerShell5.1 parser. Chưa CubeIDE/Flash/MCU real H2A evidence, H2-B ACTIVE chưa có. 
+
+**M9-H2-A SOURCE 2026-11-07:** Guard OFF/MONITOR/SHADOW/FAULT/COMPLETE viết bằng C, chỉ sau M8 DONE2 và goal R1/Voice5..40; màn giám sát STOP/NC/owner/wheel/stale/limit/time, score near-goal PD KHÔNG PWM. `M9H2_POWER_PERMITTED=0U`, dutyL/dutyR=0, `M9H2_GUARD` UART safe idle; target/host CI phải kiểm tra SHA mới. H2-B powered không được thực hiện vì chưa có dòng/nhiệt/PWM0 xác nhận. [Chi tiết H2-A](M9_H2_GUARD_SOURCE_2026_11_07.md).
+
+**M9-H1 REAL ON-MCU DATA 2026-11-07:** Bốn lượt động cơ đánh lái M8 thật `result=2`, 130/130 frames, actual AS5600+CCR+u_shadow, SHA `3dbdfaf`; **dynamic measurement DATA CAPTURE PASS**. Shadow cap ±40 xuất hiện nhiều và dấu u ngược với lỗi khi còn cách đích 150..180RAW, nên không được áp thẳng vào H2; H0 seq3 reason3 after1180ms chứ không hoàn tất 3s. No external load/current/thermal evidence. [Phân tích đầy đủ](M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
+
+**M9-H1 REAL DRIVE (2026-11-07, SOURCE + HOST CI PASS):** Actions `42368389841` SUCCESS đúng source `93551551422559914052ec8b8671a521715714b4` (GCC C thật+no motor write & Windows PowerShell parser). CubeIDE Build/Flash/MCU REAL logs **chưa có**, không được coi dynamic data PASS.
+
+**M9-H1 REAL DRIVE (2026-11-07, SOURCE-STAGED):** Người dùng yêu cầu một bài lấy dữ liệu động từ **motor thật**, không mô phỏng hay Live Expressions. Code đã bổ sung bounded RAM flight recorder 80 frame (≥80ms/frame) khi M8 thực hiện R1/Voice5–40, chụp raw+actual CCR+góc lỗi+vận tốc H1+candidate H1, chỉ gửi `M9H1_REAL_BEGIN/FRAME/END` sau cả owner/wheel dừng. Script `tools/capture_m9_h1_real.ps1` gom 4 lệnh thực cùng H0/H1 3s. **Chưa có log MCU REAL hoặc Build/Flash của firmware này; không được coi H1 dynamics PASS**. Đọc [M9-H1 REAL](M9_H1_REAL_DRIVE_CAPTURE_2026_11_07.md).
+
+**M9-H1 MCU DATA CAPTURE (2026-11-07):** Bốn cặp UART H0/H1 từ MCU SHA `00ccaeace99a6948880ecf85061dea5d2f77514e` đều reason1 và shadowOnly1, H0 peakDrift ≤1RAW, H1 peakVel=0/peakCmd=0, tổng noise28, all bad/stale/jump/drop0. **Đạt static on-MCU telemetry/filtered-noise gate**, chưa chứng minh phản hồi lực khi |error|≥8RAW hoặc release-load thật. Không tự suy H2 powered PASS. Xem [H1 detailed review](M9_H1_PD_SHADOW_2026_11_06.md).
+
+**M9-H1 SOURCE + HOST CI PASS (2026-11-06):** GitHub Actions `42237917589` **SUCCESS** trên exact `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b` (Linux GCC C thật + H0/M8 regression + Windows PowerShell). Target CubeIDE/Flash/real MCU H1 log vẫn chưa có. Đã chuẩn bị mô-đun tính PD SHADOW trên branch M9, chưa cấp điện hay giữ trục; 100ms velocity window lọc nhiễu 1RAW, e deadband/hysteresis, stale/jump/STOP/owner interlocks theo H0, kết quả UART idle `M9H1_SHADOW`. [Xem H1 chi tiết](M9_H1_PD_SHADOW_2026_11_06.md). HOST exact-SHA/target phải xác minh sau commit.
+
+**M9-H0 KẾT QUẢ 2026-11-06:** SOURCE + exact SHA CI PASS tại `8c2b3fe7`; người dùng cung cấp **4/4 dòng MCU UART** đủ 3s (seq1..4, reason1) và valid AS5600 cả hai trục. Độ trôi đỉnh tối đa 1 RAW mỗi trục, peakErr ≤5 RAW, invalid/jump/drop=0. Đánh dấu **H0 DATA CAPTURE PASS GIỚI HẠN** cho dữ liệu tĩnh, **không** coi là HOLD chịu ngoại lực, không có H1/H2/H3 motor. Bản ghi private không đưa lên repo. Kết quả được giải thích trong H0 doc.
+
+**M9-H0 đã có source:** `Core/Src/m9_h0_drift.c` + `main.c` read-only post-DONE, `tools/verify_m9_h0_drift.py` GCC test, `tools/capture_m9_h0_drift.ps1` UART idle. Đây không phải HOLD ACTIVE; trước khi kết luận PASS cần xác minh CI SHA, CubeIDE build/flash và log. [Chi tiết H0](M9_H0_PASSIVE_DRIFT_2026_11_06.md).
+
+**Milestone hiện hành M9:** `feature/m9-steering-active-position-hold` xuất phát đúng từ `d367618d4d9c4c382a9a7208f9b878dfefa21ace` (branch được tạo, đã kiểm tra HEAD trước commit tài liệu). **Người dùng chọn phương án CHỈ PHẦN MỀM**, giữ góc bằng mô-men motor DC, đọc AS5600, điều khiển PWM/DIR qua CCS_SHB12. Không đầu tư thêm phanh hoặc driver. Chưa có logic HOLD, CubeIDE Build, Flash hoặc nghiệm thu HOLD.
+
+| ID | Kết quả cần có | Trạng thái 2026-11-06 |
+|---|---|---|
+| **M9-H0** | Giám sát 3s sau DONE, không phát lực; 4 bản ghi MCU với cảm biến hợp lệ, lệch đỉnh ≤1 RAW | **SOURCE + HOST CI PASS; on-MCU UART DATA CAPTURE PASS giới hạn** |
+| **M9-H1** | PD shadow Q8; 4 cặp H0/H1 UART source SHA 00ccaeace có peakCmd0/peakVel0, 28 noise suppressed | **SOURCE + HOST CI PASS; MCU UART STATIC CAPTURE 4/4 PASS giới hạn, chưa phản ứng tải/ACTIVE** |
+| **M9-H2** | HOLD_ACTIVE opt-in boot OFF, giới hạn lực/thời gian, thử gá có NC/STOP và ngắt nguồn motor độc lập | **PLANNED / chưa powered test** |
+| **M9-H3** | Tích hợp HOLD với PS2, VC-02 và chạy bánh, nghiệm thu safety/gá/tải riêng | **PLANNED** |
+
+**Bảo toàn bằng chứng M8:** firmware `9db12228f38c1589bc6229409e3e210f598561ed` được user báo **PASS** cho sáu lệnh Voice 15°/30°/40° LEFT/RIGHT, tương quan worst-point 94.4–97.2%; không phải PASS cho Voice45/NC/STOP/có tải. Trial RIGHT CENTER R1/Voice B0 fine-entry10RAW ở base `d367618d` có CI theo báo cáo trước, nhưng **chưa có xác nhận cải thiện trên phần cứng**. Không gộp hai mức kết luận.
+
+**Vật lý/safety:** CCS_SHB12 chưa xác minh chế độ BRAKE cũng như trạng thái PWM0, không có measured stall current/thermal hay motor allowable current. Active torque hold khác khóa cứng cơ khí, có thể bật ngược khi tải biến mất; PD phải có damping, H2 chỉ sau các cổng kiểm tra và giới hạn motor-safe. **Nghiêm cấm tự chạy H2 chỉ vì M9 docs đã commit.**
+
+**Tài liệu chi tiết:** [M9 plan và tiêu chí từng cổng](M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md). Các mục M8 dưới đây là hồ sơ/lịch sử đúng theo thời điểm viết, không phải M9 HEAD. Đọc phần M9 bổ sung ở cuối tài liệu và mục 1 hiện hành của `CONTEXT_HANDOFF.md`. Không tự tạo Release khi push.
+
+---
 
 ## TRẠNG THÁI HIỆN HÀNH để tiếp quản (cập nhật kế hoạch 2026-11-01)
 
@@ -1329,4 +1423,261 @@ Operator requests to implement full VC-02 command scheme FIRST, validate it, THE
 - Tiếp tục bằng update ff-only trên nhánh M8, Clean Build/flash/F8, thu 2 lần
   Rotate LEFT5/RIGHT5; nếu được cả hai thì kiểm tra thêm10s. Không yêu cầu thao tác
   Live Expressions; đọc MCU SHA và result của log mới trước khi đánh dấu hardware PASS.
+## 2026-11-06 — Chính thức mở milestone M9: software-only Steering Active Position Hold
 
+- **[USER REQUEST]** Muốn khóa/giữ trục bằng mô-men ở motor DC kể cả khi đứng yên, có lo hiện tượng tải đột ngột biến mất khiến bánh bị văng góc. Chọn phát triển **chương trình** thay vì đầu tư phanh/driver khác; thống nhất milestone mới **M9** và branch riêng từ đúng `d367618d`.
+- **[COMPLETED REPO ACTION]** Đã tạo và xác minh `feature/m9-steering-active-position-hold` HEAD khởi đầu `d367618d4d9c4c382a9a7208f9b878dfefa21ace`. Commit này kế thừa trial M8 RIGHT CENTER/Voice B0; chưa phải firmware HOLD. Các tài liệu M9 được commit riêng tiếp theo; xác minh HEAD mới qua Git.
+- **[DESIGN DECISION]** Active Position Hold bằng PID không tích phân giai đoạn đầu (PD position+velocity), không cấp PWM cố định, mặc định không bật/không chiếm owner. M9-H0 MONITOR read-only; H1 SHADOW output read-only; H2 bounded ACTIVE thử giá treo sau bảo vệ; H3 integration wheel drive/PS2/VC-02.
+- **[M9-H0 ACCEPT]** Lấy góc/target/sensor age/velocity/owner/NC/STOP/PWM0, tính độ trôi sau DONE và độ nhiễu idle; không thay lệnh motor, không làm tăng UART bận lúc đang chạy; host/CI kiểm tra và ghi nhận baseline nếu có log.
+- **[M9-H1 ACCEPT]** HOST actual-C tests/simulation: PD chống văng khi thả tải, không I windup, lọc noise, wrap, timeout, AS5600 invalid/stale, MC stop/NC/owner arbitration; **shadow không được chuyển CCR khác 0**.
+- **[M9-H2 ACCEPT]** Điều kiện riêng: branch exact-CI, CubeIDE Clean Build/Flash đúng SHA, xác minh driver PWM0/brake-coast và motor thermal/current trong phạm vi thực tế đo được, ngắt nguồn động lực độc lập, NC/STOP preflight, từng trục và góc nhỏ rồi mới tăng phức tạp. ACTIVE opt-in mặc định boot-OFF; không giữ mô-men ép vào NC, không hứa khóa cứng khi tắt nguồn.
+- **[M9-H3 ACCEPT]** Kiểm tra chuyển quyền mới, R1 CENTER, Voice B0/5..40, manual, NC R2/45, STOP, mất sensor, wheel-drive khi chạy và bài thử tải riêng, không suy PASS giá treo là PASS tải mặt đất.
+- **[TEST STATE]** Hiện chỉ M9 docs/roadmap được viết; **H0/H1/H2/H3 đều PLANNED**, không có HOLD firmware, HOST/HARDWARE pass. M8 sáu lệnh Voice đã PASS tại SHA 9db12228, M8 R1 10RAW chưa có hardware pass.
+- **[NEXT]** Rà soát `Core/Src/main.c` thật tại HEAD M9: `Steering_PositionFinish`, `Steering_PositionAxisDone`, `Steering_PositionTelemetryIdleUpdate`, PWM/NC/STOP/owner; dựng H0 passive với tests; M8 source tests và 386-line requirement bất biến. Xem `docs/M9_STEERING_ACTIVE_POSITION_HOLD_PLAN_2026_11_06.md`.
+
+## 2026-11-06 — M9-H0 passive post-DONE drift: SOURCE-STAGED (không phát PWM HOLD)
+
+- **[DONE SOURCE]** Tạo `Core/Inc/m9_h0_drift.h`, `Core/Src/m9_h0_drift.c`; đưa read-only `M9H0_StartAfterDone` / `M9H0_IdleUpdate` vào `main.c` và nhánh UART3 `M9H0_DRIFT` an toàn sau stop; không gọi AS5600 I2C mới, không ghi PWM/DIR/owner.
+- **[SCOPE]** Chỉ bắt đầu khi cả LEFT/RIGHT result=2 và command tổng DONE2; R1 CENTER PS2/Voice hoặc Voice5..40 mode4. Không bắt đầu R2/Voice45 NC, fault/STOP; window 3000ms rồi gửi summary lúc safe idle, không đè pending. New owner hoặc STOP/safety tạo trạng thái ended reason2/3.
+- **[METRICS]** source/mode/goal/start/end, peakDrift, peakError, peakVel RAW/s, valid/invalid/jump/zeroDt counts, sample age, wheelsMoved, dropped, MCU build SHA. AS5600 12-bit shortest delta; raw/s đo bằng mẫu ~100ms mỗi bên, chưa phải speed wheel degrees/s.
+- **[HOST]** Pure C GCC host test + wiring verifier `tools/verify_m9_h0_drift.py` đưa vào Linux CI, PowerShell5.1 parser mới trên Windows CI; không dùng HOST PASS thay CubeIDE target build.
+- **[PENDING]** Đúng commit CI, CubeIDE Clean Build, Flash, test trên giá treo và PowerShell `tools/capture_m9_h0_drift.ps1`; không có kết quả của motor/chống tải. H1 PD shadow chưa triển khai.
+- **[RISK]** Pending log chờ motor/wheels idle, preemption / sensor failure làm giảm giá trị mẫu; dữ liệu không chứng minh PWM0 CCS_SHB12 short-brake hay motor stalled thermal. Giữ nguyên M8 user PASS Voice6 và M8 RIGHT CENTER trial unresolved. Đọc `docs/M9_H0_PASSIVE_DRIFT_2026_11_06.md`.
+
+## 2026-11-06 — M9-H0 UART static observation: 4/4 records, limited DATA CAPTURE PASS
+
+- [USER-PRIVATE UART] 4 dòng hoàn chỉnh M9H0_DRIFT seq1..4 từ MCU tự báo SHA `8c2b3fe7d57154db7d11f8abca40351c4753d362`. Mỗi cửa sổ reason1, 3002–3003ms; ba Voice vị trí source3 và một Voice B0 CENTER source2. Chưa có PS2 R1 source1. **Không commit file TXT riêng tư**.
+- [MEASURED] Với bánh không chạy (`wheelsMoved=0`): peak drift chỉ 0..1 AS5600 RAW mỗi trục, sai số góc so với đích đỉnh ≤5 RAW; 268–269 mẫu/trục/cửa sổ, age1ms, zero bad/jump/zeroDt/dropped.
+- [SOURCE CROSSCHECK] 89.2–89.6 samples/s/axis theo log; khi motion permit1, safety path trong main loop đã đọc cả hai AS5600 trên mỗi pass, xen với 50ms alternating idle polling. Không phải H0 mới tạo I2C. Nhịp sample thực tế không được coi là cam kết 89Hz bất biến.
+- [INTERPRETATION] Peak velocity 90 RAW/s phù hợp 1 RAW trong khoảng 11ms; derivative theo single sample có thể nhiễu, **không được dùng trực tiếp cho H1 KD**. Tĩnh ổn định nhưng **không hề chứng minh moment giữ trục**, tải phản lực, PWM0 brake/coast hoặc nhiệt.
+- [STATUS] H0 SOURCE/HOST CI/MCU DATA CAPTURE PASS đối với bốn cửa sổ tĩnh; CubeIDE Build/Flash logs không được user cung cấp, nên không coi là bằng chứng build/flash độc lập. H1 PD SHADOW là bước nghiên cứu tiếp theo, H2/H3 chưa cấp lực/thử dưới tải.
+
+## 2026-11-06 — M9-H1: PD SHADOW no-activation source, HOST load-release harness
+
+- [USER REQUEST] Sau khi H0 4/4 cửa sổ static pass, triển khai H1: tính điều khiển PD chống văng khi tải bị bỏ, **không phát PWM**. Nhánh M9 giữ nguyên từ d367618d, không thay M8 tested firmware.
+- [IMPLEMENTED SOURCE] Pure-C `Core/Src/m9_h1_shadow.c` + header; feed khi H0 đang hoạt động nhờ mẫu AS5600 cache thành công/lỗi, không thêm I2C. START/STOP theo H0, trừ mode R2/Voice45 NC, STOP/trip, owner đổi. H1 mặc định chỉ tính (shadow enable1) không có đường ghi CCR/DIR.
+- [FORMULA] Encoder shortest signed raw, position enter8/exit4RAW/deadband5RAW; speed trong cửa sổ >=100ms, 1RAW suppressed, stale>250ms, jump>90RAW mẫu bị bác; `Kp_q8=256`, `Kd_q8=128`, giới hạn ±40 **shadow units**, KHÔNG phải motor PWM.
+- [HOST CASE] Synthetic applied disturbance pushes RAW away; after sudden release, RAW speed toward target causes proposal sign reverse BEFORE target crossing. Other tests: quantization jitter, wrap4096, stall/stale invalid, zeroDt, sensor jump, cap and no owner/NC/STOP bypass. No physical load test.
+- [OUTPUT] New `M9H1_SHADOW` UART3 record safe-idle, after M8/H0 priority; `tools/capture_m9_h1_shadow.ps1` captures both H0 and H1 without sending any serial commands; workflow Linux GCC actual-C + Windows parser.
+- [PROOF GATES] SOURCE-STAGED until exact SHA Actions results; CubeIDE Build/Flash/STM32 real H1 logs and any load/thermal checks remain separate and not yet verified. H2/H3 remain PLANNED.
+
+## 2026-11-06 — H1 first exact-C CI signedness fix
+
+- First H1 CI run `42237554302` on `524ab68`: Windows PowerShell parser **PASS**, handoff contract **PASS**, Linux M9-H0 **PASS**; H1 GCC build failed `-Werror=sign-compare` on the new int32 error-vs-unsigned RAW threshold. This is **not** a CubeIDE/motor defect or hardware result.
+- Fix: explicit int32 cast on deadband threshold and positive/negative e_eff arithmetic in `m9_h1_shadow.c`. No PWM/I2C/NC/STOP code changed. Full CI must PASS at new exact SHA before any target claim.
+
+## 2026-11-06 — H1 exact-SHA HOST CI VERIFIED PASS
+
+- Commit source `7d8c98e14a0fd0cc35fc95c1a45d51988d464c2b`, Actions run `42237917589` **COMPLETED/SUCCESS**: Linux GCC H1 actual C PD release-load, strict source no-motor-write; H0 and old M8 regression; Windows PowerShell syntax; full context contract.
+- Initial CI on `524ab68` failed signed/unsigned type in `M9H1_Candidate`, fixed in `7d8c98e`. Distinguish compiler fix from any STM32 motor defect.
+- Milestone H1 evidence upgraded to **HOST CI PASS**, **NOT target Build/Flash/bench/HOLD PASS**. No H2 PWM/driver output changed; next receive `M9H1_SHADOW` private on-MCU UART if operator chooses.
+
+## 2026-11-07 — M9-H1: kiểm chứng 4 cặp H0/H1 UART trên STM32 (quan sát tĩnh)
+
+**[USER-SUPPLIED PRIVATE MCU LOG, 2026-11-07 17:57 local filename]** `M9H1_shadow_20261107_175758.txt`, 8 dòng: bốn `M9H0_DRIFT` và bốn `M9H1_SHADOW`, ghép cặp `seq=1..4`; toàn bộ `sha=00ccaeace99a6948880ecf85061dea5d2f77514e`, đúng HEAD firmware GitHub trước commit tài liệu. Đây là dữ liệu người dùng gửi riêng; **không commit nội dung TXT vào GitHub**.
+
+| Seq | Source | H0 duration | H0 peak drift L/R | H0 peak error L/R | H1 peak velocity L/R | H1 peak candidate L/R | H1 noise L/R |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 3 Voice position | 3000ms | 0/1 RAW | 0/4 RAW | 0/0 RAW/s | 0/0 SHADOW | 0/10 |
+| 2 | 3 Voice position | 3000ms | 1/1 RAW | 6/6 RAW | 0/0 RAW/s | 0/0 SHADOW | 6/3 |
+| 3 | 3 Voice position | 3000ms | 1/1 RAW | 3/3 RAW | 0/0 RAW/s | 0/0 SHADOW | 5/0 |
+| 4 | 2 Voice CENTER | 3010ms | 1/0 RAW | 2/4 RAW | 0/0 RAW/s | 0/0 SHADOW | 4/0 |
+
+- [OBSERVED] Mỗi trục có **294..296** mẫu/cửa sổ (~98 mẫu/s/trục), `reason=1`, `shadowOnly=1`, `wheelsMoved=0`, mọi `bad/stale/jump/zeroDt/dropped=0`; mọi `brake/reversal/sat=0`. Cả bốn H0 peak drift ≤1 RAW, error peak ≤6 RAW.
+- [SIGNAL] H0 vẫn thấy `peakVel=100 RAW/s` một số trục (có thể 1 RAW / 10ms), nhưng H1 `peakVel=0` ở cả 8 trục-cửa sổ; tổng `noise=28` cửa sổ loại biến thiên 1 RAW (0+10+6+3+5+0+4+0). Thể hiện lọc nhiễu lượng tử trong tình huống tĩnh, **không** chứng minh giữ được vận tốc thực nhỏ hoặc load-release trên chassis.
+- [CONTROLLER] Tất cả sai số H1 cuối |e|≤6 RAW, dưới ngưỡng position engage **8 RAW**. `peakCmd=0` là phù hợp deadband/hysteresis đã chọn, nhưng **không kiểm chứng PD khi sai lệch lớn, mô-men hồi vị, tăng giảm tải hoặc phanh ngược khi tải mất**. HOST synthetic release-load vẫn là bằng chứng mô phỏng riêng, không biến thành hardware PASS.
+- [SCOPE] **M9-H1 ON-MCU UART STATIC DATA CAPTURE PASS giới hạn (4/4)**, cùng HOST CI đã PASS trước đó. Không có bằng chứng độc lập CubeIDE Clean Build, flash command/output, NC/STOP under load, dòng/nhiệt hoặc CCS_SHB12 coast/brake ở PWM0. Chưa dùng `M9H1_SHADOW` để gửi PWM. Không có PS2 R1 `source=1` ở tập này.
+- [NEXT] Cần chứng cứ đặc trưng của `u_shadow` khi có độ lệch ≥8 RAW/động học, trước khi quyết định bộ thông số H2. Thực hiện bằng HOST injection hoặc thử quan sát có kiểm soát trên giá an toàn; **không chuyển sang H2 active chỉ vì 4/4 log tĩnh**. Nếu thử phần cứng, giữ quy trình nguồn motor độc lập và NC/STOP trước, không cố ép tay khi chưa bảo đảm an toàn.
+
+
+## 2026-11-07 — M9-H1 flight recorder cho dữ liệu động thật, không tác động PWM
+
+- **USER:** muốn 1 lần thu dữ liệu động thực trên xe để tối ưu PD; không muốn mô phỏng/thao tác Live Expressions hoặc tạo project mới.
+- **SOURCE:** `Core/Src/m9_h1_real_trace.c/.h` lưu RAM-only tối đa80 sample mỗi lệnh đã cấp phép M8 R1 center/Voice5..40, khoảng cách 80ms, không tạo AS5600 I2C mới, không ghi TIM CCR/GPIO, không chiếm motor owner. Raw, goal error, velocity window100ms, shadow u, measured CCR, age, NC state; frame result/overflow. Kết thúc cũ H0/H1 3s vẫn xuất.
+- **UART:** `M9H1_REAL_BEGIN/FRAME/END` qua UART3 IRQ safe idle, ưu tiên sau M8/H0/H1; `tools/capture_m9_h1_real.ps1` đếm 4 END, lưu cả H0/H1 và chuỗi sample thật vào TXT local. Nếu user phát lệnh mới trước khi trace cũ gửi hết, `dropped` tăng và không ghi đè trace cũ.
+- **CI:** Linux GCC actual-C host only as software safety regression + source wiring verifier `tools/verify_m9_h1_real.py`; Windows syntax parser new collector. Hardware dynamic log PENDING, no external-force release result yet.
+- **NEXT:** exact SHA CI PASS, CubeIDE Clean Build/Flash đúng SHA, NC/STOP preflight on rig, run 4 previously safe Voice position/CENTER commands and collect log; no physical pushing/forcing. Model tuning only after analyzing real measured trace.
+
+## 2026-11-07 — M9-H1 REAL source exact CI PASS
+
+- GitHub Actions run `42368389841` **COMPLETED/SUCCESS** on source `93551551422559914052ec8b8671a521715714b4`, Linux exact-C GCC actual C recorder no actuator and old H0/H1/M8 tests PASS, Windows PowerShell syntax PASS.
+- No firmware target Clean Build/Flash or new REAL motion TXT from MCU. No claims of physical H1 dynamic PASS, external-force release or current/thermal data.
+
+## 2026-11-07 — M9-H1 REAL data: 4 lượt motor M8 thật, UART PRIVATE
+
+**[USER-PROVIDED REAL MCU TXT]** File gốc `M9H1_REAL_20261107_183513.txt` gửi trong hội thoại; mọi dòng có `sha=3dbdfaf678b700f03f3517cf0e70664c5557f6ba`. **Chỉ lưu phân tích tổng hợp trong GitHub, KHÔNG commit 146 dòng TXT riêng tư.** Đây là số đo từ motor/AS5600 thật dưới bộ lái M8; thuật toán H1 chỉ tạo `u` SHADOW không cấp lực.
+
+| seq | source | goal L/R RAW | M8 result | M8 elapsed ms | REAL frames | peak v L/R RAW/s | final M8 error L/R RAW | H0 post-DONE reason, ms |
+|---|---|---|---|---:|---:|---|---|---|
+| 1 | 3 Voice position | 1716 / 507 | 2 DONE | 1550 | 19 | 277 / 240 | −2 / −4 | 1, 3000 |
+| 2 | 3 Voice position | 2160 / 906 | 2 DONE | 3098 | 37 | 324 / 296 | +5 / +3 | 1, 3003 |
+| 3 | 3 Voice position | 1431 / 247 | 2 DONE | 2954 | 36 | 370 / 324 | +2 / −3 | **3, 1180** |
+| 4 | 2 Voice CENTER | 1886 / 662 | 2 DONE | 3110 | 38 | 407 / 333 | +4 / +5 | 1, 3010 |
+
+### Data quality / movement observations
+
+- **4/4** REAL_BEGIN/REAL_END `result=2`; **130/130** FRAME present (19+37+36+38), every `i` contiguous, uniform 84ms spacing, every frame `ageL/ageR=0..1ms`, `nc=0`, `overflow=0`, `bad=0`, `stale=0`, `skipped=0`, `dropped=0`; `shadowOnly=1`. No measured lost frames. Max stored 38, far below 80.
+- M8 measured CCR peak L/R = **300/100** on all 4 runs; this is *drive output*, not H1 output. Some later `ccr=0` samples have position state MOVING/quiet, followed by brief fine corrections, not necessarily completed DONE. Example seq2 LEFT t=2858ms `ccrL=175` while `eL=+6`; seq4 LEFT t=2606/2858 `ccrL=175` while eL≈+7/+6. The 84ms recorder cannot resolve exact fine-pulse width; do not tune pulse duration from these sparse frames.
+- Position error after M8 DONE is within **±5 RAW** both sides for every run; peak filtered movement speeds ranged L=277..407 and R=240..333 RAW/s (different path lengths/conditions, not stand-alone motor datasheet ratings). No persistent large final overshoot is observed. Seq3 LEFT crosses goal by roughly **2 RAW** at sampled t=2690ms; modest overshoot is observed, not proof of perfect transient control.
+- **H1 SHADOW on REAL motion is nonzero**: `peakCmdL=40, peakCmdR=40` for all four runs; 69/130 frames LEFT and 72/130 RIGHT reach ±40 arbitrary shadow-unit saturation. This diagnoses **a controller design ceiling, not an over-current measurement**.
+- **Critical: damping term dominates far from goal on real motor movement.** Seq2 at t=1178ms: LEFT e=+150 RAW, v=+305 RAW/s, `uL=-7` although actual M8 `ccrL=300`; RIGHT e=+116,v=+268,uR=-23,ccrR=88. Seq4 t=1010ms LEFT e=+180,v=+361,uL=-5 while `ccrL=300`. H1 candidate proposes an **opposite sign of position error** while M8 is still driving normally. With `Kp_q8=256` and `Kd_q8=128` (effective Kd/Kp 0.5s), sign flip expected near `e≈0.5v` counts; **do not map current u_shadow to real PWM/DIR or claim it is already tuned for H2**.
+- The per-axis `brakeL/R` 59..88 and `reversalL/R` 1..3 reported in REAL_END are *per-sensor-feed, calculated SHADOW diagnostics*, not 59..88 actual motor brake pulses. Actual motor DIR was not logged. Velocity data on M8 move indicates response under active drive, not passive response to external force after DONE.
+- Post-DONE H0/H1 `peakCmd=0`, `peakVel=0` for four logs, and H0 drift max 0..1RAW. **seq3 H0/H1 `reason=3` after 1180ms**: observer aborted on a STOP/safety-neutral/STOP-mode/monitor-disable condition, not on a 3000ms complete window. Other three reason1. This field by itself **does not determine whether physical STOP was pressed or the exact trigger**, so do not label seq3 H0 static complete or a confirmed NC fault. Its REAL movement `result=2` remains valid.
+
+### Evidence-based decisions (no new actuator code)
+
+1. **H1 REAL DYNAMIC DATA CAPTURE: PASS 4/4**; H1 source/host CI and earlier static sensor-filter also PASS. We have demonstrated PD SHADOW calculation and filtered velocity with real AS5600 movement, **not** H1 force/hold active PASS.
+2. **H1 gains/cap are uncalibrated for physical H2.** Current D component / 40-unit saturation would propose early sign reversal during transit. Segregate transit M8 from any prospective post-DONE holding controller; do not replace M8 owner, disable existing NC/STOP or route shadow candidates directly to H-bridge.
+3. To design actual position hold, still need **external disturbance/release under physically safe conditions**, motor current and thermal/stall constraints, driver PWM=0 coast/brake behavior, DIR polarity and PWM→torque relation. These cannot be inferred from the 130 normal-motion samples. Changing gains based solely on them risks unsafe actuation.
+4. **Next engineering improvement without requesting repeat of these four runs:** analyze M8 free-coast/quiet fine-pulse segments and motor response asymmetry offline; require explicit safety gates for owner/NC/STOP and bounded torque/current before any H2. An H1 read-only reason-bitmask for abort3 and finer post-DONE observation may help only if a specific new test is later justified.
+
+
+## 2026-11-07 — M9-H2-A GUARD triển khai source, MOTOR OUTPUT HARD OFF
+
+- [IMPLEMENTED] Pure C H2 guard + C unit tests + main integration after both DONE2, safe-idle UART3 one-line M9H2_GUARD with blockBits, script collector PowerShell. R2/Voice45 excluded, H1/H0/M8 retained.
+- [SAFETY] All H2A states have dutyL=dutyR=0, M9H2_POWER_PERMITTED=0 and no H2 GPIO/CCR writes, no new I2C; runtime bench_request cannot bypass. 250ms sensor stale, 32RAW deviation, 3sec observation, distinct STOP/NC/owner/mode/wheel cancel.
+- [EVIDENCE] Until exact SHA Actions complete, source staged only; CubeIDE Build/Flash/H2 MCU guard log pending. H2B powered active and loaded motor response NOT PASS/NOT IMPLEMENTED. No current/thermal/PWM0 brake-coast data; no active PWM tuning.
+
+## 2026-11-07 — H2-A lần CI đầu: sửa cú pháp PowerShell 5.1
+
+- Commit `b9b75aff0bba91fedf62e4e67b244ad8f91fa1b4`, Actions `42370416232`: Linux exact-C H2-A `verify_m9_h2_guard.py` cùng full context contract **PASS**; Windows PowerShell parser phát hiện biến `$MaxEvents:` trong interpolated string (`:` theo sau tên biến), không phải lỗi motor hay logic NC.
+- Đã đổi thành `${MaxEvents}:` để parser PowerShell 5.1 hiểu chính xác. Mã H2/C motor guard không thay đổi; kiểm tra lại tất cả workflow ở SHA commit mới là bắt buộc.
+
+## 2026-11-07 — H2-A verified CI PASS at real SHA
+
+- Exact SHA `55db22f67c81517ada48106f5a506b7b367b7e4c` Actions `42370515934` COMPLETED/SUCCESS including Linux GCC real H2 C fault/owner/STOP/NC tests, no actuator-source wiring, M8/H0/H1 regressions and Windows PowerShell 5.1 H2 capture syntax.
+- Initial `b9b75a` Windows parser failed due `$MaxEvents:` in interpolated string; only collector syntax fixed, motor code unchanged. Target Build/Flash/H2-A private MCU logs pending.
+- H2-B physical HOLD still no code/active proof, fixed duty0, no current/thermal and no reliable driver PWM0 behavior.
+
+## 2026-11-08 — H2-A on-MCU log: abort 13ms caused by normal VOICE -> IDLE handoff
+
+**[USER-PROVIDED PRIVATE UART]** `M9H2_GUARD_20261108_142137.txt` has exactly one valid `M9H2_GUARD` record, MCU SHA `8214610cadac396f7502dea5fbde847de784fe9d`: `seq=1,source=3,state=0,reason=3,durationMs=13,goalL=1545,goalR=351,updates=1,freshL=0,freshR=1,deniedOwner=1,blockBits=256,deniedNC=0,sensorErr=0,dutyL=0,dutyR=0,powered=0,shadowOnly=1`. **Hardware H2-A no-actuation confirmed for this one 13ms window; H2-A 3-second MONITOR not yet PASS.**
+
+**[INDEPENDENT SOURCE INSPECTION]** `M9H2_StartAfterDone()` latched `m9_h2_owner_mode=control_mode` at M8 Voice position DONE. `Steering_PositionFinish()` then clears `voice_pos_owned`, and `Control_Arbitrate()` normally transitions `CONTROL_MODE_VOICE` to `CONTROL_MODE_IDLE` on the next poll. Old H2-A treated any difference `control_mode != m9_h2_owner_mode` as takeover, explaining bit8/13ms; we have source evidence of this path, but no old-mode values in the uploaded record itself.
+
+**[SECOND UPLOAD DATA QUALITY]** `M9H2_GUARD_20261108_142244.txt` has one incomplete **physically concatenated** line starting with `M9H0_DRIFT`, truncated after `peakDriftR=1,peak`, immediately followed by `M8R1_FINE` record. This is **not** a complete H0 line and has no `M9H2_GUARD` event. The file cannot establish why bytes were concatenated (UART sender arbitration, COM reception or capture timing all remain hypotheses). Do not treat it as a valid H0 3sec pass or as evidence of hardware safety incident. Do not publish either private original TXT.
+
+**[FIX]** Introduce pure-C `M9H2_ModeAllowed(source,started_mode,current_mode,voice_busy,ps2_manual,ps2_cancel)`: only source3/2 VOICE -> same VOICE or normal IDLE with no pending Voice/PS2 job, and source1 PS2 -> same PS2 or IDLE when manual inputs released. STOP, PS2 takeover, new Voice request/command, cancel-hold and unexpected transitions are **revocations**, not whitelisted. Legacy `steer_pos_active/manual/cal/test`, both CCR=0, STOP/neutral/trip/motion-permit, NC, sensor fresh, wheel-stopped remain independent guards. No change to M8 PWM/owner/AS5600 I2C, H2 guard still HARD POWER LOCK `M9H2_POWER_PERMITTED=0U`, all `dutyL=dutyR=0`.
+
+**[DIAGNOSTIC]** New `M9H2_GUARD` includes `modeStart/modeNow/modeOK/voiceBusy`, so a new 3sec passive log can confirm normal 1->0 transition without guessing. Pure-C GCC host regressions cover normal Voice DONE->IDLE and PS2 R1->IDLE plus reject STOP/PS2 takeover/new voice/manual/cancel while power remains zero. CI must be checked on NEW SHA separately; CubeIDE Build/Flash and new MCU log pending. **H2-B powered not implemented**.
+
+
+**2026-11-08 SOURCE CI VERIFIED — H2-A owner handoff fix:** Source commit `977533f79194e2ac3a6b97768675b6647348dbd8`, GitHub Actions run `42459137638` **completed SUCCESS**: Linux exact-C GCC host covers normal Voice->IDLE after DONE, PS2 release and reject takeover/STOP/new Voice/PS2 cancel, H2 hard duty0; older M8/H0/H1 regressions and full context contract PASS; Windows PowerShell5.1 capture parser PASS. Exact MCU build/flash and new 3-second H2 log **not yet available**. No H2-B powered output or HOLD load PASS. Any later docs-only commit will have a different SHA; distinguish it from source flashed SHA.
+
+
+### 2026-11-08 — M9-H2-A MCU UART 3000ms VALIDATION (real hardware, one Voice CENTER run)
+
+**USER-ATTACHED PRIVATE UART:** `M9H2_GUARD_20261108_143827.txt`, firmware MCU exact SHA `5dd1502ac606c5e254ddda3484baffbf2a70a534` (post normal Voice->IDLE fix). File contains three complete records, same `seq=2`:
+
+- `M9H0_DRIFT`: `source=2,mode=1,reason=1,durationMs=3000,goalL=1886,goalR=662,startL=1882,startR=659,endL=1882,endR=659,peakDriftL=1,peakDriftR=1,peakErrL=5,peakErrR=3,peakVelL=100,peakVelR=100,samplesL=295,samplesR=294,badL=0,badR=0,jumpL=0,jumpR=0,zeroDtL=0,zeroDtR=0,wheelsMoved=0,dropped=0`.
+- `M9H1_SHADOW`: `reason=1,samplesL=295,samplesR=294,errL=4,errR=3,peakVelL=0,peakVelR=0,peakCmdL=0,peakCmdR=0,brakeL=0,brakeR=0,reversalL=0,reversalR=0,badL=0,badR=0,staleL=0,staleR=0,jumpL=0,jumpR=0,satL=0,satR=0,zeroDtL=0,dropped=0,shadowOnly=1`.
+- `M9H2_GUARD`: `source=2,state=6 (COMPLETE),reason=1 (WINDOW_DONE),durationMs=3000,updates=294,freshL=294,freshR=293,peakErrL=5,peakErrR=3,peakScoreL=0,peakScoreR=0,deniedNC=0,deniedOwner=0,sensorErr=0,blockedPower=0,blockBits=0,modeStart=1,modeNow=0,modeOK=1,voiceBusy=0,dutyL=0,dutyR=0,powered=0,shadowOnly=1,dropped=0`.
+
+**EVIDENCE VERDICT:** M9 **H2-A MCU POST-DONE STATIC 3s GUARD PASS** for this one healthy `Voice CENTER` run. 294 guard updates with 0 owner revocations proves normal `VOICE(1)->IDLE(0)` handoff fix no longer falsely aborts. H0/H1 static window 3s PASS in the same run. Both shadow scores 0 near target, so this log does **NOT** demonstrate the guard reacting to externally disturbed angle or nonzero command, nor an active motor hold.
+
+**PENDING:** H2-B actual powered position hold, force disturbance/release, motor current/stall, thermal envelope, CCS_SHB12 PWM0 coast/brake, independence of hardware motor cutoff, NC/STOP physical tests. Remain HARD POWER LOCK `M9H2_POWER_PERMITTED=0U`. **No user log TXT is published to public GitHub; only this aggregate.** Source and MCU SHA remain `5dd1502`; any follow-on docs-only HEAD is NOT a new flashed firmware revision.
+
+
+
+## 2026-11-08 — H2-B0 candidate SOURCE, physical power hard-locked
+
+- USER yêu cầu tiến hành H2-B sau khi H2-A 3s trên MCU PASS (source firmware 5dd1502). Source mới xây pure C bounded near-goal policy m9_h2b_hold_policy.c/.h, liên kết H2-A guard cùng seq/timestamp; hysteresis 8/4 RAW, score cap 20 arbitrary, slew 3/tick, reject sign away from goal; STOP/NC/owner/sensor/timeout trúng guard thì policy hủy.
+- Không có H2 GPIO/DIR/CCR write. Compile hard locks M9H2B_POWER_STAGE_ENABLED=0, verified motor PWM0 và on-time0 cùng H2-A PERMITTED0. Candidate score tuyệt đối không có đơn vị PWM/torque. Các bản ghi M9H2_GUARD mới gồm bState/bReason/bPeak/bEligible/bVeto/bBlocked/bCcr nhưng powered/duty vẫn0.
+- Manual CCS_SHB12 uploaded by USER ghi board 12A continuous/30A peak, iLIMIT and overcurrent/overtemperature, tùy chỉnh ACCE/DECCE; đây KHÔNG phải đặc tính stall/thermal an toàn của motor DC riêng. PWM0 coast/brake, motor current/temp và cắt nguồn độc lập chưa xác minh.
+- Test source tools/m9_h2b_policy_host_test.c + tools/verify_m9_h2b_policy.py với GitHub Actions strict Linux GCC và Windows PS parser. MCU H2B0 3s log cần Build/Flash sau exact CI; không phải H2-B1 powered PASS.
+- H2-B1 active motor duty/wiring cần thêm dữ liệu vật lý, STOP/NC owner safety + current/thermal commissioning; chưa code bật công suất. Tài liệu docs/M9_H2B_POWER_GATE_2026_11_08.md.
+
+**M9 H2-B0 SOURCE CI PASS 2026-11-08:** Firmware commit 9e4f4533b9c7de820295f9c36ceab28541048dc0, GitHub Actions 42460572191 completed SUCCESS: Linux GCC exact-C H2-B0 candidate + hard-power-lock verifier and H0/H1/H2-A regressions; Windows PowerShell 5.1 syntax PASS. Target CubeIDE Build/Flash/H2B0 MCU log remains PENDING. H2-B1 powered hold not implemented (unknown motor stall current/temp, driver PWM0 coast/brake and independent cutoff). Docs-only HEAD after this report is not new firmware.
+
+
+## 2026-11-08 — H2-B0 on-MCU: one healthy static 3003ms window PASS
+
+Nguồn: file UART riêng tư do người dùng gửi, `M9H2_GUARD_20261108_151606.txt`. Đã kiểm tra đủ ba dòng H0/H1/H2, cùng firmware `819f635aafbe9dde3ee0e4b9c5c8e6cbc282e0c2`, `seq=1`, `source=2` (Voice CENTER). Chỉ công khai kết quả tổng hợp này; không đưa TXT gốc vào repository.
+
+| Hạng mục | Kết quả quan sát |
+|---|---|
+| Phiên H2-A | COMPLETE state6, reason1; 3003ms; 268 updates; fresh L/R267/268 |
+| H2-B0 | COMPLETE bState3, bReason1; bPeak L/R0, bEligible L/R0, bVeto L/R0, bBlocked0 |
+| Quyền / cảm biến | deniedOwner0, deniedNC0, sensorErr0, blockBits0; modeStart1 -> modeNow0, modeOK1, voiceBusy0 |
+| Đầu ra HOLD | bCcrL/R0, dutyL/R0, powered0, shadowOnly1, dropped0 |
+| H0 đối chiếu cùng phiên | 3003ms; peak drift1/1RAW; samples268/269; bad/jump/drop0; wheelsMoved0 |
+| H1 đối chiếu cùng phiên | error cuối5/2RAW; filtered peak velocity0/0, peak command0/0; noise suppressed7/0; bad/stale/jump/drop0 |
+
+**Kết luận:** H2-B0 **MCU STATIC INTEGRATION/TELEMETRY PASS giới hạn một lượt Voice CENTER khỏe mạnh**. H0/H1/H2 khớp phiên; bình thường VOICE->IDLE không hủy guard, policy kết thúc đủ cửa sổ và các giá trị đầu ra HOLD bằng0. UART chứng minh firmware đã chạy trên MCU tại SHA nêu trên; phiên này không cung cấp riêng transcript lệnh CubeIDE Build/Flash.
+
+**Giới hạn:** H2 peak error6/3RAW, thấp hơn ngưỡng engage8RAW; không xuất hiện candidate khác0. Vì vậy chưa kiểm chứng thực tế ngưỡng vào/nhả, chặn sai dấu, phản ứng ngoại lực/nhả tải, fault-injection STOP/NC/sensor hoặc mô-men giữ. Những bài HOST đã có vẫn là bằng chứng phần mềm riêng. Không mở khóa PWM hoặc suy an toàn điện/nhiệt từ cửa sổ tĩnh.
+
+**Điểm tiếp tục:** Không yêu cầu người dùng lặp H0/H1 130 frame hay chính lượt CENTER này. H2-B1 powered và H3 integration còn chờ đặc tính motor current/thermal/stall, CCS_SHB12 PWM0 coast/brake/ACCE-DECCE và thiết kế cấp quyền actuator có STOP/NC/cắt nguồn phù hợp. Bản cập nhật này chỉ sửa tài liệu; firmware đã chạy vẫn là `819f635`, không yêu cầu build/flash lại vì commit docs mới.
+
+**USER clarification (2026-11-08):** Động học chưa hoàn thành để tích hợp/nạp vào firmware; SELECT tạm hoãn. Không tự đồng nhất hai trạng thái hoặc coi nội suy RAW của Voice là động học bánh xe hoàn chỉnh.
+
+
+## 2026-11-08 — Motor-lead current baseline and H2-B1 bench design
+
+**Nguồn:** người dùng báo số đo trực tiếp trong chat, xác nhận vị trí đo là dây từ driver ra motor. Không phải dòng nguồn cấp driver và không phải telemetry dòng do STM32 ghi.
+
+| Trạng thái được người dùng mô tả | LEFT | RIGHT |
+|---|---:|---:|
+| Đang chạy về CENTER | 0,8–1 A | khoảng 2 A |
+| Sau khi đến đích, đã dừng | đồng hồ đọc 0 A | đồng hồ đọc 0 A |
+
+**Phân loại dữ liệu:** số đo do USER cung cấp, chưa có tệp đo theo thời gian, model/băng thông đồng hồ, giá trị peak/RMS hoặc nhiệt độ. Chưa thể coi là dòng khởi động đỉnh, dòng stall hoặc dòng HOLD liên tục an toàn. Các mức 5A trái/10A phải trước đó chỉ được ước lượng từ công suất80/200W đang thảo luận; không lưu chúng như rating dòng của nhà sản xuất. Driver12A là thông số khả năng driver trong manual; chưa xác minh ngưỡng bảo vệ/iLIMIT thực trên từng board.
+
+**Ý nghĩa đối với M9:** đã có baseline dòng chạy trên motor để đối chiếu bài thử sau. Đồng hồ đọc0A khi dừng phù hợp firmware819f635 không cấp PWM HOLD; riêng quan sát này không xác định PWM0 là coast hay short-brake. Không suy PWM thành ampere hoặc cho rằng LEFT1A/RIGHT2A là giới hạn giữ lâu. Firmware hiện không có đường phản hồi dòng/nhiệt từ đồng hồ; giới hạn PWM/thời gian không được gọi là giới hạn dòng thực.
+
+### Phần thiết kế H2-B1 có thể tiếp tục từ source đã kiểm tra
+
+- B1 bench phải thử riêng từng trục; bốn bánh và trục không được thử giữ đầu ra0; boot OFF, một yêu cầu kích hoạt có chủ đích và phiên hữu hạn. Cơ chế kích hoạt, PWM cap, on-time và duty/thermal budget chưa chốt; không thay khẩu lệnh49 byte hoặc nút PS2 đang dùng mà không có đặc tả.
+- Source `Steering_PositionFinish()` tắt cả hai CCR trước khi gọi H2; `Control_Arbitrate()` ở IDLE gọi `Turn_Motors_Stop()`, còn `M9H2_IdleUpdate()` hiện yêu cầu cả hai CCR0. Vì vậy H2-B1 cần thiết kế quyền actuator riêng có giám sát, không nối thẳng score vào TIM và không bỏ điều kiện chủ sở hữu của H2-A để lách gate.
+- NC ISR `Steering_SafetyOnLimitInterrupt()` đang cắt trực tiếp TIM12_CH2 hoặc TIM14_CH1 theo trục; STOP, fault, sensor stale/invalid, NC, chủ sở hữu mới và hết phiên phải hủy quyền HOLD, ngăn superloop cấp lại sau cắt. M8 Position/Manual/SELECT/Voice45/R2 giữ quyền ưu tiên hiện có.
+- Bài thử đầu cho phần cấp lực cần mục tiêu là đo dòng khi HOLD thực sự hoạt động, trên gá, giới hạn phiên và từng trục; chưa đưa ngoại lực/nhả tải vào bài đầu. Mức thử dựa đặc tính motor/driver và phép đo thực, không lấy arbitrary score20 hoặc dòng chạy vừa báo làm giới hạn an toàn.
+- Phản ứng ngoại lực/nhả tải và nhiệt độ dưới thời gian giữ dài hơn là nghiệm thu tiếp theo; phối hợp khi xe chạy thuộc H3. Không đánh dấu HOLD/thermal/load PASS từ baseline dòng chạy.
+
+**Trạng thái:** đây là cập nhật dữ liệu và thiết kế bài thử, KHÔNG phải firmware H2-B1 đã triển khai hoặc được phép cấp điện. Không thay Core/tools/driver setting. Firmware đang chạy vẫn819f635; không yêu cầu build/flash hoặc lặp130 frame H1 vì commit docs này.
+
+## 2026-11-08 — Phạm vi và source H2-B1 liên tục hai trục
+
+**2026-11-08 — USER clarified FULL H2-B1 (not H1):** delivery is persistent TWO-axis position HOLD, no3s expiry and no single-axis/short-session substitute. Full C controller + atomic HAL owner route + main idle/PS2/Voice/NC handoff are now SOURCE-STAGED with local strict GCC tests120s(controller)/60s(main hooks) PASS. Physical commissioning remains CLOSED0; PWM caps/gains/reversal timings are unverified, so no powered HOLD is enabled or claimed. GitHub CI on the new source and CubeIDE/MCU validation remain separate. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md.
+
+**Nguồn hiện hành:** [H2-B1 full HOLD](M9_H2B1_FULL_HOLD_2026_11_08.md). Các đề xuất bench từng trục/phiên ngắn phía trước được giữ làm lịch sử, không phải phạm vi bàn giao đã chốt. H2-B0 và guard3s vẫn là quan sát cũ riêng; H2-B1 không dùng timer đó để kết thúc mục tiêu.
+
+
+
+## 2026-11-08 — MCU H2-B1 chưa commissioning và nhận diện motor
+
+**2026-11-08 — H2-B1 MCU uncommissioned integration observed:** private UART firmware `4d004757f48f67c1b1b5192b8020c3e8d196ba9a`, four complete lines across seq1/source2 CENTER and seq2/source3 Voice angle. Both retain two goals beyond5s (5002/5001ms), active1/state2/reason7, commissioned0/lease0, all PWM/peakPWM/appliedMs/everApplied0. This is LIMITED MCU target-retention/telemetry PASS, not powered HOLD, current/thermal/load or fault-injection acceptance. Latest DOCX identifies DC775 geared motors: wheel110rpm x4, TURN LEFT30rpm, TURN RIGHT32rpm; manufacturer/winding/gearbox model and safe stationary current are not specified. See docs/M9_H2B1_FULL_HOLD_2026_11_08.md. Earlier pending/819f635 notes below are dated history.
+
+Thông số motor theo DOCX mới: DC775 giảm tốc, bánh110rpm x4, láiLEFT30rpm, RIGHT32rpm. Chưa có hãng/mã cuộn dây/hộp số hoặc giới hạn dòng đứng giữ. `dropped=1` ở seq2 là trạng thái chờ bị thay thế khi Begin phiên mới theo adapter, không phải bộ đếm lỗi cảm biến. Bản ghi tổng hợp và giới hạn: [H2-B1 full HOLD](M9_H2B1_FULL_HOLD_2026_11_08.md). Không thay source hoặc cần nạp lại cho commit tài liệu này.
+
+
+## 2026-11-09 — H2-B1 powered tuning source
+
+**2026-11-09 — USER-authorized powered H2-B1 tuning:** USER requests actual continuous two-axis HOLD using existing STOP/NC, without a prerequisite motor-supply disconnect test. New profile1=TUNING permits PWM after fresh eligible BOTH-DONE; POWER_COMMISSIONED remains0 and means current/thermal acceptance is pending, not power locked in profile1. Initial engineering caps LEFT30/RIGHT10CCR (3%/1%), independent PD/slew,200ms reversal blank; no-progress1s and recoverable output-time budget cut BOTH axes on tuning fault, with no auto-resume. No fixed HOLD session expiry. Boot has no target/output. Source/HOST verified locally; new CubeIDE build/flash/physical test still pending. See docs/M9_H2B1_POWERED_TUNING_2026_11_09.md. Older closed-power/pending notes below are dated history; do not demand the rejected disconnect pretest or repeat validated H1/H2-B0/unpowered B1 logs.
+
+Cấu hình thử có thể cấp lực thật, không tương đương nghiệm thu motor. Xem [quy trình hiện hành](M9_H2B1_POWERED_TUNING_2026_11_09.md). Bản cập nhật thay Core/tests/collector nên cần build/flash mới; không dùng log4d004757 để nghiệm thu bản này.
+
+
+## 2026-11-09 — First powered-tuning MCU log received
+
+**2026-11-09 — First MCU powered-tuning register-output/cutoff evidence (NOT HOLD response PASS):** private UART M9H2B1_HOLD_20261109_172834.txt has3 complete rows, SHA621a5ce87385600314404bc8866662c0102f4df4 seq1/source2 CENTER/profile1. WAIT_DATA at37ms -> HOLDING at109ms -> FAULT reason11(NO_PROGRESS) at1868ms, active0/lease0/faultAxes1. LEFT peakCCR30, acknowledged nonzero output1007ms, final/peak error23RAW (goal1886,raw1909); RIGHT peakCCR/output-time0, peak error3RAW. Firmware cut both on its response guard, not a captured Voice STOP. Driver torque, release timing, current and thermal result are not established. No automatic PWM increase; next required observation is whether LEFT was released promptly or still externally held during the no-progress interval. Docs-only update: keep MCU621a5ce, do not reflash or repeat old static logs for this record.
+
+Số liệu và giới hạn: [báo cáo powered tuning](M9_H2B1_POWERED_TUNING_2026_11_09.md). Chưa có dữ liệu nhả tác động/dòng/nhiệt; không kết luận nguyên nhân hoặc tự tăng cap.
+
+
+
+## M9 resumed — Rotate foundation
+
+**HIỆN HÀNH 2026-11-09 — TIẾP TỤC M9 TRÊN NỀN ROTATE ĐÃ FIX.**
+Theo chỉ thị mới, M9 đã được tiếp tục trên `feature/m9-steering-active-position-hold`.
+Nền firmware là `b382354ec1592589843f4b579643e5b1abbbecf0`, đã có xác nhận Rotate
+RIGHT5s/LEFT10s; hồ sơ nền là `22e7eb5cd18c2441e89af1170831efe39fbc38a8`.
+Tích hợp toàn bộ M9 mới nhất từ `3df43edde8f53b5e84561704189a83ac8286a56b`.
+Commit tích hợp dùng22e7eb5 làm parent thứ nhất và3df43ed làm parent thứ hai,
+giữ cả lịch sử, không force-push và không đổi nhánh M8 đã thử thành công.
+Các ghi chú M9 tạm dừng bên dưới là lịch sử đã được chỉ thị này thay thế.
+Cả hai fix Rotate được giữ: R2 tiếp tục khi chỉ có RPM bánh thụ động; timer spin
+chỉ tính từ lúc wheel API nhận lệnh. M9 nhường HOLD ngay khi Rotate hoàn chỉnh
+đang chờ arbitration, cắt lease/deadline cũ trước khi R2 ghi PWM đầu tiên.
+Giữ candidate M9 LEFT300CCR/<=200ms, RIGHT85CCR/<=12ms và PD30/10 như3df43ed;
+chưa có log hardware xác nhận candidate HOLD này. Rotate PASS của b382354e
+không tự chuyển thành hardware PASS của bản M9 tích hợp. Xem [báo cáo tích hợp](M9_ROTATE_BASE_INTEGRATION_2026_11_09.md).

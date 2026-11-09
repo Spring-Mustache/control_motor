@@ -6,12 +6,14 @@ This catches the old one-refusal cancellation that an always-accept mock missed.
 """
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import ast, shutil, subprocess
+import ast, shutil, subprocess, re
 ROOT=Path(__file__).resolve().parents[1]
 MAIN=(ROOT/'Core/Src/main.c').read_text()
 WHEEL=(ROOT/'Core/Src/wheel_control.c').read_text()
 def extract(src, name):
-    i=src.index(name); b=src.index('{',i); depth=0
+    match=re.search(re.escape(name)+r'[^;{}]*\{',src)
+    if not match:raise ValueError(name)
+    i=match.start(); b=match.end()-1; depth=0
     for j in range(b,len(src)):
         if src[j]=='{': depth+=1
         elif src[j]=='}':
@@ -30,6 +32,8 @@ for name in ['static void WheelControl_SetTargetPWM(',
     before=before.replace(extract(before,name),'')
 extra=r'''
 #define WC_PID_ZERO_EPS_RPM 0.01f
+#define M9H2B1_INTEGRATED 1
+static uint8_t M9B1_KeepOutput(void){return 0;}
 static int16_t wc_pwm_max=999;
 static uint8_t wheel_pid_enable=1,wheel_ff_test_active=0;
 static uint8_t wheel_encoder_available_lu=1,wheel_encoder_available_ld=1;

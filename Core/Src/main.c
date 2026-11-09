@@ -28,6 +28,13 @@
 #include "ram_logger.h"
 #include "vc02.h"
 #include "voice_s154_route.h"
+#include "m9_h0_drift.h"
+#include "m9_h1_shadow.h"
+#include "m9_h1_real_trace.h"
+#include "m9_h2_hold_guard.h"
+#include "m9_h2b_hold_policy.h"
+#include "m9_h2b1_hold.h"
+#include "m9_h2b1_commissioning.h"
 #include "as5600.h"
 #include "steer_s14_math.h"
 #include "steer_s142_speed.h"
@@ -2177,6 +2184,69 @@ static M8R1RightFineDiag_t m8_r1_right_last = {0};
 static uint8_t m8_r1_right_pending = 0U;
 static uint32_t m8_r1_right_count = 0U;
 static uint32_t m8_r1_right_drop_count = 0U;
+
+/* M9-H0 is passive telemetry ONLY. Default ON for observation, never grants
+ * PWM/DIR or an owner. Only one post-DONE record can be pending.
+ * AS5600 values come from existing position/idle reads, not new I2C calls.
+ */
+volatile uint8_t m9_h0_monitor_enable = 1U;
+static M9H0Drift_t m9_h0_drift = {0};
+static uint8_t m9_h0_active = 0U;
+static uint8_t m9_h0_pending = 0U;
+static uint32_t m9_h0_count = 0U;
+static uint32_t m9_h0_dropped = 0U;
+static uint32_t m9_h0_seen_ok_l = 0U, m9_h0_seen_ok_r = 0U;
+static uint32_t m9_h0_seen_fail_l = 0U, m9_h0_seen_fail_r = 0U;
+
+/* M9-H1: shadow ONLY, signed arbitrary-units proposed PD, NEVER CCR/DIR.
+ * 1 = compute/read-only, 0 = disabled. No HOLD_ACTIVE path in H1.
+ */
+volatile uint8_t m9_h1_shadow_enable = 1U;
+static M9H1Shadow_t m9_h1_shadow = {0};
+static uint8_t m9_h1_active = 0U;
+static uint8_t m9_h1_pending = 0U;
+static uint32_t m9_h1_dropped = 0U;
+/* M9-H1 REAL: capture existing M8 motion into RAM without PWM/I2C writes.
+ * Export samples only AFTER position/H0/H1 motors and UART are idle.
+ * This observes normal M8 steering servo; NOT an external-force test.
+ */
+static M9RealTrace_t m9_real_trace = {0};
+static uint8_t m9_real_pending = 0U;
+static uint16_t m9_real_tx_next = 0U;
+static uint32_t m9_real_run_count = 0U;
+static uint32_t m9_real_dropped = 0U;
+static uint32_t m9_real_seen_l = 0U, m9_real_seen_r = 0U;
+/* M9-H2A: owner/sensor/fault supervisor, *no actuator authority*.
+ * There is no TIM/GPIO write in any H2 path; all duty always 0.
+ * Bench request is a diagnostic (blocked by M9H2_POWER_PERMITTED=0).
+ */
+volatile uint8_t m9_h2_monitor_enable = 1U;
+volatile uint8_t m9_h2_bench_request = 0U;
+static M9H2Guard m9_h2_guard = {0};
+/* H2-B0 near-goal policy candidate; no TIM/CCR/dir HAL motor writer.
+ * All physical output limits remain 0 until motor/driver are measured.
+ */
+static M9H2BPolicy m9_h2b_policy = {0};
+/* Full persistent TWO-axis HOLD; physical commissioning is const/closed. */
+volatile uint8_t m9_h2b1_enable = 1U;
+static M9B1Hold m9_h2b1_hold = {0};
+static volatile uint32_t m9_h2b1_nc_epoch = 0U;
+static uint32_t m9_h2b1_seen_nc_epoch = 0U, m9_h2b1_sequence = 0U;
+static uint32_t m9_h2b1_report_ms = 0U, m9_h2b1_dropped = 0U;
+static uint8_t m9_h2b1_pending = 0U;
+static uint8_t M9B1_KeepOutput(void);
+static void M9B1_Stop(uint8_t reason);
+static void M9B1_PreOwnerService(void);
+static void M9B1_StartAfterDone(uint8_t result);
+static void M9B1_Update(void);
+static uint8_t m9_h2_pending = 0U;
+static uint32_t m9_h2_count = 0U;
+static uint32_t m9_h2_dropped = 0U;
+static uint32_t m9_h2_block_bits = 0U;
+static uint8_t m9_h2_owner_mode = 0U;
+static uint8_t m9_h2_mode_now = 0U;
+static uint8_t m9_h2_mode_ok = 0U;
+static uint8_t m9_h2_voice_busy = 0U;
 static uint8_t steer_pos_previous_buttons = 0U;
 static uint32_t steer_pos_start_ms = 0U;
 static uint32_t steer_pos_idle_last_ms = 0U;
@@ -4608,12 +4678,18 @@ static void Steering_PositionAbortObserve(uint8_t source)
 
 static void Steering_PositionLeftOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
   steer_pos_left_pwm = 0U;
 }
 
 static void Steering_PositionRightOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
   steer_pos_right_pwm = 0U;
 }
@@ -4735,8 +4811,306 @@ static void Steering_R1RightFineCapture(uint8_t result)
   m8_r1_right_pending = 1U;
 }
 
+/* M9-H0: complete one read-only drift window; ISR/motor outputs untouched. */
+static void M9H0_Stop(uint8_t reason)
+{
+  if (m9_h0_active == 0U) return;
+  M9H0_Finish(&m9_h0_drift, HAL_GetTick(), reason);
+  if (m9_h1_active != 0U)
+  {
+    /* Shadow log is only read after a whole observer window. */
+    M9H1_Finish(&m9_h1_shadow, reason);
+    m9_h1_active = 0U;
+    m9_h1_pending = 1U;
+  }
+  m9_h0_active = 0U;
+  m9_h0_pending = 1U;
+}
+
+/* Called only AFTER existing PositionFinish has set both steering CCR=0,
+ * and BEFORE it releases the position owner/command.
+ * H0 excludes NC-endpoint goals (R2 and Voice45) and failed arrivals.
+ */
+static void M9H0_StartAfterDone(uint8_t result)
+{
+  uint16_t goal_l, goal_r;
+  uint8_t source;
+  if ((m9_h0_monitor_enable != 1U) ||
+      (result != 2U) || (steer_pos_active == 0U) ||
+      (steer_pos_left_state != STEER_AXIS_DONE) ||
+      (steer_pos_right_state != STEER_AXIS_DONE) ||
+      (steer_pos_left_result != 2U) || (steer_pos_right_result != 2U) ||
+      (steer_pos_limit_trip_mask != 0U) ||
+      (steer_safety_trip_latched != 0U) ||
+      (control_stop_latched != 0U) ||
+      ((steer_pos_command != 1U) && (steer_pos_command != 4U)))
+    return;
+  if (m9_h0_active != 0U) M9H0_Stop(2U);
+  if (m9_h0_pending != 0U)
+  {
+    if (m9_h0_dropped != 0xffffffffUL) m9_h0_dropped++;
+    return;
+  }
+  if (steer_pos_command == 1U)
+  {
+    goal_l = STEER_POS_LEFT_CENTER_RAW;
+    goal_r = STEER_POS_RIGHT_CENTER_RAW;
+    source = (voice_pos_owned != 0U) ? 2U : 1U;
+  }
+  else
+  {
+    if ((voice_pos_owned == 0U) ||
+        (voice_pos_goal_l > 4095U) || (voice_pos_goal_r > 4095U))
+      return;
+    goal_l = voice_pos_goal_l;
+    goal_r = voice_pos_goal_r;
+    source = 3U;
+  }
+  if ((steer_pos_left_raw > 4095U) || (steer_pos_right_raw > 4095U))
+    return;
+  if (m9_h0_count != 0xffffffffUL) m9_h0_count++;
+  M9H0_Begin(&m9_h0_drift, m9_h0_count, HAL_GetTick(), source,
+             steer_pos_command, goal_l, goal_r,
+             steer_pos_left_raw, steer_pos_right_raw);
+  m9_h0_seen_ok_l = steer_pos_left_new_sample_count;
+  m9_h0_seen_ok_r = steer_pos_right_new_sample_count;
+  m9_h0_seen_fail_l = debug_as5600_left_read_fail_count;
+  m9_h0_seen_fail_r = debug_as5600_right_read_fail_count;
+  /* An earlier unsent SHADOW record must not be overwritten. H0 still
+   * collects normally; this is a diagnostic dropped session only.
+   */
+  if (m9_h1_shadow_enable == 1U)
+  {
+    if (m9_h1_pending == 0U)
+    {
+      M9H1_Begin(&m9_h1_shadow, m9_h0_count, source, goal_l, goal_r);
+      m9_h1_active = 1U;
+    }
+    else if (m9_h1_dropped != 0xffffffffUL)
+      m9_h1_dropped++;
+  }
+  m9_h0_active = 1U;
+}
+
+/* H2-A uses a later-defined Voice pending builder observer; declare it here. */
+static uint8_t Voice_HasPendingData(void);
+
+/* M9-H2A SOURCE STAGE — one post-DONE read-only supervisor.
+ * No active PWM, timer or motor direction call is reachable here.
+ * H2-B (power) is BLOCKED until electrical+thermal evidence and a
+ * separate exact-SHA review. H0/H1 remain unmodified and independent.
+ */
+static void M9H2_StartAfterDone(uint8_t result)
+{
+  uint16_t goal_l, goal_r;
+  uint8_t source;
+  if ((m9_h2_monitor_enable != 1U) || (result != 2U) ||
+      (steer_pos_active == 0U) ||
+      (steer_pos_left_state != STEER_AXIS_DONE) ||
+      (steer_pos_right_state != STEER_AXIS_DONE) ||
+      (steer_pos_left_result != 2U) ||
+      (steer_pos_right_result != 2U) ||
+      (steer_pos_limit_trip_mask != 0U) ||
+      (steer_safety_trip_latched != 0U) ||
+      (control_stop_latched != 0U) ||
+      ((steer_pos_command != 1U) && (steer_pos_command != 4U)))
+    return;
+  if ((m9_h2_pending != 0U) || (m9_h2_guard.active_window != 0U))
+  {
+    if (m9_h2_dropped != 0xffffffffUL) ++m9_h2_dropped;
+    return;
+  }
+  if (steer_pos_command == 1U)
+  {
+    goal_l = STEER_POS_LEFT_CENTER_RAW;
+    goal_r = STEER_POS_RIGHT_CENTER_RAW;
+    source = (voice_pos_owned != 0U) ? 2U : 1U;
+  }
+  else
+  {
+    if ((voice_pos_owned == 0U) ||
+        (voice_pos_goal_l > 4095U) || (voice_pos_goal_r > 4095U))
+      return;
+    goal_l = voice_pos_goal_l;
+    goal_r = voice_pos_goal_r;
+    source = 3U;
+  }
+  if ((steer_pos_left_raw > 4095U) ||
+      (steer_pos_right_raw > 4095U))
+    return;
+  if (m9_h2_count < 0xffffffffUL) ++m9_h2_count;
+  m9_h2_block_bits = 0U;
+  m9_h2_owner_mode = (uint8_t)control_mode;
+  m9_h2_mode_now = m9_h2_owner_mode;
+  m9_h2_mode_ok = 0U;
+  m9_h2_voice_busy = 0U;
+  M9H2_Begin(&m9_h2_guard, m9_h2_count, HAL_GetTick(),
+             source, goal_l, goal_r,
+             steer_pos_left_new_sample_count,
+             steer_pos_right_new_sample_count);
+  /* Inherits the SAME completed M8 goal and guard session; never a
+   * second steering owner. A failed begin revokes the candidate.
+   */
+  M9H2B_Begin(&m9_h2b_policy, &m9_h2_guard);
+}
+
+/* Fresh AS5600 cached values only. 0 power on ALL paths. Captures a
+ * bitset explaining an H0-like abort without falsely calling it NC.
+ */
+static void M9H2_IdleUpdate(void)
+{
+  M9H2Input in = {0};
+  uint8_t pre_active;
+  uint32_t bits = 0U;
+  if (m9_h2_guard.active_window == 0U) return;
+  in.now_ms = HAL_GetTick();
+  in.raw_l = steer_pos_left_raw;
+  in.raw_r = steer_pos_right_raw;
+  in.sample_l_ms = steer_pos_left_last_sample_ms;
+  in.sample_r_ms = steer_pos_right_last_sample_ms;
+  in.sample_seq_l = steer_pos_left_new_sample_count;
+  in.sample_seq_r = steer_pos_right_new_sample_count;
+  in.valid_l = (uint8_t)((debug_as5600_left_comm_ok != 0U) &&
+      (AS5600_DebugReadingValid(1U, debug_as5600_left_status) != 0U));
+  in.valid_r = (uint8_t)((debug_as5600_right_comm_ok != 0U) &&
+      (AS5600_DebugReadingValid(1U, debug_as5600_right_status) != 0U));
+  in.nc_mask = Steering_TestRawLimitMask();
+  m9_h2_mode_now = (uint8_t)control_mode;
+  m9_h2_voice_busy = (uint8_t)(
+      (voice_execution_active != 0U) ||
+      (voice_command_ready != 0U) ||
+      (voice_pos_request != 0U) ||
+      (voice_pos_owned != 0U) ||
+      (Voice_HasPendingData() != 0U));
+  m9_h2_mode_ok = M9H2_ModeAllowed(
+      m9_h2_guard.source, m9_h2_owner_mode, m9_h2_mode_now,
+      m9_h2_voice_busy, ps2_manual_active, ps2_cancel_hold);
+  if (steer_safety_trip_latched != 0U) bits |= 1UL << 0;
+  if (control_stop_latched != 0U) bits |= 1UL << 1;
+  if (control_mode == CONTROL_MODE_STOP) bits |= 1UL << 2;
+  if (steer_safety_neutral_required != 0U) bits |= 1UL << 3;
+  if (m9_h2_monitor_enable != 1U) bits |= 1UL << 4;
+  if (steer_safety_motion_permit != 1U) bits |= 1UL << 5;
+  if (Steering_PositionWheelsStopped() == 0U) bits |= 1UL << 6;
+  if (in.nc_mask != 0U) bits |= 1UL << 7;
+  if ((steer_pos_active != 0U) || (steer_manual_active != 0U) ||
+      (steer_cal_active != 0U) || (steer_test_running != 0U) ||
+      (steer_test_arm != 0U) || (steer_test_request != 0U) ||
+      (m9_h2_mode_ok == 0U))
+    bits |= 1UL << 8;
+  if (debug_as5600_poll_enable != 0U) bits |= 1UL << 9;
+  m9_h2_block_bits |= bits;
+  in.safety_ok = (uint8_t)((steer_safety_trip_latched == 0U) &&
+      (control_stop_latched == 0U) &&
+      (control_mode != CONTROL_MODE_STOP) &&
+      (steer_safety_neutral_required == 0U) &&
+      (steer_safety_motion_permit == 1U) &&
+      (STEER_SAFETY_INCIDENT_LOCKOUT == 0U));
+  in.monitoring_allowed = (uint8_t)((m9_h2_monitor_enable == 1U) &&
+      (debug_as5600_poll_enable == 0U));
+  in.owners_idle = (uint8_t)((steer_pos_active == 0U) &&
+      (steer_manual_active == 0U) &&
+      (steer_cal_active == 0U) &&
+      (steer_test_running == 0U) &&
+      (steer_test_arm == 0U) &&
+      (steer_test_request == 0U) &&
+      (m9_h2_mode_ok != 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) == 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) == 0U));
+  in.wheels_stopped = Steering_PositionWheelsStopped();
+  /* Even changing this debug variable cannot enable motor:
+   * M9H2_POWER_PERMITTED=0 AND no H2 motor write exists.
+   */
+  in.request_power = m9_h2_bench_request;
+  pre_active = m9_h2_guard.active_window;
+  M9H2_Step(&m9_h2_guard, &in);
+  /* H2-B0 reads the already gated H2-A supervisor. It cannot
+   * command motor current and never writes PWM or GPIO. */
+  M9H2B_Step(&m9_h2b_policy, &m9_h2_guard,
+             in.now_ms, in.request_power);
+  if ((pre_active != 0U) && (m9_h2_guard.active_window == 0U))
+    m9_h2_pending = 1U;
+}
+
+/* Capture the REAL drive/motion of the already-authorized M8 position
+ * owner. Observer is read-only, uses cached AS5600 + timer CCR snapshots.
+ * No additional I2C transaction, PWM set, DIR change or HAL delay.
+ */
+static void M9REAL_StartForPosition(void)
+{
+  uint16_t gl, gr;
+  uint8_t source;
+  if ((m9_h1_shadow_enable != 1U) ||
+      (m9_h0_monitor_enable != 1U) ||
+      (steer_safety_trip_latched != 0U) ||
+      (control_stop_latched != 0U) ||
+      ((steer_pos_command != 1U) && (steer_pos_command != 4U)))
+    return;
+  if ((m9_real_trace.active != 0U) || (m9_real_pending != 0U))
+  {
+    if (m9_real_dropped < 0xffffffffUL) ++m9_real_dropped;
+    return;
+  }
+  if (steer_pos_command == 1U)
+  {
+    gl = STEER_POS_LEFT_CENTER_RAW;
+    gr = STEER_POS_RIGHT_CENTER_RAW;
+    source = (voice_pos_owned != 0U) ? 2U : 1U;
+  }
+  else
+  {
+    if ((voice_pos_owned == 0U) ||
+        (voice_pos_goal_l > 4095U) || (voice_pos_goal_r > 4095U))
+      return;
+    gl = voice_pos_goal_l;
+    gr = voice_pos_goal_r;
+    source = 3U;
+  }
+  if ((steer_pos_left_raw > 4095U) || (steer_pos_right_raw > 4095U))
+    return;
+  if (m9_real_run_count < 0xffffffffUL) ++m9_real_run_count;
+  M9REAL_Begin(&m9_real_trace, m9_real_run_count, source,
+               steer_pos_command, gl, gr, steer_pos_left_raw,
+               steer_pos_right_raw, HAL_GetTick());
+  m9_real_seen_l = steer_pos_left_new_sample_count;
+  m9_real_seen_r = steer_pos_right_new_sample_count;
+  m9_real_tx_next = 0U;
+}
+
+static void M9REAL_ObserveForPosition(void)
+{
+  uint8_t fresh_l, fresh_r, valid_l, valid_r;
+  if (m9_real_trace.active == 0U) return;
+  fresh_l = (steer_pos_left_new_sample_count != m9_real_seen_l) ? 1U : 0U;
+  fresh_r = (steer_pos_right_new_sample_count != m9_real_seen_r) ? 1U : 0U;
+  m9_real_seen_l = steer_pos_left_new_sample_count;
+  m9_real_seen_r = steer_pos_right_new_sample_count;
+  valid_l = (uint8_t)((debug_as5600_left_comm_ok != 0U) &&
+                       (AS5600_DebugReadingValid(1U, debug_as5600_left_status) != 0U));
+  valid_r = (uint8_t)((debug_as5600_right_comm_ok != 0U) &&
+                       (AS5600_DebugReadingValid(1U, debug_as5600_right_status) != 0U));
+  M9REAL_Observe(&m9_real_trace, HAL_GetTick(),
+      steer_pos_left_raw, steer_pos_right_raw,
+      fresh_l, fresh_r, valid_l, valid_r,
+      steer_pos_left_last_sample_ms, steer_pos_right_last_sample_ms,
+      (uint16_t)__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2),
+      (uint16_t)__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1),
+      Steering_TestRawLimitMask(),
+      steer_pos_left_state, steer_pos_right_state);
+}
+
+static void M9REAL_FinishForPosition(uint8_t result)
+{
+  if (m9_real_trace.active == 0U) return;
+  M9REAL_ObserveForPosition();
+  M9REAL_Finish(&m9_real_trace, HAL_GetTick(), result,
+                steer_pos_left_raw, steer_pos_right_raw);
+  m9_real_pending = 1U;
+}
+
 static void Steering_PositionFinish(uint8_t result)
 {
+  M9REAL_FinishForPosition(result); /* stop real-motion recorder before M8 owner reset */
   Steering_R1RightFineCapture(result);
   Steering_VoiceRightFineCapture(result);
   steer_voice_s154_active = 0U;
@@ -4747,6 +5121,11 @@ static void Steering_PositionFinish(uint8_t result)
   M8S00_ArrivalFinish(result);
   Steering_PositionLeftOff();
   Steering_PositionRightOff();
+  M9H0_StartAfterDone(result); /* read-only snapshot after CCR0 */
+  M9H2_StartAfterDone(result); /* H2A guard observer; HARD-LOCKED PWM0 */
+#if defined(M9H2B1_INTEGRATED)
+  M9B1_StartAfterDone(result); /* separate persistent owner, no 3s expiry */
+#endif
   if (steer_pos_active != 0U) steer_pos_finish_count++;
   steer_pos_active = 0U;
   steer_pos_escape_mask = 0U;
@@ -5637,6 +6016,91 @@ static void Steering_PositionTelemetryIdleUpdate(void)
   steer_pos_idle_next_side ^= 1U;
 }
 
+/* M9-H0: observe only cached AS5600 samples after existing idle poll.
+ * Never call I2C, drive PWM/DIR, change ownership or send UART here.
+ * Failed/stale streams remain visible as 0 sample counts / invalid counts.
+ */
+static void M9H0_IdleUpdate(void)
+{
+  uint32_t now;
+  if (m9_h0_active == 0U) return;
+  now = HAL_GetTick();
+  if ((steer_safety_trip_latched != 0U) ||
+      (control_stop_latched != 0U) ||
+      (control_mode == CONTROL_MODE_STOP) ||
+      (steer_safety_neutral_required != 0U) ||
+      (m9_h0_monitor_enable != 1U))
+  {
+    M9H0_Stop(3U);
+    return;
+  }
+  if ((steer_pos_active != 0U) || (steer_manual_active != 0U) ||
+      (steer_cal_active != 0U) || (steer_test_running != 0U) ||
+      (steer_test_arm != 0U) || (steer_test_request != 0U) ||
+      (debug_as5600_poll_enable != 0U) ||
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) != 0U) ||
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) != 0U))
+  {
+    M9H0_Stop(2U);
+    return;
+  }
+  if (Steering_PositionWheelsStopped() == 0U)
+    m9_h0_drift.wheels_moved = 1U;
+  if (steer_pos_left_new_sample_count != m9_h0_seen_ok_l)
+  {
+    m9_h0_seen_ok_l = steer_pos_left_new_sample_count;
+    M9H0_Feed(&m9_h0_drift, 1U, steer_pos_left_raw,
+              (uint8_t)((debug_as5600_left_comm_ok != 0U) &&
+              (AS5600_DebugReadingValid(1U, debug_as5600_left_status) != 0U)),
+              steer_pos_left_last_sample_ms);
+    if (m9_h1_active != 0U)
+      M9H1_Feed(&m9_h1_shadow, 1U, steer_pos_left_raw,
+                (uint8_t)((debug_as5600_left_comm_ok != 0U) &&
+                  (AS5600_DebugReadingValid(1U, debug_as5600_left_status) != 0U)),
+                steer_pos_left_last_sample_ms, now);
+  }
+  if (steer_pos_right_new_sample_count != m9_h0_seen_ok_r)
+  {
+    m9_h0_seen_ok_r = steer_pos_right_new_sample_count;
+    M9H0_Feed(&m9_h0_drift, 0U, steer_pos_right_raw,
+              (uint8_t)((debug_as5600_right_comm_ok != 0U) &&
+              (AS5600_DebugReadingValid(1U, debug_as5600_right_status) != 0U)),
+              steer_pos_right_last_sample_ms);
+    if (m9_h1_active != 0U)
+      M9H1_Feed(&m9_h1_shadow, 0U, steer_pos_right_raw,
+                (uint8_t)((debug_as5600_right_comm_ok != 0U) &&
+                  (AS5600_DebugReadingValid(1U, debug_as5600_right_status) != 0U)),
+                steer_pos_right_last_sample_ms, now);
+  }
+  if (debug_as5600_left_read_fail_count != m9_h0_seen_fail_l)
+  {
+    m9_h0_seen_fail_l = debug_as5600_left_read_fail_count;
+    M9H0_Feed(&m9_h0_drift, 1U, steer_pos_left_raw, 0U, now);
+    if (m9_h1_active != 0U)
+      M9H1_Feed(&m9_h1_shadow, 1U, steer_pos_left_raw, 0U, now, now);
+  }
+  if (debug_as5600_right_read_fail_count != m9_h0_seen_fail_r)
+  {
+    m9_h0_seen_fail_r = debug_as5600_right_read_fail_count;
+    M9H0_Feed(&m9_h0_drift, 0U, steer_pos_right_raw, 0U, now);
+    if (m9_h1_active != 0U)
+      M9H1_Feed(&m9_h1_shadow, 0U, steer_pos_right_raw, 0U, now, now);
+  }
+  if (m9_h1_active != 0U)
+  {
+    if (m9_h1_shadow_enable != 1U)
+    {
+      /* Disable request invalidates only the shadow window, never H0. */
+      m9_h1_active = 0U;
+      M9H1_Finish(&m9_h1_shadow, 3U);
+    }
+    else
+      M9H1_Tick(&m9_h1_shadow, now);
+  }
+  if ((uint32_t)(now - m9_h0_drift.start_ms) >= M9H0_WINDOW_MS)
+    M9H0_Stop(1U);
+}
+
 static void Steering_PositionUpdate(void)
 {
   uint32_t now = HAL_GetTick();
@@ -5900,6 +6364,7 @@ static void Steering_PositionUpdate(void)
     steer_left_axis.fine_first_quiet_valid = 0U;
     steer_right_axis.fine_first_quiet_valid = 0U;
     steer_pos_run_count++;
+    M9REAL_StartForPosition(); /* observer only, never changes M8 motor commands */
 
     if ((raw_mask & (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK)) ==
                     (STEER_LIMIT_L_MIN_MASK | STEER_LIMIT_L_MAX_MASK))
@@ -7665,6 +8130,347 @@ static void M8S11_StreamUpdate(void)
     return;
   }
 
+  /* M9-H0 automatically sends ONE passive post-DONE drift summary.
+   * No motor/AS5600 operation and only at verified UART + actuator idle.
+   * Later/older M8 fine summaries retain priority and their own buffers.
+   */
+  if ((m9_h0_pending != 0U) && (m9_h0_active == 0U) &&
+      (m8_s154_right_fine_pending == 0U) &&
+      (m8_r1_right_pending == 0U) &&
+      (m8_s11_stream_state == 0U) &&
+      (m8_s11_stream_enable == 0U) &&
+      (wheel_log_active == 0U) &&
+      (wheel_log_dump_active == 0U) &&
+      (wheel_log_dump_request == 0U) &&
+      (m8_s00_dump_request == 0U) &&
+      (steer_pos_active == 0U) &&
+      (steer_manual_active == 0U) &&
+      (steer_cal_active == 0U) &&
+      (steer_test_running == 0U) &&
+      (steer_test_arm == 0U) &&
+      (steer_test_request == 0U) &&
+      (Steering_PositionWheelsStopped() != 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) == 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) == 0U) &&
+      (huart3.gState == HAL_UART_STATE_READY))
+  {
+    const M9H0Drift_t *d = &m9_h0_drift;
+    uint32_t age_l = (d->left.has_sample != 0U) ?
+        (uint32_t)((d->start_ms + d->duration_ms) -
+                   d->left.last_sample_ms) : 0xffffffffUL;
+    uint32_t age_r = (d->right.has_sample != 0U) ?
+        (uint32_t)((d->start_ms + d->duration_ms) -
+                   d->right.last_sample_ms) : 0xffffffffUL;
+    n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+        "M9H0_DRIFT,sha=%s,seq=%lu,source=%u,mode=%u,reason=%u,"
+        "durationMs=%lu,goalL=%u,goalR=%u,startL=%u,startR=%u,"
+        "endL=%u,endR=%u,peakDriftL=%u,peakDriftR=%u,"
+        "peakErrL=%u,peakErrR=%u,peakVelL=%u,peakVelR=%u,"
+        "samplesL=%u,samplesR=%u,badL=%u,badR=%u,"
+        "jumpL=%u,jumpR=%u,zeroDtL=%u,zeroDtR=%u,"
+        "ageL=%lu,ageR=%lu,wheelsMoved=%u,dropped=%lu\r\n",
+        FW_BUILD_GIT_SHA,(unsigned long)d->seq,(unsigned)d->source,
+        (unsigned)d->mode,(unsigned)d->reason,
+        (unsigned long)d->duration_ms,
+        (unsigned)d->left.goal_raw,(unsigned)d->right.goal_raw,
+        (unsigned)d->left.start_raw,(unsigned)d->right.start_raw,
+        (unsigned)d->left.end_raw,(unsigned)d->right.end_raw,
+        (unsigned)d->left.peak_drift_raw,
+        (unsigned)d->right.peak_drift_raw,
+        (unsigned)d->left.peak_error_raw,
+        (unsigned)d->right.peak_error_raw,
+        (unsigned)d->left.peak_velocity_raw_s,
+        (unsigned)d->right.peak_velocity_raw_s,
+        (unsigned)d->left.samples,(unsigned)d->right.samples,
+        (unsigned)d->left.invalid_samples,
+        (unsigned)d->right.invalid_samples,
+        (unsigned)d->left.jump_samples,(unsigned)d->right.jump_samples,
+        (unsigned)d->left.zero_dt_samples,
+        (unsigned)d->right.zero_dt_samples,
+        (unsigned long)age_l,(unsigned long)age_r,
+        (unsigned)d->wheels_moved,(unsigned long)m9_h0_dropped);
+    if (M8S11_SendLine(n) != 0U) m9_h0_pending = 0U;
+    return;
+  }
+
+  /* M9-H1: a SEPARATE read-only PD candidate summary. M9-H0 and
+   * earlier M8 auto logs have priority. One IRQ UART TX line only
+   * when every steering and wheel source is already idle.
+   * Candidates are intentionally never mapped to motor PWM or DIR.
+   */
+  if ((m9_h1_pending != 0U) && (m9_h1_active == 0U) &&
+      (m9_h0_pending == 0U) &&
+      (m8_s154_right_fine_pending == 0U) &&
+      (m8_r1_right_pending == 0U) &&
+      (m8_s11_stream_state == 0U) &&
+      (m8_s11_stream_enable == 0U) &&
+      (wheel_log_active == 0U) &&
+      (wheel_log_dump_active == 0U) &&
+      (wheel_log_dump_request == 0U) &&
+      (m8_s00_dump_request == 0U) &&
+      (steer_pos_active == 0U) &&
+      (steer_manual_active == 0U) &&
+      (steer_cal_active == 0U) &&
+      (steer_test_running == 0U) &&
+      (steer_test_arm == 0U) &&
+      (steer_test_request == 0U) &&
+      (Steering_PositionWheelsStopped() != 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) == 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) == 0U) &&
+      (huart3.gState == HAL_UART_STATE_READY))
+  {
+    const M9H1Shadow_t *d = &m9_h1_shadow;
+    const M9H1Axis_t *l = &d->left, *r = &d->right;
+    n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+        "M9H1_SHADOW,sha=%s,seq=%lu,source=%u,reason=%u,"
+        "samplesL=%u,samplesR=%u,errL=%d,errR=%d,"
+        "peakVelL=%u,peakVelR=%u,peakCmdL=%u,peakCmdR=%u,"
+        "brakeL=%u,brakeR=%u,reversalL=%u,reversalR=%u,"
+        "noiseL=%u,noiseR=%u,badL=%u,badR=%u,"
+        "staleL=%u,staleR=%u,jumpL=%u,jumpR=%u,"
+        "satL=%u,satR=%u,zeroDtL=%u,zeroDtR=%u,"
+        "dropped=%lu,shadowOnly=1\r\n",
+        FW_BUILD_GIT_SHA,(unsigned long)d->seq,
+        (unsigned)d->source,(unsigned)d->reason,
+        (unsigned)l->samples,(unsigned)r->samples,
+        (int)l->error_raw,(int)r->error_raw,
+        (unsigned)l->peak_velocity,(unsigned)r->peak_velocity,
+        (unsigned)l->peak_candidate,(unsigned)r->peak_candidate,
+        (unsigned)l->brake_frames,(unsigned)r->brake_frames,
+        (unsigned)l->reversals,(unsigned)r->reversals,
+        (unsigned)l->noise_suppressed,(unsigned)r->noise_suppressed,
+        (unsigned)l->invalid,(unsigned)r->invalid,
+        (unsigned)l->stale,(unsigned)r->stale,
+        (unsigned)l->jump_rejected,(unsigned)r->jump_rejected,
+        (unsigned)l->saturated,(unsigned)r->saturated,
+        (unsigned)l->zero_dt,(unsigned)r->zero_dt,
+        (unsigned long)m9_h1_dropped);
+    if (M8S11_SendLine(n) != 0U)
+      m9_h1_pending = 0U;
+    return;
+  }
+
+  /* M9-H2A: ONE closed-gate supervisor summary after safe idle;
+   * strictly no H2 PWM/DIR writes or UART during motor motion.
+   * Keep older M8/H0/H1 and the REAL flight recorder intact.
+   */
+  if ((m9_h2_pending != 0U) && (m9_h2_guard.active_window == 0U) &&
+      (m9_h0_pending == 0U) && (m9_h1_pending == 0U) &&
+      (m8_s154_right_fine_pending == 0U) &&
+      (m8_r1_right_pending == 0U) &&
+      (m8_s11_stream_state == 0U) &&
+      (m8_s11_stream_enable == 0U) &&
+      (wheel_log_active == 0U) &&
+      (wheel_log_dump_active == 0U) &&
+      (wheel_log_dump_request == 0U) &&
+      (m8_s00_dump_request == 0U) &&
+      (steer_pos_active == 0U) &&
+      (steer_manual_active == 0U) &&
+      (steer_cal_active == 0U) &&
+      (steer_test_running == 0U) &&
+      (steer_test_arm == 0U) &&
+      (steer_test_request == 0U) &&
+      (Steering_PositionWheelsStopped() != 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) == 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) == 0U) &&
+      (huart3.gState == HAL_UART_STATE_READY))
+  {
+    const M9H2Guard *g = &m9_h2_guard;
+    n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+        "M9H2_GUARD,sha=%s,seq=%lu,source=%u,state=%u,"
+        "reason=%u,durationMs=%lu,goalL=%u,goalR=%u,"
+        "updates=%u,freshL=%u,freshR=%u,peakErrL=%u,peakErrR=%u,"
+        "peakScoreL=%u,peakScoreR=%u,deniedNC=%u,deniedOwner=%u,"
+        "sensorErr=%u,blockedPower=%u,blockBits=%lu,"
+        "modeStart=%u,modeNow=%u,modeOK=%u,voiceBusy=%u,"
+        "bState=%u,bReason=%u,bPeakL=%u,bPeakR=%u,"
+        "bEligibleL=%u,bEligibleR=%u,bVetoL=%u,bVetoR=%u,"
+        "bBlocked=%u,bCcrL=%u,bCcrR=%u,"
+        "dutyL=%u,dutyR=%u,powered=0,shadowOnly=1,dropped=%lu\r\n",
+        FW_BUILD_GIT_SHA,(unsigned long)g->seq,(unsigned)g->source,
+        (unsigned)g->state,(unsigned)g->reason,
+        (unsigned long)(g->ended_ms - g->started_ms),
+        (unsigned)g->goal_l,(unsigned)g->goal_r,
+        (unsigned)g->updates,(unsigned)g->fresh_l,(unsigned)g->fresh_r,
+        (unsigned)g->peak_error_l,(unsigned)g->peak_error_r,
+        (unsigned)g->peak_score_l,(unsigned)g->peak_score_r,
+        (unsigned)g->denied_nc,(unsigned)g->denied_owner,
+        (unsigned)g->errors,(unsigned)g->blocked_power_requests,
+        (unsigned long)m9_h2_block_bits,
+        (unsigned)m9_h2_owner_mode,(unsigned)m9_h2_mode_now,
+        (unsigned)m9_h2_mode_ok,(unsigned)m9_h2_voice_busy,
+        (unsigned)m9_h2b_policy.state,
+        (unsigned)m9_h2b_policy.reason,
+        (unsigned)m9_h2b_policy.peak_candidate_l,
+        (unsigned)m9_h2b_policy.peak_candidate_r,
+        (unsigned)m9_h2b_policy.eligible_l,
+        (unsigned)m9_h2b_policy.eligible_r,
+        (unsigned)m9_h2b_policy.damping_veto_l,
+        (unsigned)m9_h2b_policy.damping_veto_r,
+        (unsigned)m9_h2b_policy.blocked_power,
+        (unsigned)m9_h2b_policy.motor_ccr_l,
+        (unsigned)m9_h2b_policy.motor_ccr_r,
+        (unsigned)g->duty_l,(unsigned)g->duty_r,
+        (unsigned long)m9_h2_dropped);
+    if (M8S11_SendLine(n) != 0U) m9_h2_pending = 0U;
+    return;
+  }
+
+  /* M9-H2B1 summaries only when real outputs and wheel drive are idle.
+   * A collector ending never ends the persistent controller session. */
+  if (m9_h2b1_pending && !m9_h2_pending && !m9_h0_pending &&
+      !m9_h1_pending && !m8_s154_right_fine_pending && !m8_r1_right_pending &&
+      !m8_s11_stream_state && !m8_s11_stream_enable && !wheel_log_active &&
+      !wheel_log_dump_active && !wheel_log_dump_request &&
+      !m8_s00_dump_request && !steer_pos_active && !steer_manual_active &&
+      !steer_cal_active && !steer_test_running && !steer_test_arm &&
+      !steer_test_request && Steering_PositionWheelsStopped() &&
+      __HAL_TIM_GET_COMPARE(&htim12,TIM_CHANNEL_2)==0U &&
+      __HAL_TIM_GET_COMPARE(&htim14,TIM_CHANNEL_1)==0U &&
+      huart3.gState==HAL_UART_STATE_READY)
+  {
+    const M9B1Hold *b=&m9_h2b1_hold;
+    n=snprintf((char *)m8_s11_tx_line,sizeof(m8_s11_tx_line),
+      "M9H2B1_HOLD,sha=%s,seq=%lu,source=%u,state=%u,reason=%u,"
+      "active=%u,commissioned=%u,profile=%u,lease=%u,elapsedMs=%lu,"
+      "goalL=%u,goalR=%u,rawL=%u,rawR=%u,eL=%d,eR=%d,vL=%ld,vR=%ld,"
+      "pwmL=%d,pwmR=%d,peakPwmL=%u,peakPwmR=%u,"
+      "peakErrL=%u,peakErrR=%u,effortL=%lu,effortR=%lu,faultAxes=%u,"
+      "appliedLms=%lu,appliedRms=%lu,"
+      "appliedMs=%lu,everApplied=%u,updates=%lu,dropped=%lu,retryCount=%lu,"
+      "kickL=%lu,kickR=%lu\r\n",
+      FW_BUILD_GIT_SHA,(unsigned long)b->seq,(unsigned)b->source,
+      (unsigned)b->state,(unsigned)b->reason,(unsigned)b->active,
+      (unsigned)M9H2B1_POWER_COMMISSIONED,
+      (unsigned)m9_h2b1_config.power_mode,(unsigned)b->lease,
+      (unsigned long)(HAL_GetTick()-b->started_ms),
+      (unsigned)b->goal[0],(unsigned)b->goal[1],
+      (unsigned)b->axis[0].raw,(unsigned)b->axis[1].raw,
+      (int)b->axis[0].error,(int)b->axis[1].error,
+      (long)b->axis[0].velocity,(long)b->axis[1].velocity,
+      (int)b->axis[0].pwm,(int)b->axis[1].pwm,
+      (unsigned)b->axis[0].peak_pwm,(unsigned)b->axis[1].peak_pwm,
+      (unsigned)b->axis[0].peak_error,(unsigned)b->axis[1].peak_error,
+      (unsigned long)b->axis[0].effort_ms,(unsigned long)b->axis[1].effort_ms,
+      (unsigned)b->fault_axes,
+      (unsigned long)b->axis[0].applied_ms,(unsigned long)b->axis[1].applied_ms,
+      (unsigned long)b->applied_ms,(unsigned)b->ever_applied,
+      (unsigned long)b->updates,(unsigned long)m9_h2b1_dropped,
+      (unsigned long)b->retry_count,
+      (unsigned long)b->axis[0].assist_count,(unsigned long)b->axis[1].assist_count);
+    if (M8S11_SendLine(n) != 0U) m9_h2b1_pending=0U;
+    return;
+  }
+
+  /* M9-H1 REAL MOTION: only RAM-recorded physical AS5600/CCR frames.
+   * Send after M8 summaries and BOTH H0/H1 post-DONE summaries.
+   * At most one static 80-frame session; strict safe idle UART3 IRQ.
+   * No trace packet is created or transmitted while actuator active.
+   */
+  if ((m9_real_pending != 0U) && (m9_real_trace.active == 0U) &&
+      (m9_h0_active == 0U) && (m9_h1_active == 0U) &&
+      (m9_h0_pending == 0U) && (m9_h1_pending == 0U) &&
+      (m8_s154_right_fine_pending == 0U) &&
+      (m8_r1_right_pending == 0U) &&
+      (m8_s11_stream_state == 0U) &&
+      (m8_s11_stream_enable == 0U) &&
+      (wheel_log_active == 0U) &&
+      (wheel_log_dump_active == 0U) &&
+      (wheel_log_dump_request == 0U) &&
+      (m8_s00_dump_request == 0U) &&
+      (steer_pos_active == 0U) &&
+      (steer_manual_active == 0U) &&
+      (steer_cal_active == 0U) &&
+      (steer_test_running == 0U) &&
+      (steer_test_arm == 0U) &&
+      (steer_test_request == 0U) &&
+      (Steering_PositionWheelsStopped() != 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_2) == 0U) &&
+      (__HAL_TIM_GET_COMPARE(&htim14, TIM_CHANNEL_1) == 0U) &&
+      (huart3.gState == HAL_UART_STATE_READY))
+  {
+    const M9RealTrace_t *d = &m9_real_trace;
+    if (m9_real_tx_next == 0U)
+    {
+      n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+          "M9H1_REAL_BEGIN,sha=%s,seq=%lu,source=%u,mode=%u,"
+          "result=%u,durationMs=%lu,goalL=%u,goalR=%u,"
+          "startL=%u,startR=%u,endL=%u,endR=%u,stored=%u,"
+          "pwmPeakL=%u,pwmPeakR=%u,overflow=%u,bad=%u,"
+          "stale=%u,skipped=%u,dropped=%lu,shadowOnly=1\r\n",
+          FW_BUILD_GIT_SHA,(unsigned long)d->seq,
+          (unsigned)d->source,(unsigned)d->mode,(unsigned)d->result,
+          (unsigned long)d->duration_ms,
+          (unsigned)d->goal_l,(unsigned)d->goal_r,
+          (unsigned)d->start_l,(unsigned)d->start_r,
+          (unsigned)d->end_l,(unsigned)d->end_r,
+          (unsigned)d->stored,
+          (unsigned)d->peak_ccr_l,(unsigned)d->peak_ccr_r,
+          (unsigned)d->overflows,(unsigned)d->bad,
+          (unsigned)d->stale,(unsigned)d->skipped,
+          (unsigned long)m9_real_dropped);
+    }
+    else if (m9_real_tx_next <= d->stored)
+    {
+      const M9RealFrame_t *p = &d->frame[m9_real_tx_next - 1U];
+      n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+          "M9H1_REAL_FRAME,sha=%s,seq=%lu,i=%u,t=%lu,"
+          "rawL=%u,rawR=%u,eL=%d,eR=%d,vL=%d,vR=%d,"
+          "uL=%d,uR=%d,ccrL=%u,ccrR=%u,ageL=%u,ageR=%u,"
+          "nc=%u,stateL=%u,stateR=%u,shadowOnly=1\r\n",
+          FW_BUILD_GIT_SHA,(unsigned long)d->seq,
+          (unsigned)(m9_real_tx_next - 1U),(unsigned long)p->t_ms,
+          (unsigned)p->raw_l,(unsigned)p->raw_r,
+          (int)p->err_l,(int)p->err_r,
+          (int)p->vel_l,(int)p->vel_r,
+          (int)p->cmd_l,(int)p->cmd_r,
+          (unsigned)p->ccr_l,(unsigned)p->ccr_r,
+          (unsigned)p->age_l,(unsigned)p->age_r,
+          (unsigned)p->nc_mask,(unsigned)p->state_l,(unsigned)p->state_r);
+    }
+    else
+    {
+      n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
+          "M9H1_REAL_END,sha=%s,seq=%lu,source=%u,result=%u,"
+          "frames=%u,durationMs=%lu,peakCmdL=%u,peakCmdR=%u,"
+          "peakVelL=%u,peakVelR=%u,brakeL=%u,brakeR=%u,"
+          "reversalL=%u,reversalR=%u,noiseL=%u,noiseR=%u,"
+          "badL=%u,badR=%u,staleL=%u,staleR=%u,"
+          "jumpL=%u,jumpR=%u,overflow=%u,dropped=%lu,shadowOnly=1\r\n",
+          FW_BUILD_GIT_SHA,(unsigned long)d->seq,
+          (unsigned)d->source,(unsigned)d->result,
+          (unsigned)d->stored,(unsigned long)d->duration_ms,
+          (unsigned)d->pd.left.peak_candidate,
+          (unsigned)d->pd.right.peak_candidate,
+          (unsigned)d->pd.left.peak_velocity,
+          (unsigned)d->pd.right.peak_velocity,
+          (unsigned)d->pd.left.brake_frames,
+          (unsigned)d->pd.right.brake_frames,
+          (unsigned)d->pd.left.reversals,
+          (unsigned)d->pd.right.reversals,
+          (unsigned)d->pd.left.noise_suppressed,
+          (unsigned)d->pd.right.noise_suppressed,
+          (unsigned)d->pd.left.invalid,
+          (unsigned)d->pd.right.invalid,
+          (unsigned)d->pd.left.stale,
+          (unsigned)d->pd.right.stale,
+          (unsigned)d->pd.left.jump_rejected,
+          (unsigned)d->pd.right.jump_rejected,
+          (unsigned)d->overflows,(unsigned long)m9_real_dropped);
+    }
+    if (M8S11_SendLine(n) != 0U)
+    {
+      if (m9_real_tx_next > d->stored)
+      {
+        m9_real_pending = 0U;
+        m9_real_tx_next = 0U;
+      }
+      else
+        ++m9_real_tx_next;
+    }
+    return;
+  }
+
   if (m8_s11_stream_state == 0U)
   {
     if ((m8_s11_stream_enable == 0U) ||
@@ -8130,12 +8936,18 @@ static uint16_t Steering_S142Demand(uint8_t left,uint16_t amount,uint8_t dpad)
 
 static void Steering_ManualLeftOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
   steer_manual_left_pwm = 0U;
 }
 
 static void Steering_ManualRightOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
   steer_manual_right_pwm = 0U;
 }
@@ -8313,6 +9125,7 @@ volatile uint32_t steer_nc_local_stop_count = 0U;
 volatile uint8_t steer_nc_local_stop_last_mask = 0U;
 static void Steering_SafetyOnLimitInterrupt(uint8_t bit)
 {
+  ++m9_h2b1_nc_epoch; /* retain an NC edge even after GPIO bounces clear */
   steer_nc_local_stop_last_mask = bit;
   steer_nc_local_stop_count++;
   if ((Steering_SafetyExpectedNcMask() & bit) != 0U)
@@ -10486,12 +11299,18 @@ static uint8_t Steering_SafetyEnvelopeWithNcDiscovery(uint8_t left,
 
 static void Steering_CalLeftOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
   steer_cal_left_pwm = 0U;
 }
 
 static void Steering_CalRightOff(void)
 {
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return; /* ordinary idle owner only */
+#endif
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
   steer_cal_right_pwm = 0U;
 }
@@ -11889,13 +12708,16 @@ static int16_t PS2_Convert_LY_To_PWM(uint8_t ly)
 }
 
 
+#include "m9_h2b1_main.inc"
+
 static void Turn_Motors_Stop(void)
 {
-  /*
-   * M2 chưa điều khiển vị trí đánh lái.
-   * Hai kênh PWM đánh lái chưa được HAL_TIM_PWM_Start(),
-   * đồng thời compare luôn được giữ bằng 0.
-   */
+#if defined(M9H2B1_INTEGRATED)
+  M9B1_Stop(M9B1_STOP); /* explicit STOP revokes, never silently resumes */
+#endif
+  /* Explicit all-steering STOP: revoke the persistent HOLD lease and
+   * zero BOTH outputs. Ordinary idle paths retain a valid HOLD before
+   * calling this function; STOP/fault paths never use that exception. */
   __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0U);
   __HAL_TIM_SET_COMPARE(&htim14, TIM_CHANNEL_1, 0U);
 }
@@ -13773,7 +14595,10 @@ static void PS2_ApplyManualControl(void)
   if ((steer_manual_active == 0U) && (steer_pos_active == 0U) &&
       (Steering_ManualRequestDirection() == 0) &&
       (PS2_Pad.R1 == 0U) && (PS2_Pad.R2 == 0U))
-    Turn_Motors_Stop();
+#if defined(M9H2B1_INTEGRATED)
+    if (M9B1_KeepOutput() == 0U)
+#endif
+      Turn_Motors_Stop();
 }
 
 
@@ -13935,7 +14760,10 @@ static void Control_Arbitrate(void)
     {
       control_mode = CONTROL_MODE_IDLE;
       WheelControl_SetTargetPWM(0);
-      Turn_Motors_Stop();
+#if defined(M9H2B1_INTEGRATED)
+      if (M9B1_KeepOutput() == 0U)
+#endif
+        Turn_Motors_Stop();
     }
 
     return;
@@ -13952,6 +14780,9 @@ static void Control_Arbitrate(void)
    * service and limit EXTI stop it. All STOP/PS2/Voice paths above still
    * call Turn_Motors_Stop() immediately as before.
    */
+#if defined(M9H2B1_INTEGRATED)
+  if (M9B1_KeepOutput() != 0U) return;
+#endif
   if (steer_test_running == 0U)
   {
     Turn_Motors_Stop();
@@ -14746,6 +15577,7 @@ int main(void)
     PS2_RestoreRouteUpdate(); /* S15 all mapped PS2 commands, read-only */
     PS2_ObserveNewMapping(); /* decoded requests; output gating is separate */
 
+    M9B1_PreOwnerService(); /* release HOLD before a new owner writes */
     Control_Arbitrate();
     /* Any steering NC trip is a whole-vehicle incident. Arbitration may
      * still issue wheel targets, so override them before the wheel update.
@@ -14927,6 +15759,10 @@ int main(void)
      */
     if (debug_steer_auto_as5600_idle_observe != 0U)
       Steering_PositionTelemetryIdleUpdate();
+    M9REAL_ObserveForPosition(); /* capture REAL M8 motion in RAM only */
+    M9H0_IdleUpdate(); /* cached samples ONLY; no additional I2C / motor command */
+    M9H2_IdleUpdate(); /* H2A: independent safe supervisor; no motor output */
+    M9B1_Update(); /* persistent dual-axis HOLD, gated atomic actuator port */
     Steering_S143NeutralObserve(); /* cached AS5600 only */
     M8S00_ClearService(); /* read-only S00 diagnostics reset */
     PS2_DebugObserveRightOutput(); /* after all PWM owners have run */

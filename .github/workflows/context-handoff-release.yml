@@ -112,6 +112,24 @@ jobs:
       - name: Verify guarded PS2 R1/Voice CENTER RIGHT 10RAW fine entry and passive diagnostic
         run: python3 tools/verify_m8_r1_right_center_late_fine.py
 
+      - name: Verify M9-H0 passive drift actual-C HOST tracker and no motor output
+        run: python3 tools/verify_m9_h0_drift.py
+
+      - name: Verify M9-H1 PD SHADOW only, filtered velocity, release-load simulation
+        run: python3 tools/verify_m9_h1_shadow.py
+
+      - name: Verify M9-H1 REAL drive cached-AS5600 flight recorder with GCC
+        run: python3 tools/verify_m9_h1_real.py
+
+      - name: Verify M9-H2A HOLD guard and HARD-CLOSED motor output
+        run: python3 tools/verify_m9_h2_guard.py
+
+      - name: Verify M9-H2B0 candidate C and HARD LOCKED output
+        run: python3 tools/verify_m9_h2b_policy.py
+
+      - name: Verify full persistent H2-B1 two-axis controller and main actuator ownership
+        run: python tools/verify_m9_h2b1_hold.py
+
       - name: Verify S15.4 fresh post-I2C sample tick and skip telemetry
         run: python3 tools/verify_m8_s154_sync_sample_clock.py
 
@@ -172,6 +190,11 @@ jobs:
                                ".\\tools\\capture_m8_s154_right_fine.ps1",
                                ".\\tools\\capture_m8_r1_center.ps1",
                                ".\\tools\\capture_m8_vc02_rotate.ps1",
+                               ".\\tools\\capture_m9_h0_drift.ps1",
+                               ".\\tools\\capture_m9_h1_shadow.ps1",
+                               ".\\tools\\capture_m9_h1_real.ps1",
+                               ".\\tools\\capture_m9_h2_guard.ps1",
+                               ".\\tools\\capture_m9_h2b1_hold.ps1",
                                ".\\tools\\stamp_firmware_build.ps1")) {
             $tokens = $null
             $errors = $null
@@ -250,3 +273,4 @@ jobs:
               --latest=false \
               "${bundle}" "${status}"
           fi
+
