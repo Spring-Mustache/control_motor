@@ -150,9 +150,13 @@ static void production_tuning_profile(void)
   assert(m.pwm[0]<=30U && m.pwm[1]<=10U && h.ever_applied);
   applied=h.applied_ms;assert(applied>0 && h.axis[0].applied_ms>0 && h.axis[1].applied_ms>0);
   for(;t<=122000 && h.active;t+=10)tick(&h,&c,&m,&p,t,988,1012);
-  assert(!h.active && h.reason==M9B1_NO_PROGRESS && h.fault_axes);
-  assert(!h.lease && !m.pwm[0] && !m.pwm[1]);
-  tick(&h,&c,&m,&p,t+10,1000,1000);assert(!h.active); /* new goal required */
+  assert(h.active && h.state==M9B1_COOLDOWN && h.reason==M9B1_NO_PROGRESS && h.fault_axes);
+  assert(h.lease && !m.pwm[0] && !m.pwm[1]);
+  assert(h.seq==1U && h.goal[0]==1000U && h.goal[1]==1000U);
+  for(;t<=130000;t+=10)tick(&h,&c,&m,&p,t,988,1012);
+  assert(h.active && h.retry_count>=1U && h.applied_ms>applied);
+  M9B1_Cut(&h,&p,M9B1_STOP);
+  tick(&h,&c,&m,&p,t+10,988,1012);assert(!h.active && !m.pwm[0] && !m.pwm[1]);
   /* Tuning cannot remove guards or silently raise the electrical test caps. */
   c=m9_h2b1_config;c.axis[1].max_pwm=11U;assert(!M9B1_ConfigValid(&c));
   c=m9_h2b1_config;c.tuning_no_progress_ms=0;assert(!M9B1_ConfigValid(&c));
@@ -171,15 +175,98 @@ static void effort_recovery_and_wrap(void)
   for(;t<=2000;t+=10)tick(&h,&c,&m,&p,offset+t,1000,1000);
   assert(h.active && !m.pwm[0] && h.axis[0].effort_ms<before);
   assert(h.axis[0].effort_ms>0);
-  for(;t<=5000 && h.active;t+=10)tick(&h,&c,&m,&p,offset+t,988,1012);
-  assert(!h.active && h.reason==M9B1_EFFORT_BUDGET && h.fault_axes);
-  assert(!m.pwm[0] && !m.pwm[1] && !h.lease);
+  for(;t<=5000 && h.state!=M9B1_COOLDOWN;t+=10)
+    tick(&h,&c,&m,&p,offset+t,988,1012);
+  assert(h.active && h.state==M9B1_COOLDOWN && h.reason==M9B1_EFFORT_BUDGET && h.fault_axes);
+  assert(!m.pwm[0] && !m.pwm[1] && h.lease);
+  before=h.axis[0].effort_ms;
+  assert(before>=1500U && h.axis[1].effort_ms>0U);
+  tick(&h,&c,&m,&p,offset+t,988,1012);t+=10;
+  assert(h.axis[0].effort_ms<before && h.axis[0].effort_ms>0U);
+  for(;t<=16000 && !h.retry_count;t+=10){
+    tick(&h,&c,&m,&p,offset+t,988,1012);
+    if(h.state==M9B1_COOLDOWN)assert(!m.pwm[0] && !m.pwm[1]);
+  }
+  assert(h.active && h.retry_count==1U && h.state==M9B1_HOLDING);
+  assert(!h.axis[0].effort_ms && !h.axis[1].effort_ms);
+}
+static void repeated_retry_and_safety(void)
+{
+  M9B1Config c=m9_h2b1_config;M9B1Hold h;Mock m;M9B1Port p;
+  uint32_t t,retries=0U,previous_l=0U,previous_r=0U;unsigned k;
+  start(&h,&c,&m,&p,0U,977U,1023U);
+  for(t=10;t<=300000;t+=10){
+    uint8_t previous_state=h.state;
+    tick(&h,&c,&m,&p,t,977U,1023U);
+    assert(h.active && h.seq==1U && h.goal[0]==1000U && h.goal[1]==1000U);
+    assert(m.pwm[0]<=30U && m.pwm[1]<=10U);
+    if(h.state==M9B1_COOLDOWN){
+      assert(!m.pwm[0] && !m.pwm[1] && h.lease);
+      if(previous_state==M9B1_COOLDOWN){
+        assert(h.axis[0].effort_ms<=previous_l && h.axis[1].effort_ms<=previous_r);
+      }
+    }
+    if(h.retry_count!=retries){
+      assert(h.retry_count==retries+1U && previous_state==M9B1_COOLDOWN);
+      assert(!h.axis[0].effort_ms && !h.axis[1].effort_ms);
+      retries=h.retry_count;
+    }
+    previous_l=h.axis[0].effort_ms;previous_r=h.axis[1].effort_ms;
+  }
+  assert(retries>20U && h.axis[0].peak_pwm==30U && h.axis[1].peak_pwm==10U);
+  /* No resetting of the exposure history on retry; allow one startup burst. */
+  assert(h.axis[0].applied_ms<=300000U*15U/100U+1500U);
+  assert(h.axis[1].applied_ms<=300000U*15U/100U+1500U);
+  /* A safety/new-owner failure during a rest cancels the goal permanently. */
+  for(k=0;k<7U;k++){
+    M9B1Input in;
+    start(&h,&c,&m,&p,0U,988U,1012U);
+    for(t=10;t<2000 && h.state!=M9B1_COOLDOWN;t+=10)
+      tick(&h,&c,&m,&p,t,988U,1012U);
+    assert(h.active && h.state==M9B1_COOLDOWN);
+    in=input(t,988U,1012U);
+    switch(k){
+      case 0:in.safety_ok=0U;break;case 1:in.nc_mask=1U;break;
+      case 2:in.owners_free=0U;break;case 3:in.valid[1]=0U;break;
+      case 4:in.sample_ms[0]=t-251U;break;case 5:in.raw[0]=1033U;break;
+      default:in.enabled=0U;break;
+    }
+    m.now=t;M9B1_Step(&h,&c,&in);(void)M9B1_Apply(&h,&c,&p);
+    assert(!h.active && !h.lease && !m.pwm[0] && !m.pwm[1]);
+    for(t+=10;t<12000;t+=10)tick(&h,&c,&m,&p,t,988U,1012U);
+    assert(!h.active && !m.pwm[0] && !m.pwm[1]);
+  }
+}
+static void direction_change_during_rest(void)
+{
+  M9B1Config c=m9_h2b1_config;M9B1Hold h;Mock m;M9B1Port p;
+  uint32_t t,resumed;
+  start(&h,&c,&m,&p,0U,977U,1000U);
+  for(t=10;t<2000 && h.state!=M9B1_COOLDOWN;t+=10)
+    tick(&h,&c,&m,&p,t,977U,1000U);
+  assert(h.state==M9B1_COOLDOWN && m.dir[0]==1);
+  /* External displacement crosses the goal while output rests. Resume
+   * must use the fresh angle and observe reversal blanking, not replay PWM. */
+  for(;t<12000 && !h.retry_count;t+=10)tick(&h,&c,&m,&p,t,1020U,1000U);
+  assert(h.retry_count==1U && h.active && !m.pwm[0]);resumed=t-10U;
+  for(;t<resumed+c.axis[0].reversal_zero_ms;t+=10){
+    tick(&h,&c,&m,&p,t,1020U,1000U);assert(!m.pwm[0]);
+  }
+  for(;t<=resumed+c.axis[0].reversal_zero_ms+100U;t+=10)
+    tick(&h,&c,&m,&p,t,1020U,1000U);
+  assert(h.active && m.pwm[0] && m.dir[0]==-1 && h.axis[0].error==-20);
+  /* Release/return to goal settles to zero; a later disturbance corrects again. */
+  for(;t<=resumed+600U;t+=10)tick(&h,&c,&m,&p,t,1000U,1000U);
+  assert(h.active && !m.pwm[0] && !m.pwm[1]);
+  for(;t<=resumed+1000U;t+=10)tick(&h,&c,&m,&p,t,1020U,1000U);
+  assert(h.active && m.pwm[0] && m.dir[0]==-1 && h.goal[0]==1000U);
 }
 int main(void)
 {
   continuous_and_independent();release_damping();revocations();
   commissioned_interlock();atomic_rechecks();wrap_and_jitter();
-  production_tuning_profile();effort_recovery_and_wrap();
+  production_tuning_profile();effort_recovery_and_wrap();repeated_retry_and_safety();
+  direction_change_during_rest();
   puts("PASS H2-B1 actual C: persistent dual-axis 120s, damping/reversal, fault revocation, atomic output, power interlock, wrap/jitter");
   return 0;
 }

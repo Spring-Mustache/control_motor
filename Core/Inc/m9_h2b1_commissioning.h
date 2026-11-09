@@ -9,6 +9,9 @@
  * specify current. No external ammeter/temperature feedback reaches MCU.
  * Boot has no goal/output. Only a fresh, eligible BOTH-DONE handoff
  * starts persistent HOLD. No debugger/serial write can raise these caps.
+ * No-progress/effort events retain the target, rest both outputs, and
+ * retry after the output-time budgets recover. STOP/NC/sensor/range and
+ * new-owner revocations remain latched; there is no current feedback.
  */
 #define M9H2B1_POWER_COMMISSIONED 0U
 #define M9H2B1_POWER_MODE        1U /* 0 locked, 1 tuning, 2 commissioned */

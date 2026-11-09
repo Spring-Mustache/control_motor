@@ -50,6 +50,9 @@ try{
   }else{Write-Warning "Full MCU SHA absent; preserve record."}
   $events++
   Write-Host "HOLD $($events)/$($MaxEvents): $line"
+  if($line -match '(^|,)state=6(,|$)' -and $line -match '(^|,)active=1(,|$)'){
+   Write-Host "COOLDOWN: target retained, outputs zero; automatic retry after budget recovery."
+  }
   if($line -match '(^|,)profile=1(,|$)'){
    Write-Warning "TUNING profile CAN POWER BOTH MOTORS; commissioned=0 means thermal/current acceptance is pending."
   }elseif($line -match '(^|,)commissioned=0(,|$)'){

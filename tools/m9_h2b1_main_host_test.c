@@ -145,10 +145,24 @@ int main(void)
  assert(hardware_pwm[0] && hardware_pwm[0]<=30U);
  assert(hardware_pwm[1] && hardware_pwm[1]<=10U);
  assert(hardware_dir[0]==GPIO_PIN_RESET && hardware_dir[1]==GPIO_PIN_SET);
- for(;ms<=62000 && m9_h2b1_hold.active;ms+=10)pass(ms);
- assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
+ for(;ms<=62000;ms+=10)pass(ms);
+ assert(m9_h2b1_hold.active && m9_h2b1_hold.state==M9B1_COOLDOWN);
+ assert(M9B1_KeepOutput() && !hardware_pwm[0] && !hardware_pwm[1]);
  assert(m9_h2b1_hold.reason==M9B1_NO_PROGRESS && m9_h2b1_hold.fault_axes);
- puts("PASS production tuning profile through actual HAL/main hooks: persistent quiet60s, two-axis power, bounded caps, no-progress cut");
+ for(;ms<=70000 && !m9_h2b1_hold.retry_count;ms+=10)pass(ms);
+ assert(m9_h2b1_hold.active && m9_h2b1_hold.retry_count==1U);
+ {uint32_t resumed=ms;for(;ms<resumed+100U;ms+=10)pass(ms);}
+ assert(m9_h2b1_hold.state==M9B1_HOLDING && hardware_pwm[0] && hardware_pwm[1]);
+ /* Repeated disturbance after recovery still targets the original CENTER. */
+ for(;ms<=71000;ms+=10)pass(ms);
+ assert(m9_h2b1_hold.active && m9_h2b1_hold.goal[0]==1886U && m9_h2b1_hold.goal[1]==662U);
+ for(;ms<=73000 && m9_h2b1_hold.state!=M9B1_COOLDOWN;ms+=10)pass(ms);
+ assert(m9_h2b1_hold.state==M9B1_COOLDOWN);
+ Turn_Motors_Stop();
+ for(;ms<=90000;ms+=10)pass(ms);
+ assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
+ assert(m9_h2b1_hold.reason==M9B1_STOP);
+ puts("PASS production tuning HAL/main: quiet60s, two-axis power, cooldown retains goal, automatic bounded retry, STOP during cooldown stays stopped");
  return 0;
 #endif
  begin_center(2U);assert(M9B1_KeepOutput());

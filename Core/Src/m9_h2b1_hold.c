@@ -112,21 +112,23 @@ static uint8_t sample(M9B1Axis *a,const M9B1Config *c,const M9B1Input *in,
 /* This is an output-time/response guard, NOT current or I2t protection.
  * Charge actual acknowledged output time, then recover only while zero.
  * No fixed-window reset: crossing a clock boundary cannot double a burst.
- * Both axes are cut on any tuning fault; the goal never auto-resumes.
+ * No-progress/budget exhaustion rests BOTH axes without discarding the
+ * goal. Retry only after BOTH budgets fully recover. Safety faults still
+ * revoke the goal and never auto-resume. This is NOT a current limit.
  */
 static uint8_t tuning_guard(M9B1Hold *h,const M9B1Config *c,
                               uint32_t now,uint32_t dt)
 {
-  unsigned i;
+  unsigned i;uint8_t reason=M9B1_NONE,axes=0U;
   if(c->power_mode!=M9B1_POWER_TUNING)return M9B1_NONE;
   for(i=0;i<2U;i++){
     M9B1Axis *a=&h->axis[i];
     uint16_t error=magnitude(a->error);
     if(h->applied_pwm[i]){
-      if(a->effort_ms+dt>c->tuning_effort_ms){
-        h->fault_axes|=(uint8_t)(1U<<i);return M9B1_EFFORT_BUDGET;
-      }
       a->effort_ms+=dt;a->recovery_remainder=0U;
+      if(a->effort_ms>=c->tuning_effort_ms){
+        reason=M9B1_EFFORT_BUDGET;axes|=(uint8_t)(1U<<i);
+      }
     }else{
       uint32_t recovery,denominator=(uint32_t)c->tuning_window_ms-c->tuning_effort_ms;
       a->recovery_remainder+=dt*(uint32_t)c->tuning_effort_ms;
@@ -135,17 +137,20 @@ static uint8_t tuning_guard(M9B1Hold *h,const M9B1Config *c,
       if(recovery>=a->effort_ms){a->effort_ms=0U;a->recovery_remainder=0U;}
       else a->effort_ms-=recovery;
     }
-    if(!h->applied_pwm[i] || error<=c->exit_raw){a->progress_tracking=0U;continue;}
+    if(h->state==M9B1_COOLDOWN || !h->applied_pwm[i] ||
+       error<=c->exit_raw){a->progress_tracking=0U;continue;}
     if(!a->progress_tracking){
       a->progress_tracking=1U;a->progress_error=error;a->progress_ms=now-dt;
     }else if((uint32_t)error+2U<=a->progress_error){
       a->progress_error=error;a->progress_ms=now;
     }
     if((uint32_t)(now-a->progress_ms)>=c->tuning_no_progress_ms){
-      h->fault_axes|=(uint8_t)(1U<<i);return M9B1_NO_PROGRESS;
+      if(reason==M9B1_NONE)reason=M9B1_NO_PROGRESS;
+      axes|=(uint8_t)(1U<<i);
     }
   }
-  return M9B1_NONE;
+  if(reason!=M9B1_NONE)h->fault_axes=axes;
+  return reason;
 }
 static int16_t demand(M9B1Axis *a,const M9B1AxisConfig *cfg,
                        const M9B1Config *c,uint32_t now,uint32_t dt)
@@ -207,7 +212,19 @@ void M9B1_Step(M9B1Hold *h,const M9B1Config *c,const M9B1Input *in)
     zero_demand(h);h->state=M9B1_WAIT_DATA;return;
   }
   reason=tuning_guard(h,c,in->now_ms,dt);
-  if(reason){M9B1_Revoke(h,reason);return;}
+  if(reason){
+    zero_demand(h);h->state=M9B1_COOLDOWN;h->reason=reason;
+    for(i=0;i<2U;i++){
+      h->axis[i].progress_tracking=0U;h->axis[i].reversing=0U;
+      h->axis[i].rise_remainder=0U;
+    }
+    return;
+  }
+  if(h->state==M9B1_COOLDOWN){
+    zero_demand(h);
+    if(h->axis[0].effort_ms || h->axis[1].effort_ms)return;
+    inc32(&h->retry_count);
+  }
   for(i=0;i<2U;i++)(void)demand(&h->axis[i],&c->axis[i],c,in->now_ms,dt);
   h->state=M9B1_HOLDING;h->reason=M9B1_NONE;
 }
@@ -244,12 +261,14 @@ uint8_t M9B1_Apply(M9B1Hold *h,const M9B1Config *c,const M9B1Port *p)
 {
   uint32_t irq;unsigned i;int16_t command[2];
   if(!port_valid(p)){M9B1_Revoke(h,M9B1_PORT_FAULT);return 0U;}
-  if(!h->active || h->state!=M9B1_HOLDING || !M9B1_ConfigValid(c) ||
+  if(!h->active || (h->state!=M9B1_HOLDING && h->state!=M9B1_COOLDOWN) ||
+     !M9B1_ConfigValid(c) ||
      c->power_mode==M9B1_POWER_LOCKED){
     if(h->lease)M9B1_Cut(h,p,h->reason);
     return 0U;
   }
-  command[0]=h->axis[0].pwm;command[1]=h->axis[1].pwm;
+  command[0]=(h->state==M9B1_COOLDOWN)?0:h->axis[0].pwm;
+  command[1]=(h->state==M9B1_COOLDOWN)?0:h->axis[1].pwm;
   irq=p->lock(p->context);
   if(!p->allowed(p->context))goto blocked;
   for(i=0;i<2U;i++){

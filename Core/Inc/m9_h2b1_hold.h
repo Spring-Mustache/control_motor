@@ -11,7 +11,8 @@
 #define M9H2B1_INTEGRATED 1
 typedef enum {
   M9B1_OFF=0, M9B1_WAIT_DATA=1, M9B1_UNCOMMISSIONED=2,
-  M9B1_HOLDING=3, M9B1_REVOKED=4, M9B1_FAULT=5
+  M9B1_HOLDING=3, M9B1_REVOKED=4, M9B1_FAULT=5,
+  M9B1_COOLDOWN=6 /* target retained, both outputs zero until budget recovers */
 } M9B1State;
 typedef enum {
   M9B1_NONE=0, M9B1_NEW_OWNER=1, M9B1_STOP=2, M9B1_NC=3,
@@ -59,7 +60,7 @@ typedef struct {
   M9B1Axis axis[2];
   uint16_t goal[2];
   uint32_t seq, started_ms, last_step_ms, updates;
-  uint32_t applied_ms, last_applied_ms;
+  uint32_t applied_ms, last_applied_ms, retry_count;
   int16_t applied_pwm[2];
   uint8_t source, active, state, reason, lease, ever_applied, fault_axes;
 } M9B1Hold;

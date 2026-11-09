@@ -8226,7 +8226,7 @@ static void M8S11_StreamUpdate(void)
       "pwmL=%d,pwmR=%d,peakPwmL=%u,peakPwmR=%u,"
       "peakErrL=%u,peakErrR=%u,effortL=%lu,effortR=%lu,faultAxes=%u,"
       "appliedLms=%lu,appliedRms=%lu,"
-      "appliedMs=%lu,everApplied=%u,updates=%lu,dropped=%lu\r\n",
+      "appliedMs=%lu,everApplied=%u,updates=%lu,dropped=%lu,retryCount=%lu\r\n",
       FW_BUILD_GIT_SHA,(unsigned long)b->seq,(unsigned)b->source,
       (unsigned)b->state,(unsigned)b->reason,(unsigned)b->active,
       (unsigned)M9H2B1_POWER_COMMISSIONED,
@@ -8243,7 +8243,8 @@ static void M8S11_StreamUpdate(void)
       (unsigned)b->fault_axes,
       (unsigned long)b->axis[0].applied_ms,(unsigned long)b->axis[1].applied_ms,
       (unsigned long)b->applied_ms,(unsigned)b->ever_applied,
-      (unsigned long)b->updates,(unsigned long)m9_h2b1_dropped);
+      (unsigned long)b->updates,(unsigned long)m9_h2b1_dropped,
+      (unsigned long)b->retry_count);
     if (M8S11_SendLine(n) != 0U) m9_h2b1_pending=0U;
     return;
   }

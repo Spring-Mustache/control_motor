@@ -48,13 +48,14 @@ assert finish.index('Steering_PositionLeftOff();')<finish.index('M9B1_StartAfter
 assert 'M9B1_KeepOutput()' in extract('static void Control_Arbitrate(void)')
 assert 'M9B1_KeepOutput()' in extract('static void PS2_ApplyManualControl(void)')
 assert '++m9_h2b1_nc_epoch' in extract('static void Steering_SafetyOnLimitInterrupt(uint8_t bit)')
-packet='appliedMs=%lu,everApplied=%u,updates=%lu,dropped=%lu'
+packet='appliedMs=%lu,everApplied=%u,updates=%lu,dropped=%lu,retryCount=%lu'
 assert packet+r'\r\n' in MAIN and packet+r'\\r\\n' not in MAIN
 assert 'M9H2B1_HOLD' in MAIN
 assert 'commissioned=%u,profile=%u' in MAIN
 assert '(unsigned)M9H2B1_POWER_COMMISSIONED' in MAIN
 assert 'peakErrL=%u,peakErrR=%u' in MAIN
 assert 'appliedLms=%lu,appliedRms=%lu' in MAIN
+assert 'M9B1_COOLDOWN' in CORE and 'retryCount=%lu' in MAIN
 assert 'python tools/verify_m9_h2b1_hold.py' in WORKFLOW
 packet_start=MAIN.index('"M9H2B1_HOLD,sha=')
 packet_end=MAIN.index('FW_BUILD_GIT_SHA',packet_start)
