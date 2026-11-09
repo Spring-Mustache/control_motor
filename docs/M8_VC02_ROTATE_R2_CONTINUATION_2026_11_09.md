@@ -1,5 +1,16 @@
 # Voice Rotate: keep R2 during passive wheel movement — 2026-11-09
 
+**XÁC NHẬN HIỆN HÀNH 2026-11-09 — ROTATE ĐÃ HOẠT ĐỘNG TRONG HAI LẦN THỬ MỚI.**
+Người vận hành xác nhận đã sửa được lỗi. Log MCU `b382354ec1592589843f4b579643e5b1abbbecf0`
+ghi RIGHT yêu cầu5s, thời gian lệnh xoay5006ms; LEFT yêu cầu10s, thời gian10002ms.
+Cả hai result1/started1, hai MIN NC hợp lệ, trip0, không hủy. Đây là PASS cho hai
+lần thử được ghi và xác nhận chuyển động của người vận hành. R2 chỉ12–13ms và
+passiveFrames0, nên log này không kiểm chứng riêng toàn hành trình R2 từ CENTER
+hoặc chứng minh RPM thụ động là nguyên nhân duy nhất của log lỗi cũ.
+Giữ `b382354e` làm mốc firmware Rotate đã thử thành công; M9 vẫn tạm dừng.
+Không tiếp tục chỉnh Rotate hoặc tự quay lại M9 khi chưa có chỉ thị mới.
+
+
 Parent: `d489402938f3eded60f54a928f390ef58430bf72` on
 `feature/m8-r1-voice-center-right-late-fine-10raw`. This branch remains based on
 pre-M9 d367618d; M9 HOLD stays paused on its separate branch.
@@ -106,3 +117,13 @@ First record Rotate LEFT5s and RIGHT5s, with a full stop between commands. A
 successful result has result1, started1 and spinMs >= requestedMs, with physical
 motion separately observed. If either cancels, the new abort fields select the
 next repair. Keep M9 paused until the operator resumes it.
+
+## Acceptance after the repair
+
+Operator confirmation and MCU-stamped log at b382354e support successful RIGHT5s and
+LEFT10s execution: commanded spin durations5006/10002ms, normal completion, both
+physical MIN NC and no trip/abort. These are command-timer values, not an independent
+measurement of wheel angular displacement or physical onset. R2 elapsed13/12ms and
+passiveFrames0 do not independently exercise a full R2 stroke from CENTER or the
+passive-RPM continuation case. Keep the successful firmware as baseline. No further
+Rotate changes or M9 work are started by this documentation-only acceptance update.

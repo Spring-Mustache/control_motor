@@ -1,5 +1,16 @@
 # CONTEXT HANDOFF
 
+**XÁC NHẬN HIỆN HÀNH 2026-11-09 — ROTATE ĐÃ HOẠT ĐỘNG TRONG HAI LẦN THỬ MỚI.**
+Người vận hành xác nhận đã sửa được lỗi. Log MCU `b382354ec1592589843f4b579643e5b1abbbecf0`
+ghi RIGHT yêu cầu5s, thời gian lệnh xoay5006ms; LEFT yêu cầu10s, thời gian10002ms.
+Cả hai result1/started1, hai MIN NC hợp lệ, trip0, không hủy. Đây là PASS cho hai
+lần thử được ghi và xác nhận chuyển động của người vận hành. R2 chỉ12–13ms và
+passiveFrames0, nên log này không kiểm chứng riêng toàn hành trình R2 từ CENTER
+hoặc chứng minh RPM thụ động là nguyên nhân duy nhất của log lỗi cũ.
+Giữ `b382354e` làm mốc firmware Rotate đã thử thành công; M9 vẫn tạm dừng.
+Không tiếp tục chỉnh Rotate hoặc tự quay lại M9 khi chưa có chỉ thị mới.
+
+
 **CẬP NHẬT HIỆN HÀNH 2026-11-09 — SỬA HỦY R2 DO RPM BÁNH THỤ ĐỘNG.**
 Log MCU `d4894029` xác nhận 4/4 Rotate bị hủy trước spin: R2 chỉ chạy 170–350ms,
 `pos=9`, `result=4`, `started=0`, `nc=0`, `trip=0`. Log cũ chưa có mask của điều kiện
@@ -95,6 +106,17 @@ Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_RO
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**XÁC NHẬN HIỆN HÀNH 2026-11-09 — ROTATE ĐÃ HOẠT ĐỘNG TRONG HAI LẦN THỬ MỚI.**
+Người vận hành xác nhận đã sửa được lỗi. Log MCU `b382354ec1592589843f4b579643e5b1abbbecf0`
+ghi RIGHT yêu cầu5s, thời gian lệnh xoay5006ms; LEFT yêu cầu10s, thời gian10002ms.
+Cả hai result1/started1, hai MIN NC hợp lệ, trip0, không hủy. Đây là PASS cho hai
+lần thử được ghi và xác nhận chuyển động của người vận hành. R2 chỉ12–13ms và
+passiveFrames0, nên log này không kiểm chứng riêng toàn hành trình R2 từ CENTER
+hoặc chứng minh RPM thụ động là nguyên nhân duy nhất của log lỗi cũ.
+Giữ `b382354e` làm mốc firmware Rotate đã thử thành công; M9 vẫn tạm dừng.
+Không tiếp tục chỉnh Rotate hoặc tự quay lại M9 khi chưa có chỉ thị mới.
+
 
 **CẬP NHẬT HIỆN HÀNH 2026-11-09 — SỬA HỦY R2 DO RPM BÁNH THỤ ĐỘNG.**
 Log MCU `d4894029` xác nhận 4/4 Rotate bị hủy trước spin: R2 chỉ chạy 170–350ms,
@@ -1732,5 +1754,23 @@ END OF CONTEXT HANDOFF
 - Tiếp tục bằng update ff-only trên nhánh M8, Clean Build/flash/F8, thu 2 lần
   Rotate LEFT5/RIGHT5; nếu được cả hai thì kiểm tra thêm10s. Không yêu cầu thao tác
   Live Expressions; đọc MCU SHA và result của log mới trước khi đánh dấu hardware PASS.
+
+
+## Hardware acceptance update — 2026-11-09
+
+**XÁC NHẬN HIỆN HÀNH 2026-11-09 — ROTATE ĐÃ HOẠT ĐỘNG TRONG HAI LẦN THỬ MỚI.**
+Người vận hành xác nhận đã sửa được lỗi. Log MCU `b382354ec1592589843f4b579643e5b1abbbecf0`
+ghi RIGHT yêu cầu5s, thời gian lệnh xoay5006ms; LEFT yêu cầu10s, thời gian10002ms.
+Cả hai result1/started1, hai MIN NC hợp lệ, trip0, không hủy. Đây là PASS cho hai
+lần thử được ghi và xác nhận chuyển động của người vận hành. R2 chỉ12–13ms và
+passiveFrames0, nên log này không kiểm chứng riêng toàn hành trình R2 từ CENTER
+hoặc chứng minh RPM thụ động là nguyên nhân duy nhất của log lỗi cũ.
+Giữ `b382354e` làm mốc firmware Rotate đã thử thành công; M9 vẫn tạm dừng.
+Không tiếp tục chỉnh Rotate hoặc tự quay lại M9 khi chưa có chỉ thị mới.
+
+This is a documentation-only acceptance update. Firmware source is unchanged from b382354e.
+The two captured commands complete within one control-loop interval of the requested time.
+No new firmware flash or repeat test is requested merely to record this result.
+Raw operator log is not committed; only the scoped result summary is recorded.
 
 END OF CONTEXT HANDOFF
