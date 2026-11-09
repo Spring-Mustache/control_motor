@@ -78,6 +78,7 @@ static uint32_t HAL_GetTick(void){return ticks;}
 static uint8_t Steering_TestRawLimitMask(void){return raw_mask;}
 static uint8_t Steering_PositionWheelsStopped(void){return wheels_stopped;}
 static void Steering_ManualStop(void){manual_stops++;steer_manual_active=0;}
+static void Steering_PositionAbortObserve(uint8_t source){assert(source==3U);}
 static void Steering_PositionFinish(uint8_t code){
  assert(code==9U);pos_stops++;steer_pos_active=0;
 }

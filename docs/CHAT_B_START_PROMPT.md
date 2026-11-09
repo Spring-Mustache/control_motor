@@ -1,5 +1,17 @@
 LATEST 2026-11-05 USER: explicit "ok ghi nhận pass" M8-S15.4/S15.6, MCU physical-private file M8S154_right_fine_20261105_205603.txt exact 9db12228..., all 6 distinct Voice15/30/40 left/right reached both targets and 94.4..97.2% worst-point alignment; no RIGHT fine pulses/errors. NEW issue: PS2 R1 and Voice standalone B0 CENTER, motor RIGHT repeatedly hunts/reverses around right CENTER662 RAW; no existing R1-specific log. Source both use steer_pos_command1, RIGHT coarse/fine cut15, right PWM85/12ms/8 pulses/±5. NEW isolated feature/m8-r1-voice-center-right-late-fine-10raw from physical 9db12228 trials RIGHT CENTER cutoff10 (only mode1 both triggers, right NC geometry valid >=30 from ends), boot1 flag no Live Expressions. Preserve LEFT, tested Voice4 10 RAW, R2/Voice45 NC, STOP/PS2/PWM/fine protections. Auto M8R1_FINE UART3 safe-idle records source1 PS2/source2 Voice, fine entry/quiet/end, pulses/reversals and both DONE; new native tools/capture_m8_r1_center.ps1 max8. New compiled actual-C verify, exact CI before CubeIDE Clean Build/Flash, fixed rig NC/STOP protected physical tests moderate R1 then Voice center and both directions. User has not confirmed physical improvement for new branch; rollback original 9db12228. Documentation docs/M8_R1_VOICE_CENTER_RIGHT_LATE_FINE_2026_11_05.md.
 
+**CẬP NHẬT HIỆN HÀNH 2026-11-09 — SỬA HỦY R2 DO RPM BÁNH THỤ ĐỘNG.**
+Log MCU `d4894029` xác nhận 4/4 Rotate bị hủy trước spin: R2 chỉ chạy 170–350ms,
+`pos=9`, `result=4`, `started=0`, `nc=0`, `trip=0`. Log cũ chưa có mask của điều kiện
+hủy. HOST đã tái hiện đúng chuỗi lỗi này khi bánh quay thụ động trong lúc đánh lái.
+Sửa gate Voice R2/45: đứng yên trước khi nhận lệnh; khi đã đánh lái chỉ yêu cầu
+không có lệnh/PWM kéo bánh. RPM thụ động không tự hủy owner. Spin vẫn chờ RPM
+về mức hợp lệ qua wheel API gốc, thời gian xoay chỉ bắt đầu khi API nhận lệnh.
+UART thêm `passiveFrames`, `abortSrc`, `abortMask`, `permit`. M9 vẫn tạm dừng;
+nhánh hiện hành `feature/m8-r1-voice-center-right-late-fine-10raw`.
+Chưa có kiểm chứng trên xe của bản sửa mới. Xem [báo cáo sửa R2](M8_VC02_ROTATE_R2_CONTINUATION_2026_11_09.md).
+
+
 **HIỆN HÀNH 2026-11-09 — TẠM DỪNG M9, SỬA VOICE ROTATE TRÊN NỀN M8.**
 Theo chỉ thị mới của người vận hành, nhánh đang làm là `feature/m8-r1-voice-center-right-late-fine-10raw`,
 phát triển trực tiếp từ mốc tiền đề M9 `d367618d4d9c4c382a9a7208f9b878dfefa21ace`.

@@ -637,8 +637,13 @@ volatile uint8_t voice_rotate_result = 0U;
 volatile uint32_t voice_rotate_spin_wait_ms = 0U;
 volatile uint32_t voice_rotate_r2_ms = 0U;
 volatile uint32_t voice_rotate_deferred_count = 0U;
+volatile uint32_t steer_pos_passive_wheel_frames = 0U;
+volatile uint32_t steer_pos_abort_mask = 0U;
+volatile uint8_t steer_pos_abort_source = 0U;
 typedef struct {
   uint32_t seq, requested_ms, r2_ms, wait_ms, spin_ms, deferred, dropped;
+  uint32_t passive_frames, abort_mask;
+  uint8_t abort_source, permit;
   int8_t direction;
   uint8_t result, stage, started, nc, result_l, result_r, pos_result, trip;
 } VoiceRotateDiag_t;
@@ -4538,19 +4543,67 @@ static uint8_t Steering_SafetyHardEnvelopeValid(uint8_t left, uint16_t raw)
       1U : 0U;
 }
 
-static uint8_t Steering_PositionWheelsStopped(void)
+/* R2 admission needs a stationary vehicle. Once steering is moving,
+ * its linkage can roll an unpowered wheel: encoder feedback alone must
+ * not revoke the steering owner. Any wheel drive request/output still
+ * cancels the active Voice NC seek; real spin admission waits for RPM.
+ */
+static uint8_t Steering_PositionWheelDriveIdle(void)
 {
   if ((wheel_spin_active != 0U) || (wheel_ff_test_active != 0U) ||
       (wheel_target_pwm != 0) || (wheel_current_pwm != 0) ||
       (wheel_pwm_lu != 0) || (wheel_pwm_ld != 0) ||
       (wheel_pwm_ru != 0) || (wheel_pwm_rd != 0) ||
-      (wheel_pid_target_rpm > 0.5f) || (wheel_pid_target_rpm < -0.5f) ||
+      (wheel_pid_target_rpm > 0.5f) || (wheel_pid_target_rpm < -0.5f))
+    return 0U;
+  return 1U;
+}
+
+static uint8_t Steering_PositionWheelsStopped(void)
+{
+  if ((Steering_PositionWheelDriveIdle() == 0U) ||
       (Motor_LeftUp.current_rpm > 2.0f) || (Motor_LeftUp.current_rpm < -2.0f) ||
       (Motor_LeftDown.current_rpm > 2.0f) || (Motor_LeftDown.current_rpm < -2.0f) ||
       (Motor_RightUp.current_rpm > 2.0f) || (Motor_RightUp.current_rpm < -2.0f) ||
       (Motor_RightDown.current_rpm > 2.0f) || (Motor_RightDown.current_rpm < -2.0f))
     return 0U;
   return 1U;
+}
+
+static uint8_t Steering_PositionVoiceNcWheelGate(uint8_t buttons)
+{
+  if((buttons!=2U)&&(buttons!=STEER_POS_VOICE45_NC))return 1U;
+  if((steer_pos_active!=0U)&&(voice_pos_owned!=0U))
+    return Steering_PositionWheelDriveIdle();
+  return Steering_PositionWheelsStopped();
+}
+
+/* Read-only reason snapshot BEFORE any result9 owner cleanup.
+ * source: 1 continuation permission, 2 changed command, 3 PS2 disarm,
+ * 4 main safety quarantine. Mask bits are documented with Rotate UART.
+ */
+static void Steering_PositionAbortObserve(uint8_t source)
+{
+  uint32_t mask=0U;
+  if(control_mode!=((voice_pos_owned!=0U)?CONTROL_MODE_VOICE:CONTROL_MODE_PS2))mask|=1UL<<0;
+  if(steer_safety_motion_permit!=1U)mask|=1UL<<1;
+  if(steer_safety_trip_latched!=0U)mask|=1UL<<2;
+  if(control_stop_latched!=0U)mask|=1UL<<3;
+  if(ps2_cancel_hold!=0U)mask|=1UL<<4;
+  if(ps2_spin_rf_latched!=0U)mask|=1UL<<5;
+  if(steer_manual_active!=0U)mask|=1UL<<6;
+  if(steer_cal_active!=0U)mask|=1UL<<7;
+  if(WheelControl_SpinIsActive()!=0U)mask|=1UL<<8;
+  if(debug_as5600_poll_enable!=0U)mask|=1UL<<9;
+  if(steer_test_running!=0U)mask|=1UL<<10;
+  if(steer_test_request!=0U)mask|=1UL<<11;
+  if(steer_test_arm!=0U)mask|=1UL<<12;
+  if(Steering_PositionWheelDriveIdle()==0U)mask|=1UL<<13;
+  if(Steering_PositionWheelsStopped()==0U)mask|=1UL<<14;
+  if((voice_pos_owned!=0U)&&(voice_pos_enable!=1U))mask|=1UL<<15;
+  if((PS2_Pad.Connected!=1U)||(PS2_Pad.Mode!=0x73U))mask|=1UL<<16;
+  steer_pos_abort_source=source;
+  steer_pos_abort_mask=mask;
 }
 
 static void Steering_PositionLeftOff(void)
@@ -5628,9 +5681,9 @@ static void Steering_PositionUpdate(void)
      (steer_test_running==0U) &&
      (steer_test_request==0U) &&
      (steer_test_arm==0U) &&
-     /* Physical NC seek (R2 or Voice 45) requires stopped wheels. */
-     (((buttons!=2U)&&(buttons!=STEER_POS_VOICE45_NC))||
-       (Steering_PositionWheelsStopped()!=0U))) ||
+     /* Stationary admission, then wheel-drive-idle continuation.
+      * Steering-induced passive RPM is not a new drive command. */
+     (Steering_PositionVoiceNcWheelGate(buttons)!=0U)) ||
     ((from_voice==0U) &&
      (PS2_Pad.Connected==1U)&&(PS2_Pad.Mode==0x73U) &&
      (control_mode==CONTROL_MODE_PS2) &&
@@ -5649,6 +5702,12 @@ static void Steering_PositionUpdate(void)
      (steer_test_running==0U)&&(steer_test_request==0U) &&
      (steer_test_arm==0U)));
 
+
+  if((from_voice!=0U)&&(steer_pos_active!=0U)&&
+     ((buttons==2U)||(buttons==STEER_POS_VOICE45_NC))&&
+     (Steering_PositionWheelDriveIdle()!=0U)&&
+     (Steering_PositionWheelsStopped()==0U))
+    steer_pos_passive_wheel_frames++;
 
   if (steer_pos_active == 0U)
   {
@@ -5710,6 +5769,9 @@ static void Steering_PositionUpdate(void)
     }
 
     steer_pos_block_reason = 0U;
+    steer_pos_abort_source=0U;
+    steer_pos_abort_mask=0U;
+    steer_pos_passive_wheel_frames=0U;
     raw_mask = Steering_TestRawLimitMask();
     /* Each asserted NC endstop may be departed only for <=1s in the
      * known safe opposite direction. A dual active limit on one axis is
@@ -5944,6 +6006,7 @@ static void Steering_PositionUpdate(void)
        */
       if (Steering_ManualRequestDirection() != 0)
         steer_manual_neutral_required = 1U;
+      Steering_PositionAbortObserve((allowed==0U)?1U:2U);
       Steering_PositionFinish(9U);
       return;
     }
@@ -7474,14 +7537,17 @@ static void M8S11_StreamUpdate(void)
     n = snprintf((char *)m8_s11_tx_line, sizeof(m8_s11_tx_line),
         "M8_ROTATE,sha=%s,seq=%lu,dir=%d,result=%u,stage=%u,"
         "started=%u,requestedMs=%lu,r2Ms=%lu,waitMs=%lu,spinMs=%lu,"
-        "deferred=%lu,nc=%u,pos=%u,resultL=%u,resultR=%u,trip=%u,dropped=%lu\r\n",
+        "deferred=%lu,nc=%u,pos=%u,resultL=%u,resultR=%u,trip=%u,dropped=%lu,"
+        "passiveFrames=%lu,abortSrc=%u,abortMask=%lu,permit=%u\r\n",
         FW_BUILD_GIT_SHA,(unsigned long)d->seq,(int)d->direction,
         (unsigned)d->result,(unsigned)d->stage,(unsigned)d->started,
         (unsigned long)d->requested_ms,(unsigned long)d->r2_ms,
         (unsigned long)d->wait_ms,(unsigned long)d->spin_ms,
         (unsigned long)d->deferred,(unsigned)d->nc,(unsigned)d->pos_result,
         (unsigned)d->result_l,(unsigned)d->result_r,(unsigned)d->trip,
-        (unsigned long)d->dropped);
+        (unsigned long)d->dropped,(unsigned long)d->passive_frames,
+        (unsigned)d->abort_source,(unsigned long)d->abort_mask,
+        (unsigned)d->permit);
     if(M8S11_SendLine(n)!=0U)voice_rotate_diag_pending=0U;
     return;
   }
@@ -12394,6 +12460,9 @@ static void Voice_RotateCapture(uint8_t result)
        (uint32_t)(HAL_GetTick()-voice_execution_start_tick):0U,
     .deferred=voice_rotate_deferred_count,
     .dropped=voice_rotate_diag_dropped,
+    .passive_frames=steer_pos_passive_wheel_frames,
+    .abort_mask=steer_pos_abort_mask,.abort_source=steer_pos_abort_source,
+    .permit=steer_safety_motion_permit,
     .direction=voice_rotate_direction,.result=result,
     .stage=voice_rotate_stage,.started=voice_rotate_spin_started,
     .nc=Steering_TestRawLimitMask(),.result_l=steer_pos_left_result,
@@ -12554,6 +12623,9 @@ static void Voice_StartExecution(void)
     voice_rotate_r2_ms=0U;
     voice_rotate_spin_wait_ms=0U;
     voice_rotate_deferred_count=0U;
+    steer_pos_abort_source=0U;
+    steer_pos_abort_mask=0U;
+    steer_pos_passive_wheel_frames=0U;
     voice_execution_start_tick=0U;
     voice_execution_elapsed_ms=0U;
     voice_rotate_stage=1U; /* WAIT_R2, no wheel motion */
@@ -13385,7 +13457,10 @@ static void Steering_PS2ManualDisarm(uint8_t status)
   if (steer_manual_active != 0U)
     Steering_ManualStop();
   if (steer_pos_active != 0U)
+  {
+    Steering_PositionAbortObserve(3U);
     Steering_PositionFinish(9U);
+  }
   Turn_Motors_Stop();
   steer_ps2_manual_disarm_count++;
 }
@@ -14801,7 +14876,11 @@ int main(void)
       {
         if (steer_test_running != 0U) Steering_TestFinish(9U);
         if (steer_manual_active != 0U) Steering_ManualStop();
-        if (steer_pos_active != 0U) Steering_PositionFinish(9U);
+        if (steer_pos_active != 0U)
+        {
+          Steering_PositionAbortObserve(4U);
+          Steering_PositionFinish(9U);
+        }
         if (steer_cal_active != 0U)
         {
           steer_cal_abort_source = 2U;

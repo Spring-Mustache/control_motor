@@ -45,8 +45,12 @@ assert "Steering_PositionAtExpectedNc(1U, raw_mask)" in update
 assert "Steering_PositionAtExpectedNc(0U, raw_mask)" in update
 assert "steer_pos_left_result != 3U" in update
 assert "steer_pos_right_result != 3U" in update
-assert "buttons!=STEER_POS_VOICE45_NC" in update
-assert "Steering_PositionWheelsStopped()!=0U" in update
+gate=body("static uint8_t Steering_PositionVoiceNcWheelGate(")
+assert "Steering_PositionVoiceNcWheelGate(buttons)!=0U" in update
+assert "buttons!=STEER_POS_VOICE45_NC" in gate
+assert "Steering_PositionWheelsStopped()" in gate
+assert "Steering_PositionWheelDriveIdle()" in gate
+assert "(steer_pos_active!=0U)&&(voice_pos_owned!=0U)" in gate
 assert "Steering_PositionExpectedNc(1U)" in expected_mask
 assert "Steering_PositionExpectedNc(0U)" in expected_mask
 assert "(steer_pos_command != STEER_POS_VOICE45_NC)" in update

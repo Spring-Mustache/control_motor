@@ -1,5 +1,17 @@
 # CONTEXT HANDOFF
 
+**CẬP NHẬT HIỆN HÀNH 2026-11-09 — SỬA HỦY R2 DO RPM BÁNH THỤ ĐỘNG.**
+Log MCU `d4894029` xác nhận 4/4 Rotate bị hủy trước spin: R2 chỉ chạy 170–350ms,
+`pos=9`, `result=4`, `started=0`, `nc=0`, `trip=0`. Log cũ chưa có mask của điều kiện
+hủy. HOST đã tái hiện đúng chuỗi lỗi này khi bánh quay thụ động trong lúc đánh lái.
+Sửa gate Voice R2/45: đứng yên trước khi nhận lệnh; khi đã đánh lái chỉ yêu cầu
+không có lệnh/PWM kéo bánh. RPM thụ động không tự hủy owner. Spin vẫn chờ RPM
+về mức hợp lệ qua wheel API gốc, thời gian xoay chỉ bắt đầu khi API nhận lệnh.
+UART thêm `passiveFrames`, `abortSrc`, `abortMask`, `permit`. M9 vẫn tạm dừng;
+nhánh hiện hành `feature/m8-r1-voice-center-right-late-fine-10raw`.
+Chưa có kiểm chứng trên xe của bản sửa mới. Xem [báo cáo sửa R2](docs/M8_VC02_ROTATE_R2_CONTINUATION_2026_11_09.md).
+
+
 **HIỆN HÀNH 2026-11-09 — TẠM DỪNG M9, SỬA VOICE ROTATE TRÊN NỀN M8.**
 Theo chỉ thị mới của người vận hành, nhánh đang làm là `feature/m8-r1-voice-center-right-late-fine-10raw`,
 phát triển trực tiếp từ mốc tiền đề M9 `d367618d4d9c4c382a9a7208f9b878dfefa21ace`.
@@ -83,6 +95,18 @@ Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_RO
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**CẬP NHẬT HIỆN HÀNH 2026-11-09 — SỬA HỦY R2 DO RPM BÁNH THỤ ĐỘNG.**
+Log MCU `d4894029` xác nhận 4/4 Rotate bị hủy trước spin: R2 chỉ chạy 170–350ms,
+`pos=9`, `result=4`, `started=0`, `nc=0`, `trip=0`. Log cũ chưa có mask của điều kiện
+hủy. HOST đã tái hiện đúng chuỗi lỗi này khi bánh quay thụ động trong lúc đánh lái.
+Sửa gate Voice R2/45: đứng yên trước khi nhận lệnh; khi đã đánh lái chỉ yêu cầu
+không có lệnh/PWM kéo bánh. RPM thụ động không tự hủy owner. Spin vẫn chờ RPM
+về mức hợp lệ qua wheel API gốc, thời gian xoay chỉ bắt đầu khi API nhận lệnh.
+UART thêm `passiveFrames`, `abortSrc`, `abortMask`, `permit`. M9 vẫn tạm dừng;
+nhánh hiện hành `feature/m8-r1-voice-center-right-late-fine-10raw`.
+Chưa có kiểm chứng trên xe của bản sửa mới. Xem [báo cáo sửa R2](docs/M8_VC02_ROTATE_R2_CONTINUATION_2026_11_09.md).
+
 
 **HIỆN HÀNH 2026-11-09 — TẠM DỪNG M9, SỬA VOICE ROTATE TRÊN NỀN M8.**
 Theo chỉ thị mới của người vận hành, nhánh đang làm là `feature/m8-r1-voice-center-right-late-fine-10raw`,
@@ -1683,5 +1707,30 @@ END OF CONTEXT HANDOFF
   Windows chính; chạy `tools/capture_m8_vc02_rotate.ps1`, thử LEFT5/RIGHT5/LEFT10/RIGHT10.
   Không yêu cầu bật Live Expressions. Nếu còn dừng ngắn, đọc result/started/NC trong
   chính log MCU mới, không tăng lực hoặc bỏ NC theo giả thuyết.
+
+
+## Cập nhật R2 continuation — 2026-11-09
+
+- Evidence mới: MCU d4894029, cả LEFT/RIGHT, duration5–30s đều hủy stage1,
+  R2 170–350ms, pos9/result4, started0/spinMs0, NC0/trip0. File gửi lại có cùng
+  nội dung, không phải một lần test độc lập. Không đưa raw log riêng tư lên repo.
+- Bản sửa trước chỉ giải quyết defer lúc bắt đầu spin; lần đo này chưa tới bước đó.
+  Lỗi source bổ sung: gate Voice R2/45 tái kiểm tra RPM đứng yên ở mọi vòng điều khiển.
+  Khi đĩa lái kéo bánh thụ động, gate hủy position9 rồi Voice result4. PS2 R2 không
+  có điều kiện RPM này. HOST với actual production guard tái hiện đúng chuỗi lỗi;
+  log cũ không đủ để khẳng định RPM là nguồn hủy thực tế duy nhất.
+- Sửa admission/continuation riêng: admission vẫn full WheelsStopped; active
+  Voice NC seek chỉ chấp nhận wheel command/ramp/PWM idle, không spin/FF test.
+  NC/AS5600/timeout/STOP/PS2/motion permit vẫn kiểm tra. Sau R2, real wheel spin API
+  vẫn đợi RPM dừng, giữ bounded startup wait và đồng hồ từ lúc accepted.
+- Test actual guard + arbiter + executor + wheel admission bao phủ 4 thời điểm log,
+  RPM từng bánh ±3 và biên2, 14 điều kiện cấm thực, Voice45, 5..40, spin/time/STOP.
+  Source cũ fail pos9/result4/started0, source mới PASS. Per-axis servo/HAL mô phỏng;
+  chưa chứng minh chuyển động thực, CubeIDE target build hoặc flash bản mới.
+- Telemetry mới snapshot trước cleanup: passiveFrames, abortSrc, abortMask, permit;
+  UART IRQ chỉ sau toàn bộ motor idle. Script PowerShell cũ tự nhận các trường mới.
+- Tiếp tục bằng update ff-only trên nhánh M8, Clean Build/flash/F8, thu 2 lần
+  Rotate LEFT5/RIGHT5; nếu được cả hai thì kiểm tra thêm10s. Không yêu cầu thao tác
+  Live Expressions; đọc MCU SHA và result của log mới trước khi đánh dấu hardware PASS.
 
 END OF CONTEXT HANDOFF

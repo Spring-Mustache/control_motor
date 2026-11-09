@@ -25,7 +25,8 @@ before=next(ast.literal_eval(n.value) for n in parsed.body
             if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='before' for t in n.targets))
 for name in ['static void WheelControl_SetTargetPWM(',
              'static void WheelControl_SetSpinDirection(',
-             'static uint8_t WheelControl_SpinIsActive(']:
+             'static uint8_t WheelControl_SpinIsActive(',
+             'static uint8_t Steering_PositionWheelsStopped(']:
     before=before.replace(extract(before,name),'')
 extra=r'''
 #define WC_PID_ZERO_EPS_RPM 0.01f
@@ -33,7 +34,7 @@ static int16_t wc_pwm_max=999;
 static uint8_t wheel_pid_enable=1,wheel_ff_test_active=0;
 static uint8_t wheel_encoder_available_lu=1,wheel_encoder_available_ld=1;
 static uint8_t wheel_encoder_available_ru=1,wheel_encoder_available_rd=1;
-static int16_t wheel_target_pwm=0,wheel_pwm_lu=0,wheel_pwm_ld=0,wheel_pwm_ru=0,wheel_pwm_rd=0;
+static int16_t wheel_current_pwm=0,wheel_target_pwm=0,wheel_pwm_lu=0,wheel_pwm_ld=0,wheel_pwm_ru=0,wheel_pwm_rd=0;
 static float wheel_pid_target_rpm=0;
 static uint8_t wheel_spin_active=0;
 static int8_t wheel_spin_direction=0;
@@ -41,6 +42,10 @@ static uint32_t wheel_spin_deferred_count=0,wheel_spin_start_count=0,wc_spin_zer
 static int wheel_command_profile=0;
 typedef struct {float current_rpm;} MotorFeedback_t;
 static MotorFeedback_t motors[4];
+#define Motor_LeftUp motors[0]
+#define Motor_LeftDown motors[1]
+#define Motor_RightUp motors[2]
+#define Motor_RightDown motors[3]
 static MotorFeedback_t *wc_motor_lu=&motors[0],*wc_motor_ld=&motors[1];
 static MotorFeedback_t *wc_motor_ru=&motors[2],*wc_motor_rd=&motors[3];
 static void WC_ResetAllPID(void){}
@@ -48,11 +53,17 @@ typedef enum {CONTROL_MODE_IDLE=0,CONTROL_MODE_VOICE,CONTROL_MODE_PS2,CONTROL_MO
 static ControlMode_t control_mode=CONTROL_MODE_IDLE;
 static uint8_t ps2_manual_active=0,ps2_cancel_hold=0,ps2_spin_rf_latched=0;
 static uint32_t ps2_cancel_stop_count=0,control_stop_count=0,voice_cancel_by_ps2_count=0;
-static uint8_t steer_test_running=0;
+static uint8_t steer_test_running=0,steer_test_request=0,steer_test_arm=0;
+static uint8_t debug_as5600_poll_enable=0,steer_pos_enable=1;
+static uint8_t steer_pos_command=0,steer_pos_buttons=0,steer_pos_previous_buttons=0;
+static uint8_t steer_manual_neutral_required=0;
+#define STEER_POS_VOICE45_NC 5U
+#define STEER_POS_RX_NEUTRAL_DELTA 10U
+static uint8_t host_position_allowed=0;
 static unsigned manual_calls=0;
 #define PS2_LY_FORWARD_LIMIT 118
 #define PS2_LY_REVERSE_LIMIT 138
-static struct {uint8_t Connected,Mode,LY,LX,RY,Up,Down,Left,Right,L1,L2,R1,R2,
+static struct {uint8_t Connected,Mode,LY,LX,RY,RX,Up,Down,Left,Right,L1,L2,R1,R2,
  Select,L3,R3,Triangle,Circle,Cross,Square;} PS2_Pad;
 static int Steering_ManualRequestDirection(void){return 0;}
 static uint8_t Steering_CalInputsNeutral(void){return 1;}
@@ -66,6 +77,10 @@ actual='\n'.join(extract(WHEEL,n) for n in ['static float WC_AbsFloat(',
     'void WheelControl_SetTargetPWM(','void WheelControl_SetSpinDirection(',
     'uint8_t WheelControl_SpinIsActive('])
 actual+='\n'+'\n'.join(extract(MAIN,n) for n in [
+    'static uint8_t Steering_PositionWheelDriveIdle(',
+    'static uint8_t Steering_PositionWheelsStopped(',
+    'static uint8_t Steering_PositionVoiceNcWheelGate(',
+    'static void Steering_PositionAbortObserve(',
     'static void Voice_ResetPendingCommand(','static uint8_t Voice_HasPendingData(',
     'static void Voice_RotateCapture(','static void Voice_S154CancelAll(',
     'static void Voice_CancelByPS2(','static void Control_RequestStop(',
@@ -73,9 +88,16 @@ actual+='\n'+'\n'.join(extract(MAIN,n) for n in [
     'static uint8_t Voice_IsOpenLoopCommandSupported(',
     'static void Voice_StartExecution(','static void Voice_ExecuteMotorControl(',
     'static uint8_t PS2_IsManualControlActive(','static void Control_Arbitrate('])
+# Compile unchanged production entry/continuation permission statements.
+# The per-axis AS5600/NC servo and GPIO remain simulated, not reimplemented.
+pos=extract(MAIN,'static void Steering_PositionUpdate(')
+prefix=pos[pos.index('  if ((PS2_Pad.Connected'):pos.index('  if (steer_pos_active == 0U)')]
+continuation=pos[pos.index('  else\n  {\n    steer_pos_previous_buttons = buttons;'):pos.index('  /* Sample R2 encoder')]
+continuation=continuation.replace('  else','  if(steer_pos_active!=0U)',1)
+actual+='\nstatic void HostPositionGuardFrame(void){\nuint8_t buttons=0,from_voice=0,allowed=0;\n'+prefix+'\nhost_position_allowed=allowed;\n'+continuation+'\n}\n'
 after=r'''
 static void reset(void){
- PS2_Pad=(__typeof__(PS2_Pad)){.Connected=1,.Mode=0x73,.LY=128,.LX=128,.RY=128};
+ PS2_Pad=(__typeof__(PS2_Pad)){.Connected=1,.Mode=0x73,.LY=128,.LX=128,.RY=128,.RX=128};
  control_mode=CONTROL_MODE_IDLE;control_stop_latched=ps2_cancel_hold=ps2_spin_rf_latched=0;
  steer_pos_active=steer_manual_active=steer_cal_active=0;
  voice_execution_active=voice_command_ready=voice_pos_owned=voice_pos_request=0;
@@ -83,7 +105,11 @@ static void reset(void){
  voice_pos_rejected=steer_safety_trip_latched=0;steer_safety_motion_permit=1;
  voice_pivot_enable=voice_pos_enable=1;fake_ms=1000;fake_nc=0;fake_wheels_stopped=1;
  voice_speed_mode=3;voice_execution_start_tick=0;
- wheel_spin_active=0;wheel_spin_direction=0;wheel_target_pwm=0;
+ wheel_spin_active=0;wheel_spin_direction=0;wheel_target_pwm=0;wheel_current_pwm=0;
+ steer_pos_command=steer_pos_buttons=steer_pos_previous_buttons=0;
+ steer_pos_abort_source=0;steer_pos_abort_mask=steer_pos_passive_wheel_frames=0;
+ steer_test_running=steer_test_request=steer_test_arm=debug_as5600_poll_enable=0;
+ steer_pos_enable=1;
  wheel_pid_target_rpm=0;wheel_pid_enable=1;wheel_ff_test_active=0;
  wheel_encoder_available_lu=wheel_encoder_available_ld=wheel_encoder_available_ru=wheel_encoder_available_rd=1;
  wheel_pwm_lu=wheel_pwm_ld=wheel_pwm_ru=wheel_pwm_rd=0;
@@ -103,6 +129,68 @@ static void r2_done(void){
  assert(voice_execution_start_tick==0&&voice_execution_elapsed_ms==0);
 }
 int main(void){
+ /* Replay each uploaded failure timing using the ACTUAL position guard.
+  * Passive RPM formerly revoked R2 with result9, then Voice result4.
+  * This test reproduces that software path, not a measured cause on MCU.
+  */
+ const unsigned abort_ms[]={350,182,170,218},secs[]={5,10,10,30};
+ for(unsigned run=0;run<4;run++){
+  reset();request((run%2)?1:-1,secs[run]);HostPositionGuardFrame();
+  assert(host_position_allowed); /* stopped-wheel admission */
+  steer_pos_active=1;voice_pos_owned=1;voice_pos_request=0;steer_pos_command=2;
+  steer_pos_result=1;steer_pos_left_result=steer_pos_right_result=0;
+  motors[run].current_rpm=3.0f;fake_ms+=abort_ms[run];
+  Control_Arbitrate();HostPositionGuardFrame();
+  assert(host_position_allowed&&steer_pos_active&&voice_pos_owned);
+  assert(voice_execution_active&&voice_rotate_stage==1&&steer_pos_result==1);
+  assert(steer_pos_passive_wheel_frames==1&&wheel_target_pwm==0);
+  /* A later real physical R2 completion, still no wheel power yet. */
+  steer_pos_active=0;r2_done();fake_ms+=5;Control_Arbitrate();
+  assert(!wheel_spin_active&&voice_execution_active); /* RPM still settling */
+  motors[run].current_rpm=0;fake_ms+=20;Control_Arbitrate();
+  assert(wheel_spin_active);uint32_t start=fake_ms;
+  fake_ms=start+secs[run]*1000U-1U;Control_Arbitrate();assert(voice_execution_active);
+  fake_ms++;Control_Arbitrate();assert(!voice_execution_active);
+  assert(voice_rotate_diag.result==1&&voice_rotate_diag.passive_frames==1);
+ }
+ /* Starting a new R2 still requires ALL measured wheel RPM stationary. */
+ for(unsigned i=0;i<4;i++){
+  reset();control_mode=CONTROL_MODE_VOICE;voice_pos_request=2;
+  HostPositionGuardFrame();assert(host_position_allowed&&!steer_pos_active);
+  motors[i].current_rpm=3;HostPositionGuardFrame();assert(!host_position_allowed);
+  motors[i].current_rpm=-3;HostPositionGuardFrame();assert(!host_position_allowed);
+  motors[i].current_rpm=2;HostPositionGuardFrame();assert(host_position_allowed);
+ }
+ /* Commanded power, trip, STOP, disarm, and conflicting owners still
+  * revoke active R2, even if wheel RPM is entirely passive.
+  */
+ for(unsigned fault=0;fault<14;fault++){
+  reset();request(-1,5);steer_pos_active=voice_pos_owned=1;voice_pos_request=0;
+  steer_pos_command=2;steer_pos_result=1;motors[1].current_rpm=-3;
+  switch(fault){
+   case 0:wheel_target_pwm=10;break;case 1:wheel_pwm_lu=5;break;
+   case 2:wheel_pid_target_rpm=1;break;case 3:wheel_spin_active=1;break;
+   case 4:wheel_ff_test_active=1;break;case 5:steer_safety_motion_permit=0;break;
+   case 6:steer_safety_trip_latched=1;break;case 7:control_stop_latched=1;break;
+   case 8:ps2_cancel_hold=1;break;case 9:steer_manual_active=1;break;
+   case 10:steer_cal_active=1;break;case 11:debug_as5600_poll_enable=1;break;
+   case 12:steer_test_running=1;break;case 13:voice_pos_enable=0;break;
+  }
+  HostPositionGuardFrame();assert(!host_position_allowed&&!steer_pos_active);
+  assert(steer_pos_result==9&&steer_pos_abort_source==1&&steer_pos_abort_mask!=0);
+ }
+ /* Voice45 uses the same entry/continuation distinction; 5..40 keeps
+  * its existing independent wheel/steering ownership.
+  */
+ reset();control_mode=CONTROL_MODE_VOICE;voice_pos_request=5;
+ HostPositionGuardFrame();assert(host_position_allowed);
+ motors[2].current_rpm=3;HostPositionGuardFrame();
+ assert(!host_position_allowed);
+ steer_pos_active=voice_pos_owned=1;voice_pos_request=0;steer_pos_command=5;
+ control_mode=CONTROL_MODE_VOICE;HostPositionGuardFrame();
+ assert(host_position_allowed&&steer_pos_active);
+ voice_pos_owned=0;steer_pos_active=0;voice_pos_request=4;wheel_target_pwm=100;
+ HostPositionGuardFrame();assert(host_position_allowed);
  for(int dir=-1;dir<=1;dir+=2)for(unsigned sec=5;sec<=120;sec+=(sec==5?5:110)){
   reset();request(dir,sec);r2_done();
   /* A measured feedback transient AFTER R2: real wheel admission refuses.
@@ -194,7 +282,7 @@ int main(void){
  reset();fake_ms=0xfffff800U;request(-1,5);r2_done();fake_ms+=5;Control_Arbitrate();
  start=fake_ms;fake_ms=start+4999;Control_Arbitrate();assert(voice_execution_active);
  fake_ms=start+5000;Control_Arbitrate();assert(!voice_execution_active&&voice_rotate_diag.spin_ms==5000);
- puts("PASS actual C integration: LEFT/RIGHT 5/10/120s; real spin deferral; R2/wait excluded; live speed; neutral ownership; PS2/FF/NC; timeout; lost owner; tick rollover");
+ puts("PASS actual C integration: active R2 passive RPM survives 4 log timings; preflight/power/safety gates; LEFT/RIGHT 5/10/120s; real spin deferral; R2/wait excluded; live speed; neutral ownership; PS2/FF/NC; timeout; lost owner; tick rollover");
 }
 '''
 # The automatic result line must remain under the stopped, nonblocking
