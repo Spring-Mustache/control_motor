@@ -82,7 +82,7 @@ void M9B1_PulseTick(void)
     else __HAL_TIM_SET_COMPARE(&htim14,TIM_CHANNEL_1,0U);
     m9_b1_pulse_armed&=(uint8_t)~(1U<<i);
     m9_b1_pulse_expired|=(uint8_t)(1U<<i);
-    if(m9_h2b1_config.power_mode==M9B1_POWER_RECOVERY){
+    if(m9_h2b1_config.power_mode>=M9B1_POWER_RECOVERY){
       __HAL_TIM_SET_COMPARE(&htim12,TIM_CHANNEL_2,0U);
       __HAL_TIM_SET_COMPARE(&htim14,TIM_CHANNEL_1,0U);
       m9_b1_pulse_armed=0U; /* stale servo lease: both off until revocation */
@@ -94,7 +94,7 @@ static uint16_t M9B1_HAL_Pwm(void *context,uint8_t axis,uint16_t value)
   uint8_t bit=(uint8_t)(1U<<axis);
   const M9B1AxisConfig *cfg=&m9_h2b1_config.axis[axis];
   (void)context;
-  if(m9_h2b1_config.power_mode==M9B1_POWER_RECOVERY){
+  if(m9_h2b1_config.power_mode>=M9B1_POWER_RECOVERY){
     if(!value){m9_b1_pulse_armed&=(uint8_t)~bit;m9_b1_pulse_expired&=(uint8_t)~bit;}
     else if(value>cfg->max_pwm || m9_b1_pulse_expired)value=0U;
     else{
@@ -231,7 +231,7 @@ static void M9B1_Update(void)
   M9B1Input in;uint8_t previous;
   if(!m9_h2b1_hold.active && !m9_h2b1_hold.lease)return;
   M9B1_MainInput(&in);previous=m9_h2b1_hold.state;
-  if(m9_h2b1_config.power_mode==M9B1_POWER_RECOVERY && m9_b1_pulse_expired){
+  if(m9_h2b1_config.power_mode>=M9B1_POWER_RECOVERY && m9_b1_pulse_expired){
     M9B1_Stop(M9B1_SERVICE_GAP);return;
   }
   if(m9_h2b1_nc_epoch!=m9_h2b1_seen_nc_epoch){M9B1_Stop(M9B1_NC);return;}

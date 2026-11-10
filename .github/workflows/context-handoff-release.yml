@@ -133,6 +133,9 @@ jobs:
       - name: Verify final M9 closed-loop recovery and compiler interlocks
         run: python3 tools/verify_m9_final.py
 
+      - name: Verify continuous M9 load rejection and retained torque at target
+        run: python3 tools/verify_m9_servo.py
+
       - name: Verify S15.4 fresh post-I2C sample tick and skip telemetry
         run: python3 tools/verify_m8_s154_sync_sample_clock.py
 

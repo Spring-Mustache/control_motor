@@ -23,12 +23,15 @@ typedef enum {
 } M9B1Reason;
 typedef enum {
   M9B1_POWER_LOCKED=0, M9B1_POWER_TUNING=1, M9B1_POWER_COMMISSIONED=2,
-  M9B1_POWER_RECOVERY=3 /* delivered position recovery, not physical certification */
+  M9B1_POWER_RECOVERY=3, /* historical recovery with periodic rest */
+  M9B1_POWER_SERVO=4 /* continuous load-rejecting position servo */
 } M9B1PowerMode;
 #define M9B1_RECOVERY_LEFT_CEILING 300U
 #define M9B1_RECOVERY_RIGHT_CEILING 100U
 #define M9B1_OUTPUT_LEASE_MS 50U
 #define M9B1_RECOVERY_POLL_MS 10U /* one sensor/visit; nominal 20ms per axis */
+#define M9B1_SERVO_LEFT_KI_Q8 2048U /* 8 CCR/(RAW*s) */
+#define M9B1_SERVO_RIGHT_KI_Q8 1024U /* 4 CCR/(RAW*s) */
 #define M9B1_TUNING_LEFT_CEILING 30U
 #define M9B1_TUNING_RIGHT_CEILING 10U
 #define M9B1_ASSIST_LEFT_CEILING 300U
@@ -79,6 +82,9 @@ typedef struct {
   uint16_t recovery_best_error;
   uint16_t recovery_boost_ms;
   uint8_t recovery_tracking, recovery_rest, recovery_reason;
+  int32_t integral_q8, integral_remainder;
+  int32_t servo_velocity_q8;
+  uint32_t servo_wrong_i_ms;
 } M9B1Axis;
 typedef struct {
   M9B1Axis axis[2];

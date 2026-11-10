@@ -7,7 +7,7 @@ import shutil
 R=Path(__file__).resolve().parents[1]
 cc=shutil.which('gcc')
 if not cc: raise SystemExit('GCC required')
-cfg=(R/'Core/Inc/m9_h2b1_commissioning.h').read_text()
+cfg=(R/'tools/m9_h2b1_recovery_profile.h').read_text()
 main=(R/'Core/Src/main.c').read_text()
 assert 'steer_pos_left_pwm_min = 175U;' in main and 'steer_pos_left_pwm_max = 300U;' in main
 assert 'steer_pos_right_pwm_min = 50U;' in main and 'steer_pos_right_pwm_max = 100U;' in main

@@ -53,8 +53,10 @@ static M9B1Hold m9_h2b1_hold;
 static volatile uint32_t m9_h2b1_nc_epoch;
 static uint32_t m9_h2b1_seen_nc_epoch,m9_h2b1_sequence;
 static uint32_t m9_h2b1_report_ms,m9_h2b1_dropped;
-#if defined(M9B1_USE_FINAL_PROFILE)
+#if defined(M9B1_USE_SERVO_PROFILE)
 #include "m9_h2b1_commissioning.h"
+#elif defined(M9B1_USE_FINAL_PROFILE)
+#include "m9_h2b1_recovery_profile.h"
 #elif defined(M9B1_USE_ASSIST_PROFILE)
 #include "m9_h2b1_legacy_profile.h"
 #elif defined(M9B1_USE_TUNING_PROFILE)
@@ -210,6 +212,7 @@ int main(void)
  assert(!m9_h2b1_hold.active && !hardware_pwm[0] && !hardware_pwm[1]);
  verify_rotate_handoff();
 #include "m9_final_main_tests.inc"
+#include "m9_servo_main_tests.inc"
 #if defined(M9B1_USE_ASSIST_PROFILE)
  steer_pos_left_raw=1863U;steer_pos_right_raw=685U;
  begin_center(2U);

@@ -1,5 +1,11 @@
 # CONTEXT HANDOFF
 
+**CẬP NHẬT 10/11/2026 — GHÌ RỒI THẢ BỊ HUNTING.** Người dùng báo phản lực có nhưng dò góc lâu/quay qua lại. Lần báo chưa có SHA MCU; mốc đã giao c9fd47fd, profile4 trước đó chỉ là nháp chưa push. Bản sửa gộp giữ tải liên tục với tốc độ Q8 lọc60ms, ngừng tích lũy I khi đang về đích, xả I đẩy sai chiều khi quá đích, Kp8/4 thay16/8. I vẫn giữ khi đúng goal/đứng yên; không thêm timer nghỉ.216 fixture bỏ tải/trễ có tiêu chí quá độ PASS,36 fixture giữ tải và600s exact-goal I retention PASS, UBSan và41 regression PASS. Đây là HOST, chưa kết luận hardware hunting đã hết. Xem [báo cáo giảm hunting](docs/M9_RELEASE_SETTLING_2026_11_10.md).
+
+
+**HIỆN HÀNH — M9 GIỮ TRỤC LIÊN TỤC, PROFILE4 (2026-11-10, giờ Việt Nam).** Người dùng nhắc lại đây là bài toán chính của M9. Bản c9fd47fd/profile3 hồi vị có nghỉ không đáp ứng đầy đủ yêu cầu; gọi hoàn thiện là kết luận quá mức. Đã thay cấu hình mặc định bằng PI vị trí + D vận tốc: giữ I/lực bù tại goal, không NO_PROGRESS/cooldown định kỳ khi bị ghì, bỏ ngưỡng8RAW (bỏ nhiễu±1RAW), anti-windup và xóa I khi STOP/NC/owner/fault. Giữ sampler20ms/trục, lease50ms và hai fix Rotate.41 kiểm tra local,36 mô hình tải/ma sát, giữ output tại goal600s giả lập và UBSan PASS; CI/ARM phải kiểm đúng SHA. Logic liên tục đã thực hiện; mô-men/nhiệt và độ lệch thật **CHƯA KIỂM CHỨNG**. [Hồ sơ sửa đúng yêu cầu M9](docs/M9_CONTINUOUS_HOLD_CORRECTION_2026_11_10.md). Các chỉ dẫn profile3/“final hồi vị” bên dưới là lịch sử đã được thay thế.
+
+
 **BẢN BÀN GIAO M9 FINAL — 2026-11-09 UTC.** Người dùng yêu cầu chốt trong một lượt, không thêm vòng thử mẫu. Bản hiện hành thay profile xung thử bằng **profile3 phục hồi vị trí hai trục**: dải M8 LEFT175..300/RIGHT50..100CCR, bù ma sát giữ qua tiến triển, dừng theo phản hồi góc; poll10ms luân phiên, lease50ms, sensor80ms; kẹt/hết đợt nghỉ riêng từng trục rồi tự phục hồi. STOP/NC/sensor/owner vẫn thu hồi; không có ngưỡng lệch32RAW. Hai fix Rotate và handoff HOLD→Rotate từ nền `a944da4f` được giữ.40 lệnh hồi quy local,162 mô hình giả lập và UBSan PASS; CI/ARM phải được kiểm ở đúng SHA. **Phần mềm đã triển khai; hardware profile3 CHƯA KIỂM CHỨNG**, commissioned vẫn0 (không khóa profile3). Không yêu cầu Live Expressions hoặc vòng thử trung gian để nhận mã final. Hồ sơ hiện hành: [M9_FINAL_DELIVERY_2026_11_09.md](docs/M9_FINAL_DELIVERY_2026_11_09.md). Các khối “hiện hành/pending/next” cũ bên dưới là lịch sử, không thay thế chỉ thị final này.
 
 
@@ -198,6 +204,12 @@ Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_RO
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+[RELEASE SETTLING 2026-11-10] Hợp nhất yêu cầu giữ trục với phản hồi mới hunting sau bỏ tải; không giao bản PI+D sơ bộ. Kiểm exact CI/ARM rồi cập nhật một lần. Không nhầm profile4 workspace thành firmware người dùng đã thử.
+
+
+[CONTINUOUS HOLD CORRECTION] Hiện tại phải bàn giao profile4 servo liên tục; không quay lại recovery có nghỉ của c9fd47fd. Sau xác minh CI, đưa mã cập nhật/build/nạp, không giao vòng thử mẫu mới. Chỉ ghi khả năng chịu lực thực tế khi có dữ liệu.
+
 
 [HÀNH ĐỘNG HIỆN HÀNH] Bàn giao M9 final trên nhánh hiện có, xác minh CI đúng SHA và đưa một lệnh cập nhật/build/nạp. Không mở thêm chuỗi thử mẫu hoặc xin lại quyền phát triển. Không nói người dùng đã nạp firmware khi chỉ mới push GitHub. Profile3 tự cấp quyền sau BOTH-DONE; commissioned0 không phải khóa lực.
 
@@ -518,6 +530,9 @@ Current goal: user requests near-immediate steering response; Level2 turning spe
 
 ## 3. Yêu cầu hiện hành và cách phối hợp với người dùng
 
+[CONTINUOUS HOLD CORRECTION] Yêu cầu xuyên suốt là giữ trục chống ngoại lực. Không được thay yêu cầu bằng hồi vị sau lệch rồi nghỉ. Chưa có lực/nhiệt thực nghiệm không phải lý do chọn sai chức năng; giữ ranh giới logic và khả năng vật lý.
+
+
 [CHỈ THỊ MỚI NHẤT] Người dùng cần một bản final để hoàn thành dự án/báo cáo, không còn thời gian thử mẫu. Thực hiện mọi phần code/kiểm tra tự động/tài liệu trong một lượt. Không đổi yêu cầu này thành bắt đo dòng/nhiệt trước khi giao; đồng thời không tự bịa kết quả nghiệm thu thực tế.
 
 
@@ -553,6 +568,9 @@ Current goal: user requests near-immediate steering response; Level2 turning spe
 USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjectively preferred, reduce startup lag. ASSISTANT design keeps Level2 opt-in and safe old coasting wait; FIRST-STOP remains user-confirmed FIX, R2 code9 separate.
 
 ## 4. Roadmap và milestone
+
+[CONTINUOUS HOLD CORRECTION] M9 profile4 thực hiện giữ tải liên tục bằng PI+D; H2-B1/H3 source+HOST có bằng chứng, HARDWARE chưa nghiệm thu. Bản profile3 trước bị xác định thiếu chức năng chủ chốt.
+
 
 [M9 FINAL] H2-B1 controller và H3 quyền/Rotate tích hợp đã triển khai profile3;40 kiểm tra local PASS. Giữ cột SOURCE/HOST riêng với ARM CI và HARDWARE. Không đánh dấu toàn bộ dự án hoặc động học/SELECT đã hoàn tất.
 
@@ -620,6 +638,12 @@ USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjec
 New milestone S14.3: use prior neutral sensor stillness to shorten only safe starts, no stop/NC/SOFT override; SOURCE-STAGED, target acceptance pending.
 
 ## 5. Công việc đã thực hiện và kết quả hiện tại
+
+[RELEASE SETTLING 2026-11-10] Thêm216 dynamic-release fixtures có lag/ma sát, kiểm transient settling và crossing, baseline profile3 thất bại166/216 so với0/216 bản sửa. Thêm slow-motion Q8, jitter và wrong-I-unwind tests; giữ exact-goal I600s.
+
+
+[CONTINUOUS HOLD CORRECTION] Đã thêm I giới hạn/anti-windup, giữ I khi e=0, không timer nghỉ/no-motion trong profile4; STOP/NC/new owner xóa I;36 plant case và600s exact-goal C test, actual HAL60s. Giữ41 hồi quy.
+
 
 [DELIVERED CODE] Thêm recovery_axis và cấu hình final; giữ bù ma sát xuyên qua tiến triển; nghỉ/stall riêng; sample20ms/trục danh định; deadline trên mọi PWM qua SysTick. Thêm162 mô phỏng C/UBSan, test actual main/port/SysTick/poll và workflow ARM full compile/link; giữ toàn bộ hồi quy cũ bằng fixture legacy riêng.
 
@@ -717,6 +741,12 @@ New milestone S14.3: use prior neutral sensor stillness to shorten only safe sta
 B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1461, 0 UART errors. Combined test four wheels user reports good, steering lag ~0.5s. GCC helper neutral/stale/coast/wrap checks succeeded, target code unbuilt.
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
+
+[RELEASE SETTLING 2026-11-10] Đang hoàn thiện source+hồ sơ theo phản hồi hunting; việc khắc phục trên xe chưa được xác minh. Không có SHA/log đi kèm phản hồi mới, không tự gán phần cứng đang dùng profile4.
+
+
+[CONTINUOUS HOLD CORRECTION] Điểm dừng: hoàn thiện source servo liên tục và kiểm CI/ARM đúng commit. Phần còn chưa biết là phạm vi ngoại lực/mô-men/nhiệt trên xe, không phải một kế hoạch test mẫu do người dùng phải thực hiện trước khi nhận source.
+
 
 [ĐIỂM DỪNG FINAL] Không có vòng thử mẫu kế tiếp được giao cho người dùng. Sau CI hoàn tất, giao đúng commit và hồ sơ final. Dữ liệu cơ khí của profile3 chưa có, không chặn việc giao phần mềm nhưng chặn kết luận hardware PASS.
 
@@ -854,6 +884,12 @@ Rejected blindly deleting 100/160ms +100ms quiet or increasing PWM: prior tests 
 
 ## 9. Vấn đề, lỗi và bài học từ những lần thử trước
 
+[RELEASE SETTLING 2026-11-10] Sai sót kiểm thử trước: xét steady-state sau chờ lâu bỏ lọt hunting; tốc độ bỏ qua1RAW/40ms che chuyển động chậm. Sửa tiêu chí kiểm tra theo thời gian quá độ và số lần vượt góc.
+
+
+[CONTINUOUS HOLD CORRECTION] Sai sót đã thừa nhận: c9fd47fd chỉ là recovery có nghỉ; lời chốt hoàn thiện M9 quá mức. Zero velocity dưới tải có thể là HOLD thành công; không dùng no-progress để ngắt lực servo. Test mới kiểm đúng điều này.
+
+
 [BÀI HỌC] Bù ma sát bị đặt lại sau mỗi nhích2RAW tái tạo stop/start; mô phỏng đã phát hiện, bản chốt giữ bù tới khi đạt goal. Poll100ms/trục của idle không phù hợp dùng nguyên trạng cho điều khiển có lực nên HOLD có lịch10ms luân phiên riêng.
 
 
@@ -905,6 +941,12 @@ Software before-CCR wait vs motor after-CCR lag distinguished; latter may persis
 
 ## 10. Rủi ro, giả định và phụ thuộc
 
+[RELEASE SETTLING 2026-11-10] Driver có ACCE/DECCE theo manual nhưng thiết lập thực chưa biết; lag0/60/120ms trong fixture là giả lập. Không tự tăng PWM hoặc xoay biến trở; không chuyển số5090ms mô hình thành thời gian đáp ứng thực.
+
+
+[CONTINUOUS HOLD CORRECTION] Servo liên tục có thể duy trì PWM ở trạng thái đứng yên. Không có phản hồi dòng/nhiệt; chưa xác nhận tải giữ được hoặc mức nhiệt. Không cam kết khóa cứng tuyệt đối hoặc mọi ngoại lực.
+
+
 [GIỚI HẠN FINAL] Chưa có torque/current/thermal hoặc thời gian đáp ứng trên xe của profile3. SysTick lease không hoạt động nếu SysTick/CPU bị halt. Không suy mô phỏng hoặc ARM build thành nghiệm thu vật lý. Giữ nguyên STOP/NC/sensor/owner và dải cơ khí.
 
 
@@ -942,6 +984,12 @@ Software before-CCR wait vs motor after-CCR lag distinguished; latter may persis
 Safety: no fast start while moving/coasting, NC active, disarmed, sensors stale, input not neutral, escape/R1/R2/Select. Physical independent cutoff still needed; no automatic Level2 selection.
 
 ## 11. Kế hoạch tiếp tục có thể thực hiện
+
+[RELEASE SETTLING 2026-11-10] Sau CI/ARM PASS giao code M9 trên nhánh hiện tại, tài liệu continuous-hold và release-settling. Không yêu cầu thêm vòng thử mẫu trước khi bàn giao.
+
+
+[CONTINUOUS HOLD CORRECTION] Giữ quyền STOP/NC/sensor và Rotate. Xác minh CI/ARM, giao bản servo4 và báo cáo hiện hành. Không yêu cầu thêm vòng thử mẫu, không tuyên bố đã flash Windows.
+
 
 [TIẾP TỤC] Xác minh ref/CI commit final, đưa hướng dẫn fast-forward trên project Windows chính rồi CubeIDE Refresh/Clean/Build/Flash/F8. Không reset, stash hoặc tạo worktree Windows. Không triển khai vòng thử mẫu mới trái yêu cầu; dữ liệu vận hành chỉ thu nếu người dùng muốn bổ sung.
 
@@ -1270,6 +1318,9 @@ S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <
 Next assistant must inspect new HEAD/Release; require evidence clean build and Flash; collect M8S00_S143 plus CSV, diagnose actual CCR and AS5600 lag. Do not ask repeated COM4 or D:\STM32 task\control_motor unless changed.
 
 ## 16. Kiểm tra chất lượng và khoảng trống bàn giao
+
+[CONTINUOUS HOLD CORRECTION] Kết quả HOST là logic/liveness và mô hình giả lập, không hardware. Bảo toàn386 dòng,17 mục và raw UART riêng tư. Tài liệu profile3 là lịch sử đã thay thế.
+
 
 [CHẤT LƯỢNG FINAL] Bảo toàn nguyên văn386 dòng, đủ0–16 và footer; cập nhật roadmap/handoff theo code. Raw UART riêng tư không được đưa vào repository. Kết quả CI/ARM phải kiểm đúng SHA; hardware profile3 không được tự nâng PASS.
 

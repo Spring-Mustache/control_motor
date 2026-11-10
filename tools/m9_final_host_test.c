@@ -2,7 +2,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <math.h>
-#include "m9_h2b1_commissioning.h"
+#include "m9_h2b1_recovery_profile.h"
 static M9B1Input input(uint32_t t, double l, double r)
 {
  M9B1Input in={0};in.now_ms=t;in.sample_ms[0]=in.sample_ms[1]=t;

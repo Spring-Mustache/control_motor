@@ -1,5 +1,11 @@
 # M9 — Bản bàn giao phần mềm cuối: giữ góc và tự phục hồi hai đĩa lái
 
+**CẬP NHẬT 10/11/2026 — GHÌ RỒI THẢ BỊ HUNTING.** Người dùng báo phản lực có nhưng dò góc lâu/quay qua lại. Lần báo chưa có SHA MCU; mốc đã giao c9fd47fd, profile4 trước đó chỉ là nháp chưa push. Bản sửa gộp giữ tải liên tục với tốc độ Q8 lọc60ms, ngừng tích lũy I khi đang về đích, xả I đẩy sai chiều khi quá đích, Kp8/4 thay16/8. I vẫn giữ khi đúng goal/đứng yên; không thêm timer nghỉ.216 fixture bỏ tải/trễ có tiêu chí quá độ PASS,36 fixture giữ tải và600s exact-goal I retention PASS, UBSan và41 regression PASS. Đây là HOST, chưa kết luận hardware hunting đã hết. Xem [báo cáo giảm hunting](M9_RELEASE_SETTLING_2026_11_10.md).
+
+
+**HIỆN HÀNH — M9 GIỮ TRỤC LIÊN TỤC, PROFILE4 (2026-11-10, giờ Việt Nam).** Người dùng nhắc lại đây là bài toán chính của M9. Bản c9fd47fd/profile3 hồi vị có nghỉ không đáp ứng đầy đủ yêu cầu; gọi hoàn thiện là kết luận quá mức. Đã thay cấu hình mặc định bằng PI vị trí + D vận tốc: giữ I/lực bù tại goal, không NO_PROGRESS/cooldown định kỳ khi bị ghì, bỏ ngưỡng8RAW (bỏ nhiễu±1RAW), anti-windup và xóa I khi STOP/NC/owner/fault. Giữ sampler20ms/trục, lease50ms và hai fix Rotate.41 kiểm tra local,36 mô hình tải/ma sát, giữ output tại goal600s giả lập và UBSan PASS; CI/ARM phải kiểm đúng SHA. Logic liên tục đã thực hiện; mô-men/nhiệt và độ lệch thật **CHƯA KIỂM CHỨNG**. [Hồ sơ sửa đúng yêu cầu M9](M9_CONTINUOUS_HOLD_CORRECTION_2026_11_10.md). Các chỉ dẫn profile3/“final hồi vị” bên dưới là lịch sử đã được thay thế.
+
+
 Ngày chốt mã: 09/11/2026 UTC. Nhánh `feature/m9-steering-active-position-hold`.
 Nền trực tiếp: `a944da4f7f66987c96883256ac34914962714562` (M9 + Rotate đã fix).
 Commit của bản này được xác định bằng Git HEAD/CI và `BUILD_MANIFEST.json`, không dùng một SHA tự tham chiếu trong chính file.

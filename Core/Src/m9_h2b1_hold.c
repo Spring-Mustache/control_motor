@@ -27,7 +27,15 @@ uint8_t M9B1_ConfigValid(const M9B1Config *c)
      c->deadband_raw>=c->enter_raw || c->sample_stale_ms==0U ||
      c->velocity_window_ms<20U || c->velocity_window_ms>c->sample_stale_ms ||
      c->service_gap_ms==0U || c->max_jump_raw==0U || c->max_jump_raw>=2048U ||
-     c->power_mode>M9B1_POWER_RECOVERY)return 0U;
+     c->power_mode>M9B1_POWER_SERVO)return 0U;
+  if(c->power_mode==M9B1_POWER_SERVO &&
+     (c->axis[0].max_pwm>M9B1_RECOVERY_LEFT_CEILING ||
+      c->axis[1].max_pwm>M9B1_RECOVERY_RIGHT_CEILING ||
+      c->axis[0].min_pwm || c->axis[1].min_pwm ||
+      c->axis[0].assist_pwm || c->axis[1].assist_pwm ||
+      c->axis[0].assist_ms || c->axis[1].assist_ms ||
+      c->tuning_window_ms || c->tuning_effort_ms || c->tuning_no_progress_ms ||
+      c->assist_cooldown_ms || c->sample_stale_ms>80U || c->service_gap_ms>80U))return 0U;
   if(c->power_mode==M9B1_POWER_RECOVERY &&
      (c->axis[0].max_pwm>M9B1_RECOVERY_LEFT_CEILING ||
       c->axis[1].max_pwm>M9B1_RECOVERY_RIGHT_CEILING ||
@@ -68,6 +76,7 @@ void M9B1_Revoke(M9B1Hold *h,uint8_t reason)
   for(i=0;i<2U;i++){
     h->axis[i].assist_phase=0U;h->axis[i].assist_started=0U;
     h->axis[i].assist_still_tracking=0U;
+    h->axis[i].integral_q8=0;h->axis[i].integral_remainder=0;
   }
   h->state=(reason==M9B1_NEW_OWNER || reason==M9B1_DISABLED ||
             reason==M9B1_STOP)?M9B1_REVOKED:M9B1_FAULT;
@@ -116,11 +125,23 @@ static uint8_t sample(M9B1Axis *a,const M9B1Config *c,const M9B1Input *in,
 {
   if(in->sample_seq[i]!=a->last_seq){
     uint32_t dt=(uint32_t)(in->sample_ms[i]-a->velocity_ms);
+    uint32_t sample_dt=(uint32_t)(in->sample_ms[i]-a->last_sample_ms);
     int16_t movement=delta(a->raw,in->raw[i]);
     if(magnitude(movement)>c->max_jump_raw)return 0U;
     a->raw=in->raw[i];a->last_seq=in->sample_seq[i];
     a->last_sample_ms=in->sample_ms[i];inc32(&a->good_samples);
-    if(dt>=c->velocity_window_ms){
+    if(c->power_mode==M9B1_POWER_SERVO){
+      /* Keep sub-RAW/sample motion in Q8. The historical estimator
+       * discards1RAW/40ms as noise, hiding slow returns from D entirely.
+       * A60ms low-pass uses actual sample time, once per fresh sample. */
+      if(sample_dt){
+        int64_t rate=(int64_t)movement*256000/(int32_t)sample_dt;
+        a->servo_velocity_q8+=(int32_t)((rate-a->servo_velocity_q8)*sample_dt/
+                                       (60U+sample_dt));
+      }
+      a->velocity=a->servo_velocity_q8/256;
+      if(dt>=c->velocity_window_ms)a->velocity_ready=1U;
+    }else if(dt>=c->velocity_window_ms){
       int16_t distance=delta(a->velocity_raw,a->raw);
       a->velocity=(magnitude(distance)<=1U)?0:(int32_t)distance*1000/(int32_t)dt;
       a->velocity_raw=a->raw;a->velocity_ms=in->sample_ms[i];
@@ -347,6 +368,74 @@ static void recovery_axis(M9B1Hold *h,const M9B1Config *c,unsigned i,
   a->last_sign=sign;a->pwm=(int16_t)(sign*(int32_t)wanted);
   if(wanted>a->peak_pwm)a->peak_pwm=(uint16_t)wanted;
 }
+/* PI position stiffness plus velocity damping. The integral is the
+ * retained load-balancing command, NOT a travel timer: e==0 freezes I
+ * instead of discarding torque. Saturation and reversal blanking cannot
+ * wind it farther into an unavailable output. No motion is not a fault.
+ */
+static void servo_axis(M9B1Axis *a,const M9B1AxisConfig *cfg,
+                       const M9B1Config *c,unsigned i,uint32_t now,uint32_t dt)
+{
+  int32_t e=0,limit=(int32_t)cfg->max_pwm*256;
+  int32_t ki=i?M9B1_SERVO_RIGHT_KI_Q8:M9B1_SERVO_LEFT_KI_Q8;
+  int64_t pd,increment,trial,output;int8_t sign;
+  uint32_t wanted,previous,step;
+  if(a->error>(int32_t)c->deadband_raw)e=a->error-c->deadband_raw;
+  else if(a->error<-(int32_t)c->deadband_raw)e=a->error+c->deadband_raw;
+  /* Discard only excess learned torque while motion is carrying the
+   * axis across/past its goal. A stationary loaded axis keeps its I.
+   * Feedback motion is essential: zero error alone never clears I. */
+  uint8_t approaching=(uint8_t)((int32_t)a->error*a->velocity>0 &&
+                                 magnitude(a->velocity)>=5U);
+  if((int64_t)e*a->integral_q8<0){
+    if(a->servo_wrong_i_ms<60U)a->servo_wrong_i_ms+=dt;
+  }else a->servo_wrong_i_ms=0U;
+  uint8_t unloading=(uint8_t)((int64_t)a->integral_q8*a->velocity>0 &&
+      magnitude(a->velocity)>=12U && magnitude(a->error)>c->deadband_raw &&
+      ((int32_t)a->error*a->velocity<=0 ||
+       (uint32_t)magnitude(a->error)*1000U<=
+       (uint32_t)magnitude(a->velocity)*160U));
+  /* A released load can stop in stiction just past the goal. Once the
+   * opposite error persists across multiple samples, unwind old torque
+   * even at low velocity; otherwise I can take seconds to change sign. */
+  if(a->servo_wrong_i_ms>=60U && magnitude(a->error)>2U && !approaching)unloading=1U;
+  if(unloading){
+    int32_t reduction=(int32_t)((int64_t)a->integral_q8*dt/120);
+    a->integral_q8-=reduction;a->integral_remainder=0;
+    if(magnitude(a->integral_q8)<256U)a->integral_q8=0;
+  }
+  pd=(int64_t)cfg->kp_q8*e-(int64_t)cfg->kd_q8*a->velocity;
+  increment=(int64_t)ki*e*dt+a->integral_remainder;
+  trial=(int64_t)a->integral_q8+increment/1000;
+  if(trial>limit)trial=limit;
+  if(trial< -limit)trial= -limit;
+  output=pd+trial;
+  if(!a->reversing && !approaching &&
+     (!unloading || (int64_t)e*a->integral_q8<=0) &&
+     !((output>limit && e>0) || (output< -limit && e<0))){
+    a->integral_q8=(int32_t)trial;
+    a->integral_remainder=(int32_t)(increment%1000);
+  }else a->integral_remainder=0;
+  output=pd+a->integral_q8;
+  if(output>limit)output=limit;
+  if(output< -limit)output= -limit;
+  output/=256;
+  if(output==0){a->pwm=0;a->rise_remainder=0;a->reversing=0;return;}
+  sign=output>0?1:-1;wanted=(uint32_t)(output>0?output:-output);
+  if(a->last_sign && sign!=a->last_sign){
+    if(!a->reversing || a->pending_sign!=sign){
+      a->reversing=1;a->pending_sign=sign;a->reversal_ms=now;
+    }
+    a->pwm=0;a->rise_remainder=0;
+    if((uint32_t)(now-a->reversal_ms)<cfg->reversal_zero_ms)return;
+  }
+  a->reversing=0;previous=magnitude(a->pwm);
+  a->rise_remainder+=(uint32_t)cfg->rise_per_second*dt;
+  step=a->rise_remainder/1000U;a->rise_remainder%=1000U;
+  if(wanted>previous && wanted-previous>step)wanted=previous+step;
+  a->last_sign=sign;a->pwm=(int16_t)(sign*(int32_t)wanted);
+  if(wanted>a->peak_pwm)a->peak_pwm=(uint16_t)wanted;
+}
 void M9B1_Step(M9B1Hold *h,const M9B1Config *c,const M9B1Input *in)
 {
   unsigned i;uint8_t reason;uint32_t dt;
@@ -366,6 +455,10 @@ void M9B1_Step(M9B1Hold *h,const M9B1Config *c,const M9B1Input *in)
     h->reason=M9B1_CALIBRATION_REQUIRED;return;}
   if(!h->axis[0].velocity_ready || !h->axis[1].velocity_ready){
     zero_demand(h);h->state=M9B1_WAIT_DATA;return;
+  }
+  if(c->power_mode==M9B1_POWER_SERVO){
+    for(i=0U;i<2U;i++)servo_axis(&h->axis[i],&c->axis[i],c,i,in->now_ms,dt);
+    h->fault_axes=0;h->reason=M9B1_NONE;h->state=M9B1_HOLDING;return;
   }
   if(c->power_mode==M9B1_POWER_RECOVERY){
     h->fault_axes=0U;h->reason=M9B1_NONE;

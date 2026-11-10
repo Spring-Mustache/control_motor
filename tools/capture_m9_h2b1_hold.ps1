@@ -53,7 +53,9 @@ try{
   if($line -match '(^|,)state=6(,|$)' -and $line -match '(^|,)active=1(,|$)'){
    Write-Host "COOLDOWN: target retained, outputs zero; automatic retry after budget recovery."
   }
-  if($line -match '(^|,)profile=3(,|$)'){
+  if($line -match '(^|,)profile=4(,|$)'){
+   Write-Host "CONTINUOUS SERVO: load compensation can stay nonzero at goal. No periodic rest. Physical torque/current/thermal acceptance is not recorded."
+  }elseif($line -match '(^|,)profile=3(,|$)'){
    Write-Host "FINAL RECOVERY: persistent target, independent feedback recovery. commissioned=0 means physical acceptance is not recorded."
   }elseif($line -match '(^|,)profile=1(,|$)'){
    Write-Warning "TUNING profile CAN POWER BOTH MOTORS; commissioned=0 means thermal/current acceptance is pending."
