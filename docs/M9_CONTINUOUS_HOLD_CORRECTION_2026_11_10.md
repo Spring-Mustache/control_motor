@@ -1,3 +1,5 @@
+**CẬP NHẬT 11/11/2026 — NGƯỜI VẬN HÀNH XÁC NHẬN KẾT QUẢ TRÊN XE.** Trong bối cảnh bản bàn giao `b1c1e9c4`/profile4, người dùng xác nhận bánh tạo phản lực khi bị tác động và không còn quay qua lại nhiều lần để dò góc trong lần thử. Đây là **USER-REPORTED định tính**, chưa kèm log SHA MCU, lực/góc/thời gian/dòng/nhiệt hoặc phạm vi từng trục/tải. CI firmware run42759998485 có ba job kiểm tra/build thành công. Động học tổng thể chưa tích hợp, SELECT tạm hoãn. Bản bàn giao hai phiên và nội dung báo cáo mới nằm tại [hồ sơ 11/11](M9_SESSION_HANDOFF_2026_11_11.md). Các khối có ngày cũ bên dưới giữ trạng thái tại thời điểm đã ghi.
+
 # M9 — Sửa đúng yêu cầu giữ trục chống ngoại lực liên tục
 
 ## Yêu cầu và sai sót của bản trước

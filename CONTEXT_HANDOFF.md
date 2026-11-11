@@ -1,5 +1,7 @@
 # CONTEXT HANDOFF
 
+**CẬP NHẬT 11/11/2026 — NGƯỜI VẬN HÀNH XÁC NHẬN KẾT QUẢ TRÊN XE.** Trong bối cảnh bản bàn giao `b1c1e9c4`/profile4, người dùng xác nhận bánh tạo phản lực khi bị tác động và không còn quay qua lại nhiều lần để dò góc trong lần thử. Đây là **USER-REPORTED định tính**, chưa kèm log SHA MCU, lực/góc/thời gian/dòng/nhiệt hoặc phạm vi từng trục/tải. CI firmware run42759998485 có ba job kiểm tra/build thành công. Động học tổng thể chưa tích hợp, SELECT tạm hoãn. Bản bàn giao hai phiên và nội dung báo cáo mới nằm tại [hồ sơ 11/11](docs/M9_SESSION_HANDOFF_2026_11_11.md). Các khối có ngày cũ bên dưới giữ trạng thái tại thời điểm đã ghi.
+
 **CẬP NHẬT 10/11/2026 — GHÌ RỒI THẢ BỊ HUNTING.** Người dùng báo phản lực có nhưng dò góc lâu/quay qua lại. Lần báo chưa có SHA MCU; mốc đã giao c9fd47fd, profile4 trước đó chỉ là nháp chưa push. Bản sửa gộp giữ tải liên tục với tốc độ Q8 lọc60ms, ngừng tích lũy I khi đang về đích, xả I đẩy sai chiều khi quá đích, Kp8/4 thay16/8. I vẫn giữ khi đúng goal/đứng yên; không thêm timer nghỉ.216 fixture bỏ tải/trễ có tiêu chí quá độ PASS,36 fixture giữ tải và600s exact-goal I retention PASS, UBSan và41 regression PASS. Đây là HOST, chưa kết luận hardware hunting đã hết. Xem [báo cáo giảm hunting](docs/M9_RELEASE_SETTLING_2026_11_10.md).
 
 
@@ -147,6 +149,9 @@ Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_RO
 
 ## 0. Thông tin hồ sơ và phạm vi bao phủ
 
+**Cập nhật bàn giao 11/11/2026.** Ngày 11/11/2026 bổ sung lời người vận hành sau khi tiếp nhận bản b1c1e9c4 và hồ sơ hai phiên chat. Đã rà chat gốc trước lúc xoá. Bản chép nguyên văn đầy đủ và các log UART riêng tư không nằm trong bản chuyển chat. Xem docs/M9_SESSION_HANDOFF_2026_11_11.md.
+
+
 [FINAL snapshot] Nguồn rà soát: yêu cầu hiện tại, ngữ cảnh đã rút gọn, source tại a944da4f, kết quả40 regression local và các tài liệu hiện có. Không tuyên bố còn toàn bộ hội thoại nguyên gốc. Bản final chỉ có bằng chứng phần mềm; CI/ARM và hardware là các mức khác nhau.
 
 
@@ -204,6 +209,9 @@ Chi tiết, giới hạn bằng chứng và cách cập nhật/test: [M8_VC02_RO
 B update 2026-10-31: source HEAD c9f3032 confirmed on Windows, user reports CubeIDE build success before this change, but S14.3 firmware/ELF/Flash SHA unverified. Local B logs private, not uploaded public.
 
 ## 1. Đọc mục này để tiếp tục ngay
+
+**Cập nhật bàn giao 11/11/2026.** Mốc source b1c1e9c4/profile4. Người vận hành xác nhận khi tác động bánh đã có phản lực và không còn quay qua lại nhiều lần để dò góc trong lần thử. Tiếp tục từ kết quả USER-REPORTED này, đối chiếu HEAD/CI tài liệu rồi phục vụ báo cáo và chuyển chat. Động học chưa tích hợp, SELECT tạm hoãn.
+
 
 [RELEASE SETTLING 2026-11-10] Hợp nhất yêu cầu giữ trục với phản hồi mới hunting sau bỏ tải; không giao bản PI+D sơ bộ. Kiểm exact CI/ARM rồi cập nhật một lần. Không nhầm profile4 workspace thành firmware người dùng đã thử.
 
@@ -501,6 +509,9 @@ Current goal: user requests near-immediate steering response; Level2 turning spe
 
 ## 2. Bối cảnh, mục tiêu và phạm vi
 
+**Cập nhật bàn giao 11/11/2026.** Mục tiêu vẫn giữ góc hai trục chống ngoại lực và ổn định khi bỏ tải. Nhiệm vụ hiện tại là ghi kết quả, báo cáo và chuyển ngữ cảnh hai phiên lên GitHub/Markdown. Chưa có yêu cầu mới sửa thuật toán hoặc mở lại động học/SELECT.
+
+
 **Hiện hành — LEFT300/200 sau báo đứng yên:** Mục tiêu vẫn giữ hai goal liên tục;chỉnh LEFT là phản hồi bằng chứng thử hiện có,không đổi sản phẩm thành chương trình một trục. Sai số lớn hợp lệ vẫn yêu cầu kéo về.
 
 **Hiện hành — trợ lực sau181422:** Giữ hai goal liên tục sau BOTH-DONE; trợ lực ngắn nằm trong owner HOLD hiện hữu,không thay bằng chương trình open-loop một trục hoặc phiên tự hết hạn.
@@ -529,6 +540,9 @@ Current goal: user requests near-immediate steering response; Level2 turning spe
 **Ràng buộc:** không được tự suy từ PWM CCR sang tốc độ góc/s; không tăng PWM/đổi soft margin vô điều kiện; không Flash hoặc cấp điện nếu chưa đáp ứng điều kiện hardware; không xóa lịch sử dữ liệu, commit/nhánh hoặc sửa cục bộ của người dùng.
 
 ## 3. Yêu cầu hiện hành và cách phối hợp với người dùng
+
+**Cập nhật bàn giao 11/11/2026.** Người dùng cho phép cập nhật cải tiến, kết quả và nội dung báo cáo lên GitHub, xuất MD đầy đủ để xoá phiên Công việc và chuyển dự án sang Chỉ dự án. Giữ mốc firmware, mức chứng cứ và lịch sử, tận dụng tài nguyên có sẵn trước khi hỏi lại.
+
 
 [CONTINUOUS HOLD CORRECTION] Yêu cầu xuyên suốt là giữ trục chống ngoại lực. Không được thay yêu cầu bằng hồi vị sau lệch rồi nghỉ. Chưa có lực/nhiệt thực nghiệm không phải lý do chọn sai chức năng; giữ ranh giới logic và khả năng vật lý.
 
@@ -568,6 +582,9 @@ Current goal: user requests near-immediate steering response; Level2 turning spe
 USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjectively preferred, reduce startup lag. ASSISTANT design keeps Level2 opt-in and safe old coasting wait; FIRST-STOP remains user-confirmed FIX, R2 code9 separate.
 
 ## 4. Roadmap và milestone
+
+**Cập nhật bàn giao 11/11/2026.** M9 H2-B1/H3 đã có source/HOST/ARM CI tại b1c1e9c4. Ngày 11/11 bổ sung USER-REPORTED trên xe về chống lực và hết dò qua lại nhiều lần. Phạm vi mọi góc/tải, lực/nhiệt/độ chính xác định lượng và nghiệm thu tổng thể vẫn chưa có dữ liệu đầy đủ.
+
 
 [CONTINUOUS HOLD CORRECTION] M9 profile4 thực hiện giữ tải liên tục bằng PI+D; H2-B1/H3 source+HOST có bằng chứng, HARDWARE chưa nghiệm thu. Bản profile3 trước bị xác định thiếu chức năng chủ chốt.
 
@@ -638,6 +655,9 @@ USER chose direction: keep S14.2 high-speed cross-coupled control; Level2 subjec
 New milestone S14.3: use prior neutral sensor stillness to shorten only safe starts, no stop/NC/SOFT override; SOURCE-STAGED, target acceptance pending.
 
 ## 5. Công việc đã thực hiện và kết quả hiện tại
+
+**Cập nhật bàn giao 11/11/2026.** Đã kiểm tra GitHub HEAD b1c1e9c4 và run42759998485 có ba job kiểm tra/build thành công. Kết quả người vận hành được bổ sung vào hồ sơ, báo cáo profile4 và bản chuyển chat. Không phát sinh kết quả đo số mới từ xác nhận này.
+
 
 [RELEASE SETTLING 2026-11-10] Thêm216 dynamic-release fixtures có lag/ma sát, kiểm transient settling và crossing, baseline profile3 thất bại166/216 so với0/216 bản sửa. Thêm slow-motion Q8, jitter và wrong-I-unwind tests; giữ exact-goal I600s.
 
@@ -742,6 +762,9 @@ B data: Level1 M8S00 sync frames230; M8S11 12:51/13:14/13:21 meta rows603/1124/1
 
 ## 6. Công việc đang dang dở và điểm dừng chính xác
 
+**Cập nhật bàn giao 11/11/2026.** Điểm dừng chuyển sang hoàn thiện hồ sơ/báo cáo và chuyển chat. Khả năng chống lực, giảm hunting đã được người dùng xác nhận định tính trong lần thử. Lần báo chưa có SHA UART, góc thử, dữ liệu riêng từng trục hoặc đo thời gian/lực/nhiệt. Commit tài liệu không đòi flash lại.
+
+
 [RELEASE SETTLING 2026-11-10] Đang hoàn thiện source+hồ sơ theo phản hồi hunting; việc khắc phục trên xe chưa được xác minh. Không có SHA/log đi kèm phản hồi mới, không tự gán phần cứng đang dùng profile4.
 
 
@@ -800,6 +823,9 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 
 ## 7. Tệp, tài nguyên và phiên bản cần chuyển sang B
 
+**Cập nhật bàn giao 11/11/2026.** Tệp tiếp quản hai phiên là docs/M9_SESSION_HANDOFF_2026_11_11.md, gồm17 mục và nội dung báo cáo. Giữ link CI42759998485 và mốc source b1c1e9c4. Chat gốc đã xoá, bản Markdown cùng GitHub là nguồn độc lập. Raw UART cũ chỉ được dẫn theo số tổng hợp.
+
+
 [TỆP FINAL] docs/M9_FINAL_DELIVERY_2026_11_09.md là báo cáo/bảng thông số/hướng dẫn hiện hành. tools/build_firmware_ci.py tạo ELF/HEX/BIN/map và BUILD_MANIFEST.json ở Actions artifact khớp SHA, không tạo GitHub Release tự động.
 
 
@@ -846,6 +872,9 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 
 ## 8. Lịch sử quyết định và các phương án đã cân nhắc
 
+**Cập nhật bàn giao 11/11/2026.** Chốt dùng b1c1e9c4/profile4 làm mốc source sau sửa hunting, giữ hai fix Rotate. Cập nhật USER-REPORTED11/11 thay thế trạng thái chưa có phản hồi xe trong phần lịch sử10/11. Kết quả này chưa xác định miền tải và nhiệt. Mục tiêu bộ nhớ Chỉ dự án chưa hoàn tất.
+
+
 [QUYẾT ĐỊNH FINAL] Bỏ profile thử30/10 + xung làm mặc định; chọn dải vận động M8 làm cơ sở phục hồi, bù ma sát trong cùng trần, không tăng vô hạn. Đây là quyết định kỹ thuật trong phạm vi yêu cầu final; không gọi thông số là rating dòng/nhiệt đã đo.
 
 
@@ -883,6 +912,9 @@ Code and docs S14.3 staged, not proven built/flashed. Next: keep dirty CubeIDE p
 Rejected blindly deleting 100/160ms +100ms quiet or increasing PWM: prior tests show coast near SOFT. Chose boot-OFF fast path requiring BOTH AS5600 neutral quiet observed previously and fresh check after command; old gate on doubt.
 
 ## 9. Vấn đề, lỗi và bài học từ những lần thử trước
+
+**Cập nhật bàn giao 11/11/2026.** Các lỗi32RAW hủy goal, PWM/xung yếu, R2 hủy do gate và profile3 có nghỉ được giữ trong dòng thời gian. Hiện tượng dò qua lại nhiều lần được người dùng báo đã hết trong lần thử mới. Tách điều quan sát khỏi giả thuyết nguyên nhân và số mô hình.
+
 
 [RELEASE SETTLING 2026-11-10] Sai sót kiểm thử trước: xét steady-state sau chờ lâu bỏ lọt hunting; tốc độ bỏ qua1RAW/40ms che chuyển động chậm. Sửa tiêu chí kiểm tra theo thời gian quá độ và số lần vượt góc.
 
@@ -941,6 +973,9 @@ Software before-CCR wait vs motor after-CCR lag distinguished; latter may persis
 
 ## 10. Rủi ro, giả định và phụ thuộc
 
+**Cập nhật bàn giao 11/11/2026.** Thiếu log SHA mới và điều kiện thử11/11 nên nhận xét gắn với bối cảnh bản bàn giao b1c1e9c4. Chưa có force/current/thermal/settling thực nghiệm. Không dùng5090ms hoặc3lần vượt của fixture làm số đo xe. Các file đính kèm sau xoá chat có thể cần tìm lại.
+
+
 [RELEASE SETTLING 2026-11-10] Driver có ACCE/DECCE theo manual nhưng thiết lập thực chưa biết; lag0/60/120ms trong fixture là giả lập. Không tự tăng PWM hoặc xoay biến trở; không chuyển số5090ms mô hình thành thời gian đáp ứng thực.
 
 
@@ -984,6 +1019,9 @@ Software before-CCR wait vs motor after-CCR lag distinguished; latter may persis
 Safety: no fast start while moving/coasting, NC active, disarmed, sensors stale, input not neutral, escape/R1/R2/Select. Physical independent cutoff still needed; no automatic Level2 selection.
 
 ## 11. Kế hoạch tiếp tục có thể thực hiện
+
+**Cập nhật bàn giao 11/11/2026.** Kiểm HEAD/CI của commit tài liệu, nhận file chuyển chat, dùng phần báo cáo đã soạn. Khi chuyển Chỉ dự án, ảnh UI cho thấy chat Công việc là điều kiện chặn. Người dùng chọn bảo toàn ngữ cảnh trước khi xoá phiên này. Chưa giao vòng thử mẫu hoặc công việc firmware kế tiếp.
+
 
 [RELEASE SETTLING 2026-11-10] Sau CI/ARM PASS giao code M9 trên nhánh hiện tại, tài liệu continuous-hold và release-settling. Không yêu cầu thêm vòng thử mẫu trước khi bàn giao.
 
@@ -1061,6 +1099,9 @@ Windows: git status, git fetch, merge --ff-only on same branch, python tools/ver
 
 ## 12. Câu hỏi còn mở và thông tin cần bổ sung
 
+**Cập nhật bàn giao 11/11/2026.** Còn thiếu dữ liệu định lượng, phạm vi từng trục/góc/tải và xác minh bộ nhớ đã chuyển. Các dữ kiện này không chặn bàn giao/báo cáo định tính. Chỉ thu thêm khi nhiệm vụ tiếp theo cần, không hỏi lại kết quả chống lực người dùng đã xác nhận.
+
+
 [KHÔNG HỎI LẠI ĐỂ GIAO] Phần mềm final không phụ thuộc một câu trả lời mới. Thực nghiệm lực giữ/độ chính xác/nhiệt CHƯA CÓ DỮ LIỆU; ghi giới hạn trong báo cáo, không đòi người dùng tự chẩn đoán hoặc làm bảng hỏi.
 
 
@@ -1097,6 +1138,9 @@ Windows: git status, git fetch, merge --ff-only on same branch, python tools/ver
 Missing: new STM32 build log/flashed ELF, actual current and measured coast at Level2, new A/B latency CSV, scope signal-to-power evidence. Not required to implement guarded source patch.
 
 ## 13. Dòng thời gian và diễn biến quan trọng
+
+**Cập nhật bàn giao 11/11/2026.** 11/11/2026 đọc link chia sẻ rồi rà chat gốc từ H2-B0 tới b1c1e9c4; người dùng xác nhận chức năng chống lực và hết dò nhiều lần; xuất bản ngắn; chat gốc bị xoá; người dùng gặp mục Chỉ dự án bị khoá bởi Công việc; yêu cầu cập nhật GitHub và MD để chuyển phiên.
+
 
 [2026-11-09 UTC — FINAL REQUEST] Sau a944da4f M9+Rotate và CI42625676055 PASS, người dùng yêu cầu chốt M9 trong một lần xử lý; triển khai profile3,40 lệnh hồi quy và162 mô hình giả lập PASS; bổ sung ARM CI.
 
@@ -1143,6 +1187,9 @@ Các mốc phút của file (`yyyyMMdd_HHmmss`) là **tên file capture**, khôn
 13:21 2026-10-31 combined M8S11 1461 rows, user sees wheel response good but steering 0.5s lag. ~13:37 user requests fix and reports Level2 speed satisfactory. New S14.3 source follows.
 
 ## 14. Phụ lục nội dung cần giữ chính xác
+
+**Cập nhật bàn giao 11/11/2026.** Câu người dùng ngày11/11: “xác nhận khi tác động vào bánh đã có thể chống lại lực tác động đồng thời không có tình trạng quay đi quay lại nhiều lần để dò vị trí chính xác”. Báo cáo dùng USER-REPORTED định tính, chưa có logSHA và số đo mới. Tham số profile4 theo M9_CONTINUOUS_HOLD_CORRECTION và M9_RELEASE_SETTLING.
+
 
 **Hiện hành — LEFT300/200 sau báo đứng yên:** LEFT assist300CCR=30%,tối đa200ms;RIGHT85CCR/12ms. PD nền30/10,still200ms,|v|<=20,settle>=200ms,freshsample,<=4attempts,rest>=3000ms+2budgets về0. Có thể nghỉ sớm do11/12;không cam kết luôn đủ4x200ms.
 
@@ -1292,6 +1339,9 @@ S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <
 
 ## 15. Chỉ dẫn để hội thoại B tiếp quản
 
+**Cập nhật bàn giao 11/11/2026.** Bắt đầu bằng docs/M9_SESSION_HANDOFF_2026_11_11.md rồi đọc HEAD nhánhM9 và hồ sơ17 mục. Giữ kết quả11/11, source b1c1e9c4, động học chưa tích hợp và SELECT hoãn. Các câu yêu cầu quay lại thử burst/đợi flash trong khối cũ thuộc thời điểm lịch sử.
+
+
 [CHỈ DẪN B] Đọc báo cáo final trước các thử nghiệm cũ. Không quay lại bản xung thử hoặc lộ trình test mẫu khi chưa có chỉ thị mới. Giữ hai fix Rotate. Luôn phân biệt final phần mềm với hardware đã được xác nhận.
 
 
@@ -1318,6 +1368,9 @@ S14.3 parameters: quiet 100ms, >=3 distinct valid samples, cumulative <=2 RAW, <
 Next assistant must inspect new HEAD/Release; require evidence clean build and Flash; collect M8S00_S143 plus CSV, diagnose actual CCR and AS5600 lag. Do not ask repeated COM4 or D:\STM32 task\control_motor unless changed.
 
 ## 16. Kiểm tra chất lượng và khoảng trống bàn giao
+
+**Cập nhật bàn giao 11/11/2026.** Đã cập nhật cả17 mục, giữ nguyên bản386dòng và lịch sử. Hồ sơ hai phiên có nội dung báo cáo, nguồn và điểm dừng. Giới hạn còn lại là transcript nguyên văn, raw logs riêng tư, SHA MCU mới/định lượng và trạng thái đổi bộ nhớ. CI tài liệu phải đối chiếu ở commit thực tế.
+
 
 [CONTINUOUS HOLD CORRECTION] Kết quả HOST là logic/liveness và mô hình giả lập, không hardware. Bảo toàn386 dòng,17 mục và raw UART riêng tư. Tài liệu profile3 là lịch sử đã thay thế.
 
