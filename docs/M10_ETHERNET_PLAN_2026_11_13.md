@@ -118,3 +118,17 @@ Phép thử Windows S01 thứ tự mới: (1) xác minh board/cổng RJ45, JP6/J
 **USER-REPORTED ngày 13/11/2026:** người vận hành kết nối RJ45 onboard NUCLEO-F767ZI với laptop Windows và chạy `Get-NetAdapter -Physical`. Adapter **Ethernet 2 (Intel(R) Ethernet Connection (22) I219-LM)** hiển thị **Status=Up; LinkSpeed=100 Mbps**. Đồng thời Wi-Fi đang Up. Trong bối cảnh người dùng đã xác nhận sử dụng RJ45 onboard, đây là bằng chứng link vật lý ở đầu Windows, **không** phải kết quả PHY register MCU, ARP, IP, ICMP hay UDP. Đánh dấu **M10-S01.1: USER-REPORTED PHY LINK OBSERVED (Windows)**, chờ quan sát IP với `Get-NetIPConfiguration -InterfaceAlias "Ethernet 2" | Format-List InterfaceAlias,IPv4Address,IPv4DefaultGateway`.
 
 Chưa thay đổi adapter/IP/gateway/Wi-Fi, chưa phát gói ICMP, chưa nạp firmware mạng. Không suy ra M10-S01 PASS hoặc firmware STM32 có TCP/IP stack. Trước khi cấu hình IPv4 tĩnh phải đọc IPv4 hiện tại của Ethernet 2, tránh thay nhầm adapter hay gây xung đột mạng hiện dùng.
+
+## 11. Windows S01.2 — đã đọc địa chỉ IPv4 của Ethernet 2
+
+**USER-REPORTED, 13/11/2026:** kết quả lệnh `Get-NetIPConfiguration -InterfaceAlias "Ethernet 2" | Format-List InterfaceAlias,IPv4Address,IPv4DefaultGateway`:
+- InterfaceAlias: `Ethernet 2`
+- IPv4Address: `192.168.10.10`
+- IPv4DefaultGateway: để trống.
+
+**Quyết định:** GIỮ NGUYÊN IPv4 hiện có của Windows, không áp dụng đề xuất thử `192.168.50.1` trước đó. Đề xuất **STM32 `192.168.10.20`** cho cùng segment, **CHƯA THIẾT LẬP** và chưa xác minh địa chỉ này không trùng. Trước khi chọn subnet/IP STM32 cần đọc `PrefixLength` của adapter thực tế bằng lệnh chỉ đọc:
+```powershell
+Get-NetIPAddress -InterfaceAlias "Ethernet 2" -AddressFamily IPv4 | Format-Table IPAddress,PrefixLength,AddressState -AutoSize
+```
+
+Gateway trống không phải lỗi trong mô hình 2 thiết bị trực tiếp trên cùng subnet. `Ethernet 2` Up/100 Mbps là quan sát link ở đầu laptop, không chứng minh Nucleo có IP stack hoặc ping thành công. Chưa đổi IP máy tính, chưa sửa mã Ethernet, chưa build/flash firmware M10 mới, chưa nghiệm thu ARP/ICMP/UDP. Không làm gián đoạn Wi-Fi.
