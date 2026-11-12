@@ -36,16 +36,16 @@ objects=[]
 for src in sources:
  obj=out/(str(src.relative_to(R)).replace('/','_')+'.o');objects.append(obj)
  run([cc,*flags,'-c',str(src),'-o',str(obj)])
-elf=out/'control_motor_M9_final.elf'
+elf=out/'control_motor_M10_ethernet.elf'
 run([cc,'-mcpu=cortex-m7','-mthumb','-mfpu=fpv5-d16','-mfloat-abi=hard',
      '--specs=nano.specs','--specs=nosys.specs','-T'+str(R/'STM32F767ZITX_FLASH.ld'),
-     '-Wl,--gc-sections,-Map='+str(out/'control_motor_M9_final.map'),
+     '-Wl,--gc-sections,-Map='+str(out/'control_motor_M10_ethernet.map'),
      *map(str,objects),'-Wl,--start-group','-lc','-lm','-Wl,--end-group','-o',str(elf)])
 run(['arm-none-eabi-size',str(elf)])
 for fmt,suffix in [('binary','bin'),('ihex','hex')]:
- run(['arm-none-eabi-objcopy','-O',fmt,str(elf),str(out/f'control_motor_M9_final.{suffix}')])
+ run(['arm-none-eabi-objcopy','-O',fmt,str(elf),str(out/f'control_motor_M10_ethernet.{suffix}')])
 manifest={'commit':sha,'target':'STM32F767ZI','validation':'ARM compile/link only; NOT hardware acceptance',
  'compiler':subprocess.check_output([cc,'--version'],text=True).splitlines()[0],
- 'sha256':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in out.glob('control_motor_M9_final.*')}}
+ 'sha256':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in out.glob('control_motor_M10_ethernet.*')}}
 (out/'BUILD_MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n')
 print('PASS exact-commit full Cortex-M7 firmware compile/link:',sha)

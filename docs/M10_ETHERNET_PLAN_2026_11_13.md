@@ -174,3 +174,11 @@ Thành phần dự kiến cùng một commit:
 **CI firmware candidate \`a6951d4559b27f0025c23e66e024698f42a420e7\` đã PASS** 3 job (host C regression, full ARM compile/link, Windows PowerShell syntax) tại https://github.com/Spring-Mustache/control_motor/actions/runs/43313309315 ; artifact exact SHA đã được GitHub tạo. Đây vẫn chỉ là SOFTWARE/SOURCE/HOST/ARM, không FLASHED.
 
 **Rà lại ST HAL Ethernet:** bản HAL của dự án có \`HAL_ETH_SetMDIOClockRange\` nhưng **\`HAL_ETH_Init()\` không tự gọi nó**. M10 cần gọi \`HAL_ETH_SetMDIOClockRange(eth)\` trong \`M10_ETH_Init\` trước lần đọc MDIO đầu tiên; nếu thiếu, software build PASS có thể không đọc LAN8742A. Bản fix phải chạy lại CI exact SHA trước khi sử dụng. Workflow M10 đổi tên artifact thành \`M10-ethernet-<SHA>\` để không nhầm với M9; binary nội bộ vẫn có tên di sản \`control_motor_M9_final.*\` từ build script chung nhưng build manifest lưu exact SHA của M10. Thêm kiểm tra cú pháp PowerShell file echo trong CI.
+
+## 15. Định danh binary M10 và CI
+
+Bản \`752569d6759fb29e33d09c1d762f463f83a522d3\` đã được xác minh **3 job CI PASS** tại https://github.com/Spring-Mustache/control_motor/actions/runs/43313758582 (HOST protocol regression, ARM compiler/linker, PowerShell 5.1 syntax). Không có kết quả Flash/Hardware của commit này.
+
+Trước khi bàn giao binary cho người vận hành, sửa tên output **trên nhánh M10 duy nhất** từ tên cũ di sản \`control_motor_M9_final.{elf,hex,bin,map}\` sang \`control_motor_M10_ethernet.{elf,hex,bin,map}\` trong script build CI và danh sách upload artifact. Build manifest ghi hash của chính các file mới. Thao tác này chỉ đổi tên artefact M10, không sửa M9 firmware/control, và phải được CI exact-SHA kiểm lại.
+
+**Lưu ý CubeIDE:** script CI không phải pre-build CubeIDE. Khi build trên Windows bằng STM32CubeIDE cần xác nhận Git SHA nhúng từ \`tools/stamp_firmware_build.ps1\`; không tự lấy binary M9 chỉ vì tên thư mục Debug giống nhau.

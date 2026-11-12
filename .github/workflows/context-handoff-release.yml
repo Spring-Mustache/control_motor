@@ -205,10 +205,10 @@ jobs:
         with:
           name: M10-ethernet-${{ github.sha }}
           path: |
-            build-ci/control_motor_M9_final.elf
-            build-ci/control_motor_M9_final.hex
-            build-ci/control_motor_M9_final.bin
-            build-ci/control_motor_M9_final.map
+            build-ci/control_motor_M10_ethernet.elf
+            build-ci/control_motor_M10_ethernet.hex
+            build-ci/control_motor_M10_ethernet.bin
+            build-ci/control_motor_M10_ethernet.map
             build-ci/BUILD_MANIFEST.json
           if-no-files-found: error
 
