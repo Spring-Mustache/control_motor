@@ -18,7 +18,7 @@ Ngày đối chiếu: **13/11/2026**
 |---|---|
 | Milestone hiện hành | M10 — Ethernet STM32F767ZI ↔ Laptop (Windows → Ubuntu) |
 | Nhánh phát triển được chỉ định | `feature/m10-ethernet-windows-ubuntu` |
-| HEAD nhánh M10 đã xác minh | `acff1defe0ee70b1d5106cb75ee306d7ba5e8958` |
+| HEAD nhánh M10 đã xác minh | `5ebe3f62bf70e95940ba3cb4e867b919875e9b94` |
 | Mốc source firmware M10 (kế thừa M9 Profile 4) | `b1c1e9c4d8f7d191b21123a328ee1dea550595da` |
 | Hồ sơ bàn giao | `docs/M10_SESSION_HANDOFF_2026_11_13.md` |
 | Bộ điều khiển M9 được bảo toàn | PI vị trí + D vận tốc, không sửa thuật toán |
@@ -34,7 +34,7 @@ HEAD M10 trên là ảnh chụp lúc lập hồ sơ ngày 13/11/2026, không tha
 
 ### M10 Ethernet — tình trạng ngày 13/11/2026
 
-**Quyết định mới của người vận hành:** dùng cổng RJ45 tích hợp NUCLEO-F767ZI, không dùng PHY/module rời. Theo ST UM1974, Ethernet onboard dùng LAN8742A, CN14, RMII và yêu cầu JP6/JP7 ON. Chưa có xác nhận PHY link hoặc kết quả Windows. Tài liệu M10 đã ghi phương án kiểm tra NIC read-only trước khi cấu hình IP/flash.
+**Quyết định mới của người vận hành:** dùng cổng RJ45 tích hợp NUCLEO-F767ZI, không dùng PHY/module rời. Theo ST UM1974, Ethernet onboard dùng LAN8742A, CN14, RMII và yêu cầu JP6/JP7 ON. **Bằng chứng Windows S01.1 ngày 13/11:** người vận hành báo Ethernet 2 (Intel I219-LM) Up/100 Mbps. Đây là bằng chứng link ở đầu laptop, chưa xác minh PHY MCU, IPv4, ARP, ping, UDP hay flash. Bước tiếp theo đọc cấu hình IPv4 bằng lệnh chỉ đọc; không thay Wi-Fi.
 
 
 Nhánh M10 đã được tạo và có hai tài liệu `docs/M10_ETHERNET_PLAN_2026_11_13.md`, `docs/M10_SESSION_HANDOFF_2026_11_13.md`. `CONTEXT_HANDOFF.md` đủ 17 mục, roadmap và Chat B entrypoint đã bổ sung chỉ thị M10 mà không xóa lịch sử M9.
