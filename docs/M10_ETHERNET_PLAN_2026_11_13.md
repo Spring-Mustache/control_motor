@@ -182,3 +182,9 @@ Bản \`752569d6759fb29e33d09c1d762f463f83a522d3\` đã được xác minh **3 j
 Trước khi bàn giao binary cho người vận hành, sửa tên output **trên nhánh M10 duy nhất** từ tên cũ di sản \`control_motor_M9_final.{elf,hex,bin,map}\` sang \`control_motor_M10_ethernet.{elf,hex,bin,map}\` trong script build CI và danh sách upload artifact. Build manifest ghi hash của chính các file mới. Thao tác này chỉ đổi tên artefact M10, không sửa M9 firmware/control, và phải được CI exact-SHA kiểm lại.
 
 **Lưu ý CubeIDE:** script CI không phải pre-build CubeIDE. Khi build trên Windows bằng STM32CubeIDE cần xác nhận Git SHA nhúng từ \`tools/stamp_firmware_build.ps1\`; không tự lấy binary M9 chỉ vì tên thư mục Debug giống nhau.
+
+## 16. Source ZIP giao trực tiếp cùng firmware M10
+
+Yêu cầu của người vận hành: mỗi khi giao firmware để thử phải đính kèm trực tiếp **toàn bộ code STM32CubeIDE** và **binary HEX/BIN**, không chỉ có link Actions. Bổ sung `git archive` đúng exact SHA vào build job, tự kiểm tra ZIP, tạo `M10_SOURCE_SHA256.txt` và `M10_SOURCE_VERSION.txt`. Artifact M10 từ cùng run chứa cả source ZIP và binary/manifest. Khi giao, giải nén artifact, xác minh SHA/checksum, rồi gửi trực tiếp ZIP nguồn và ZIP/binary nạp được trong chat.
+
+Source ZIP chứa mã được Git theo dõi tại exact SHA, gồm `Core/`, `Drivers/`, `Services/`, `control_motor.ioc`, cấu hình CubeIDE, linker, docs và tools; không bao gồm `.git` hoặc file phát sinh từ build. Mọi kết quả vẫn chỉ là SOURCE/HOST/ARM, chưa FLASHED và chưa đạt thử ping/UDP trên NUCLEO.

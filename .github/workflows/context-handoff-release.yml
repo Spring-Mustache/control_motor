@@ -200,6 +200,19 @@ jobs:
           sudo apt-get install --no-install-recommends -y gcc-arm-none-eabi libnewlib-arm-none-eabi
       - name: Build exact committed firmware
         run: python3 tools/build_firmware_ci.py
+      - name: Package exact committed M10 source into ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          short="${GITHUB_SHA:0:12}"
+          archive="build-ci/control_motor_M10_source_${short}.zip"
+          git archive --format=zip --prefix="control_motor_M10_${short}/" \
+            --output="${archive}" "${GITHUB_SHA}"
+          unzip -tq "${archive}"
+          sha256sum "${archive}" > build-ci/M10_SOURCE_SHA256.txt
+          printf 'SOURCE_COMMIT=%s\nARCHIVE=%s\n' \
+            "${GITHUB_SHA}" "${archive}" > build-ci/M10_SOURCE_VERSION.txt
       - name: Keep SHA-matched firmware and build manifest
         uses: actions/upload-artifact@v4
         with:
@@ -210,6 +223,9 @@ jobs:
             build-ci/control_motor_M10_ethernet.bin
             build-ci/control_motor_M10_ethernet.map
             build-ci/BUILD_MANIFEST.json
+            build-ci/control_motor_M10_source_*.zip
+            build-ci/M10_SOURCE_SHA256.txt
+            build-ci/M10_SOURCE_VERSION.txt
           if-no-files-found: error
 
   validate-s152-powershell:
