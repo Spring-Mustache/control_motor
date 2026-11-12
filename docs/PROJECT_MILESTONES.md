@@ -1,3 +1,5 @@
+**M10-S01 Windows host config USER-REPORTED — 13/11/2026:** Ethernet 2 `192.168.10.10/24`, `Preferred`, không gateway, link Up/100 Mbps. Không đổi IP Windows/Wi-Fi. Mục tiêu STM32 `192.168.10.20/24` chưa được cài trong firmware; chưa có ping/UDP. Source audit: HAL_ETH_Init có nhưng thiếu tầng protocol và DMA descriptor section chưa được linker chỉ rõ địa chỉ. Bước phát triển tiếp theo là firmware M10 IP/ARP/ICMP/UDP echo + ETH DMA/linker/cache + CI, chỉ thử phần cứng khi đã cô lập motor và có rollback M9.
+
 
 **M10-S01.1 USER-REPORTED LINK — 13/11/2026:** Windows adapter `Ethernet 2` báo `Up / 100 Mbps` khi thử RJ45 onboard NUCLEO-F767ZI. Đây là link vật lý ở đầu PC, chưa xác minh IP/ARP/ICMP/UDP hoặc firmware mạng; không đánh dấu S01 hoàn thành. Kế tiếp đọc `Get-NetIPConfiguration` trên `Ethernet 2` để biết IP hiện tại trước khi thay đổi cấu hình. Wi-Fi không sửa; nhánh M9 bất biến.
 
