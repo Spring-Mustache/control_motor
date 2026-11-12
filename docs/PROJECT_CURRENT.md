@@ -18,11 +18,11 @@ Ngày đối chiếu: **13/11/2026**
 |---|---|
 | Milestone hiện hành | M10 — Ethernet STM32F767ZI ↔ Laptop (Windows → Ubuntu) |
 | Nhánh phát triển được chỉ định | `feature/m10-ethernet-windows-ubuntu` |
-| HEAD nhánh M10 đã xác minh | `2b96e0eae999e91157a68b3f6dd5069525642d22` |
+| HEAD nhánh M10 đã xác minh — docs-only handoff | `0a7aae9221e6c76e3b9d2d727771318400f9621b` |
 | Mốc source firmware M10 (Ethernet) | `2b96e0eae999e91157a68b3f6dd5069525642d22` |
 | Hồ sơ bàn giao | `docs/M10_SESSION_HANDOFF_2026_11_13.md` |
 | Bộ điều khiển M9 được bảo toàn | PI vị trí + D vận tốc, không sửa thuật toán |
-| Giai đoạn M10 | S01 — firmware ARP/ICMP/UDP echo 5005, CI HOST + ARM PASS, chưa FLASHED |
+| Giai đoạn M10 | S01 — đã đối chiếu 9 bước CubeMX; DỪNG trước Generate Code/flash để sửa M10 CubeMX-safe; firmware candidate CI PASS tại SHA source phía trên, chưa FLASHED |
 | Động học tổng thể | Chưa hoàn thành tích hợp |
 | SELECT tự động | Tạm hoãn theo quyết định người dùng |
 
@@ -31,6 +31,13 @@ HEAD M10 trên là ảnh chụp lúc lập hồ sơ ngày 13/11/2026, không tha
 **M9 được đóng băng ở nhánh `feature/m9-steering-active-position-hold` HEAD `7fd8ab82552efb59de12d12e6960eaeda8149d16`.** Mốc source Profile 4 `b1c1e9c4d8f7d191b21123a328ee1dea550595da`; CI ARM/HOST M9 và kết quả quan sát trên xe vẫn được bảo toàn. M10 được tách từ chính HEAD M9, không từ main. M10 đã có thay đổi firmware Ethernet chỉ trên nhánh M10; M9 giữ nguyên và không tự merge ngược M9.
 
 ## 3. Kết quả và bằng chứng
+
+**CẬP NHẬT MỚI NHẤT — 13/11/2026, HANDOFF QUA CHAT / CUBEMX 9 BƯỚC (USER-REPORTED SCREENSHOTS):** Trước khi mở chat mới, đọc **mục 17** trong `docs/M10_ETHERNET_PLAN_2026_11_13.md` trên nhánh M10 tại HEAD tài liệu `0a7aae9221e6c76e3b9d2d727771318400f9621b` và dòng mở đầu của `docs/M10_SESSION_HANDOFF_2026_11_13.md`. Người dùng đã gửi 9 ảnh/cấu hình: ETH RMII 4 Rx/4 Tx descriptor ở SRAM2, polling NVIC OFF, Cortex-M7 MPU NOT USED + I/D cache OFF, PB0 GPIO partial-conflict không chặn 9 chân RMII, toàn bộ 9 GPIO Ethernet, 96 MHz clocks/HSE BYPASS, CubeMX Code Generator và Project Manager. **Kết luận: nền tảng .ioc đã cấu hình sẵn ETH và khớp M10; KHÔNG yêu cầu cấu hình lại ETH; KHÔNG có bằng chứng đã Generate Code hoặc flashed.** `control_motor.ioc` trên M9 và M10 có cùng blob SHA `eaa38ed3069acc16e5c03f208cf9cb6511d778b0`.
+
+**TRẠNG THÁI GIT WINDOWS (người dùng đã báo cáo):** đúng workspace `D:\STM32 task\control_motor`; local branch **`feature/m9-steering-active-position-hold`**, SHA `b1c1e9c4d8f7d191b21123a328ee1dea550595da`; hai file đang sửa `.settings/language.settings.xml`, `.settings/stm32cubeide.project.prefs`; remote `https://github.com/Spring-Mustache/control_motor.git`. Đã đối chiếu bằng `git ls-remote --heads`: M9 `7fd8ab82552efb59de12d12e6960eaeda8149d16`, M10 source `2b96e0eae999e91157a68b3f6dd5069525642d22` (tại thời điểm quan sát), main `98eec12c34a27394e73a07108df64aed3c639510`. M10 docs-only mới hơn ở `0a7aae9221e6c76e3b9d2d727771318400f9621b`. **Không tự chuyển branch/clone vào C:\Users\Home, không reset/restore/pull gây mất hai thay đổi local**. Người dùng quen thao tác PowerShell Git ngay trong đường dẫn trên, muốn từng bước một.
+
+**ĐIỂM NGHẼN KỸ THUẬT CHƯA GIẢI QUYẾT:** CubeMX ETH MAC đang `00:80:E1:00:00:00` trong khi M10 `main.c` tự đặt `02:6D:31:30:00:01`; đoạn gán trong `MX_ETH_Init()` nằm ngoài `USER CODE`. M10 có các chèn thủ công có khả năng bị CubeMX Generate Code ghi đè; `Keep User Code` ON không bảo vệ mã ngoài vùng; Backup OFF và Delete previously generated files ON. M10 runtime MPU code xử lý riêng khi CubeMX MPU NOT USED, cần kiểm nhất quán. **Không Generate Code/flash/hướng dẫn chạy ping/UDP ngay bây giờ.** Bước tiếp theo DUY NHẤT khi tiếp quản: **audit read-only** M9→M10 với `.ioc`, `Core/Src/main.c`, `Core/Src/m10_eth_bringup.c`, linker, MAC/init/USER CODE; đề xuất cách sửa M10 tương thích CubeMX, chờ user chỉ thị cho chỉnh code. Nhánh M9 đóng băng, không thay motor. CI ở source SHA `2b96e0eae999e91157a68b3f6dd5069525642d22` PASS HOST/ARM/PS, chỉ phần mềm; M10 **chưa hardware PASS**.
+
 
 ### M10 Ethernet — tình trạng ngày 13/11/2026
 
@@ -75,7 +82,7 @@ Không được tự nâng kết quả này thành HARDWARE PASS toàn diện.
 
 ## 4. Công việc còn mở
 
-**M10 (ưu tiên hiện hành):** S00 audit và firmware source đã triển khai; S01 Windows **chờ người vận hành kiểm tra tại bench an toàn**: giữ lại M9 firmware, motor power OFF, flash exact-SHA M10, kiểm link/ARP/ping `192.168.10.20` và UDP echo `5005` bằng script `tools/m10_udp_echo_test.ps1`. Khi Windows PASS mới sang S02 Ubuntu cùng firmware và giao thức. S03 kiểm thử hồi quy phần cứng rồi mới cân nhắc tích hợp; không tự mở đường điều khiển motor qua Ethernet.
+**M10 (ưu tiên hiện hành):** **Sau 9 bước kiểm tra STM32CubeMX, chưa đủ điều kiện Generate Code hoặc nạp M10.** Cần trước tiên audit/read-only và lên phương án sửa M10 CubeMX-safe (MAC mismatch, code ngoài USER CODE, init MPU/ETH và linker/DMA) dựa theo mục 17 kế hoạch M10 và thao tác Git hiện hữu của user. Chỉ khi user chấp thuận sửa M10 mới commit firmware, chạy lại CI exact SHA, đảm bảo cơ chế Generate Code không mất mã và có rollback M9; sau đó mới cân nhắc flash an toàn rồi kiểm link/ARP/ping/UDP trên Windows. Windows PASS mới tới Ubuntu. Không tự mở điều khiển motor qua Ethernet.
 
 **M9 (đóng băng, giữ lịch sử):**
 
@@ -103,6 +110,7 @@ Khi người dùng yêu cầu "bắt đầu" hoặc "tiếp tục dự án":
    - Tài liệu bàn giao của milestone hiện hành.
 7. Kiểm tra GitHub Actions tại đúng SHA.
 8. Báo cáo milestone, tiến độ, kết quả kiểm chứng, vấn đề còn mở và bước tiếp theo.
+9. **Với M10 hiện hành:** kiểm tra mục 17 của kế hoạch M10 để không bắt người dùng gửi lại 9 ảnh CubeMX. Giữ local M9 và hai file .settings, không tự clone/switch/pull/reset; chưa Generate Code/flash, ưu tiên audit source CubeMX-safe.
 
 Nếu tài liệu này chưa được cập nhật nhưng GitHub hoặc chỉ thị mới của người dùng cho thấy dự án đã chuyển milestone, **không được kết luận dự án vẫn ở milestone cũ**.
 
