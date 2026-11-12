@@ -1,3 +1,11 @@
+**CẬP NHẬT 13/11/2026 — CHUYỂN SANG M10 ETHERNET, ĐÓNG BĂNG M9.**
+Người vận hành yêu cầu tách nhiệm vụ kết nối Ethernet laptop ↔ STM32F767ZI thành milestone riêng **M10**, thử **Windows trước, Ubuntu sau**, không làm ảnh hưởng các chức năng đã đạt ở M9.
+Nhánh M10 `feature/m10-ethernet-windows-ubuntu` được tạo từ HEAD M9 đã xác minh `7fd8ab82552efb59de12d12e6960eaeda8149d16`; mốc firmware Profile4 vẫn là `b1c1e9c4d8f7d191b21123a328ee1dea550595da`. Không thay đổi code motor M9, không merge và không flash khi mới tách nhánh.
+Khảo sát source: `control_motor.ioc` đã chọn ETH RMII LAN8742A (PHY0); `main.c` có HAL_ETH_Init, nhưng chưa có bằng chứng đã triển khai giao thức IP/TCP/UDP; không đồng nhất PHY với ping thành công.
+Trạng thái hiện tại: **M10-S00 DOCUMENTATION/SOURCE BASELINE ONLY**. M10-S01 Windows link/ARP/ICMP/UDP echo, M10-S02 Ubuntu cùng giao thức, M10-S03 kiểm thử hồi quy và bàn giao. Tất cả build mới/FLASHED/kiểm tra Ethernet thực tế **CHƯA KIỂM CHỨNG**.
+Đọc trước `docs/M10_ETHERNET_PLAN_2026_11_13.md`, `docs/M10_SESSION_HANDOFF_2026_11_13.md`, `docs/PROJECT_CURRENT.md` trên main và xác minh HEAD mới. 17 mục (0–16) lịch sử bên dưới được giữ nguyên, các nhãn “hiện hành” có ngày cũ là snapshot lịch sử và không được ghi đè lựa chọn M10.
+**Ranh giới:** M10 code mạng chỉ chạy riêng trên nhánh M10; chưa thêm lệnh điều khiển motor qua Ethernet; khi nạp M10 lên cùng MCU sẽ thay firmware đang chạy, nên phải bảo toàn đường rollback M9 và kiểm điều kiện an toàn trước flash.
+
 # CONTEXT HANDOFF
 
 **CẬP NHẬT 11/11/2026 — NGƯỜI VẬN HÀNH XÁC NHẬN KẾT QUẢ TRÊN XE.** Trong bối cảnh bản bàn giao `b1c1e9c4`/profile4, người dùng xác nhận bánh tạo phản lực khi bị tác động và không còn quay qua lại nhiều lần để dò góc trong lần thử. Đây là **USER-REPORTED định tính**, chưa kèm log SHA MCU, lực/góc/thời gian/dòng/nhiệt hoặc phạm vi từng trục/tải. CI firmware run42759998485 có ba job kiểm tra/build thành công. Động học tổng thể chưa tích hợp, SELECT tạm hoãn. Bản bàn giao hai phiên và nội dung báo cáo mới nằm tại [hồ sơ 11/11](docs/M9_SESSION_HANDOFF_2026_11_11.md). Các khối có ngày cũ bên dưới giữ trạng thái tại thời điểm đã ghi.
