@@ -1,3 +1,5 @@
+**CẬP NHẬT M10 13/11/2026 — RJ45 ONBOARD CONFIRMED.** Người vận hành xác nhận M10 dùng cổng RJ45 tích hợp NUCLEO-F767ZI, không dùng module PHY ngoài. Theo UM1974: CN14/RMII/PHY LAN8742A U9, JP6 và JP7 ON. Đây là quyết định lựa chọn phần cứng, **không phải ETH LINK, ping hay UDP PASS**. Tiếp tục Windows: kiểm tra cáp/Windows NIC read-only trước khi cài IP/firmware; rồi Ubuntu dùng cùng giao thức. M9 SHA `7fd8ab8` và source Profile 4 `b1c1e9c4` bảo toàn, chưa chỉnh motor/flash. Chi tiết: `docs/M10_ETHERNET_PLAN_2026_11_13.md`.
+
 **CẬP NHẬT 13/11/2026 — CHUYỂN SANG M10 ETHERNET, ĐÓNG BĂNG M9.**
 Người vận hành yêu cầu tách nhiệm vụ kết nối Ethernet laptop ↔ STM32F767ZI thành milestone riêng **M10**, thử **Windows trước, Ubuntu sau**, không làm ảnh hưởng các chức năng đã đạt ở M9.
 Nhánh M10 `feature/m10-ethernet-windows-ubuntu` được tạo từ HEAD M9 đã xác minh `7fd8ab82552efb59de12d12e6960eaeda8149d16`; mốc firmware Profile4 vẫn là `b1c1e9c4d8f7d191b21123a328ee1dea550595da`. Không thay đổi code motor M9, không merge và không flash khi mới tách nhánh.
