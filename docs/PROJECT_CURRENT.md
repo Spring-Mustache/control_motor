@@ -18,8 +18,8 @@ Ngày đối chiếu: **13/11/2026**
 |---|---|
 | Milestone hiện hành | M10 — Ethernet STM32F767ZI ↔ Laptop (Windows → Ubuntu) |
 | Nhánh phát triển được chỉ định | `feature/m10-ethernet-windows-ubuntu` |
-| HEAD nhánh M10 đã xác minh | `50b8ab1dfc9bf1a9b06b42bfeabe9738f1ad1de2` |
-| Mốc source firmware M10 (Ethernet) | `50b8ab1dfc9bf1a9b06b42bfeabe9738f1ad1de2` |
+| HEAD nhánh M10 đã xác minh | `2b96e0eae999e91157a68b3f6dd5069525642d22` |
+| Mốc source firmware M10 (Ethernet) | `2b96e0eae999e91157a68b3f6dd5069525642d22` |
 | Hồ sơ bàn giao | `docs/M10_SESSION_HANDOFF_2026_11_13.md` |
 | Bộ điều khiển M9 được bảo toàn | PI vị trí + D vận tốc, không sửa thuật toán |
 | Giai đoạn M10 | S01 — firmware ARP/ICMP/UDP echo 5005, CI HOST + ARM PASS, chưa FLASHED |
@@ -43,7 +43,9 @@ HEAD M10 trên là ảnh chụp lúc lập hồ sơ ngày 13/11/2026, không tha
 
 Nhánh M10 đã được tạo và có hai tài liệu `docs/M10_ETHERNET_PLAN_2026_11_13.md`, `docs/M10_SESSION_HANDOFF_2026_11_13.md`. `CONTEXT_HANDOFF.md` đủ 17 mục, roadmap và Chat B entrypoint đã bổ sung chỉ thị M10 mà không xóa lịch sử M9.
 
-**M10 SOURCE + HOST + ARM:** tại exact SHA `50b8ab1dfc9bf1a9b06b42bfeabe9738f1ad1de2`, triển khai Ethernet HAL polling trong `Core/Src/m10_eth_bringup.c`, xử lý gói tại `Core/Src/m10_eth_protocol.c`, DMA descriptors/RX/TX trong SRAM2 noncacheable MPU và linker riêng; không có lệnh điều khiển motor từ Ethernet. GitHub Actions run https://github.com/Spring-Mustache/control_motor/actions/runs/43314053403 **PASS cả 3 job**: 17-section context + C host regression, compile/link ARM exact SHA và cú pháp PowerShell 5.1. Artifact firmware tên `M10-ethernet-50b8ab1dfc9bf1a9b06b42bfeabe9738f1ad1de2`, chứa `control_motor_M10_ethernet.{elf,hex,bin,map}` và manifest. **Chưa FLASHED, chưa kiểm chứng ping/UDP hoặc thử nghiệm không hồi quy với động cơ hoạt động.**
+**Đóng gói cho người thử (13/11/2026):** Đã build CI mới tại exact SHA M10 và đóng gói `control_motor_M10_source_2b96e0eae999.zip` từ `git archive HEAD`, kèm SHA256 và `control_motor_M10_ethernet.{hex,bin,elf,map}` theo cùng manifest SHA. GitHub Actions 43315675126 PASS cả ba job; source và firmware đã được trích ra và giao bằng tệp ZIP trực tiếp trong cuộc trò chuyện. Chưa flashed/hardware PASS.
+
+**M10 SOURCE + HOST + ARM:** tại exact SHA `2b96e0eae999e91157a68b3f6dd5069525642d22`, triển khai Ethernet HAL polling trong `Core/Src/m10_eth_bringup.c`, xử lý gói tại `Core/Src/m10_eth_protocol.c`, DMA descriptors/RX/TX trong SRAM2 noncacheable MPU và linker riêng; không có lệnh điều khiển motor từ Ethernet. GitHub Actions run https://github.com/Spring-Mustache/control_motor/actions/runs/43315675126 **PASS cả 3 job**: 17-section context + C host regression, compile/link ARM exact SHA và cú pháp PowerShell 5.1. Artifact firmware tên `M10-ethernet-2b96e0eae999e91157a68b3f6dd5069525642d22`, chứa `control_motor_M10_ethernet.{elf,hex,bin,map}` và manifest. **Chưa FLASHED, chưa kiểm chứng ping/UDP hoặc thử nghiệm không hồi quy với động cơ hoạt động.**
 
 ### M9 đã đóng băng — phần mềm
 
