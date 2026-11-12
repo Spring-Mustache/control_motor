@@ -18,7 +18,7 @@ Ngày đối chiếu: **13/11/2026**
 |---|---|
 | Milestone hiện hành | M10 — Ethernet STM32F767ZI ↔ Laptop (Windows → Ubuntu) |
 | Nhánh phát triển được chỉ định | `feature/m10-ethernet-windows-ubuntu` |
-| HEAD nhánh M10 đã xác minh | `76d4d4e94a5ced21d61cac2a05abc476af343c15` |
+| HEAD nhánh M10 đã xác minh | `eed6297a1309f7b15fdab55bdddf159369455c24` |
 | Mốc source firmware M10 (kế thừa M9 Profile 4) | `b1c1e9c4d8f7d191b21123a328ee1dea550595da` |
 | Hồ sơ bàn giao | `docs/M10_SESSION_HANDOFF_2026_11_13.md` |
 | Bộ điều khiển M9 được bảo toàn | PI vị trí + D vận tốc, không sửa thuật toán |
@@ -33,6 +33,8 @@ HEAD M10 trên là ảnh chụp lúc lập hồ sơ ngày 13/11/2026, không tha
 ## 3. Kết quả và bằng chứng
 
 ### M10 Ethernet — tình trạng ngày 13/11/2026
+
+**Cập nhật host Windows:** `Ethernet 2` = `192.168.10.10/24`, `Preferred`, đã báo link Up/100 Mbps và không gateway. Giữ nguyên IP host; địa chỉ tĩnh mục tiêu STM32 = `192.168.10.20/24`, **chưa nạp/cấu hình firmware**. Chưa có ping/UDP. Audit source cho thấy cần tầng IP/ICMP/UDP và kiểm tra vị trí Ethernet DMA/linker/cache trước khi triển khai, không đụng M9.
 
 **Windows Ethernet 2:** người vận hành báo IPv4 `192.168.10.10`, default gateway trống. Giữ nguyên IP Windows; `192.168.10.20` chỉ là ứng viên IP STM32, chờ quan sát PrefixLength và kiểm tra tránh trùng địa chỉ. Chưa sửa firmware mạng hoặc thử ping/UDP.
 
