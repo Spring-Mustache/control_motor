@@ -1,38 +1,64 @@
-name: Publish versioned context handoff
+name: Verify context handoff; optional SHA-matched release
 
 on:
   push:
     branches:
       - '**'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish a SHA-bound handoff prerelease after verification"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: context-handoff-${{ github.sha }}
+  group: context-handoff-${{ github.ref }}-${{ github.sha }}-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
-  publish-handoff:
+  verify-handoff:
+    name: Verify 386-line contract and 17-section handoff
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout the exact pushed commit
+      - name: Checkout exact source commit
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Enforce verbatim specification and fresh handoff for code updates
+      - name: Assert exact commit identity
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Verify immutable original specification and code/doc gate
         env:
           HANDOFF_BEFORE: ${{ github.event.before }}
         run: |
           python3 tools/verify_context_handoff_contract.py --before "$HANDOFF_BEFORE" --head "$GITHUB_SHA"
 
-      - name: Build source-grounded handoff bundle
+  publish-optional:
+    name: Publish only on explicit manual request
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release == true }}
+    needs: verify-handoff
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build source-grounded context bundle
         run: python3 tools/build_context_release.py --output dist/context-release
 
-      - name: Publish one GitHub prerelease per commit
+      - name: Publish SHA-matched prerelease without overwriting history
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -44,8 +70,7 @@ jobs:
           bundle="dist/context-release/context-handoff-${short}.zip"
           status="dist/context-release/RELEASE_STATUS.md"
           if gh release view "${tag}" >/dev/null 2>&1; then
-            # Idempotent on workflow rerun; update assets with same commit tag.
-            gh release upload "${tag}" "${bundle}" "${status}" --clobber
+            echo "Existing immutable context release ${tag}; not overwriting."
           else
             gh release create "${tag}" \
               --target "${GITHUB_SHA}" \

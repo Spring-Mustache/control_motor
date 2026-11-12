@@ -2,33 +2,33 @@
 
 Firmware điều khiển 4 motor bánh + 2 motor đánh lái, PS2, VC-02, AS5600, NC/STOP.
 
-## Dành cho người vận hành — mở hội thoại ChatGPT mới
+## Bắt đầu đúng milestone trong hội thoại ChatGPT mới
 
-**Bạn chỉ cần [mở lời nhắn bàn giao dành cho B](docs/CHAT_B_START_PROMPT.md), sao chép toàn bộ và dán làm tin nhắn đầu tiên trong hội thoại mới.**
+**Nguồn chỉ định trạng thái hiện hành:** [docs/PROJECT_CURRENT.md](docs/PROJECT_CURRENT.md) trên nhánh main.
 
-Không bắt buộc tải lại hay đính kèm `CONTEXT_HANDOFF.md` khi hội thoại B có công cụ và quyền truy cập GitHub. B sẽ tự thực hiện các bước tìm nguồn được mô tả trong lời nhắn; nếu không truy cập được, B phải nói rõ tài nguyên còn thiếu.
+1. Đọc PROJECT_CURRENT, đối chiếu với chỉ thị gần nhất của người vận hành.
+2. Liệt kê nhánh GitHub, lịch sử commit liên quan. Không tự chọn nhánh chỉ vì commit mới hơn.
+3. Lấy HEAD thật của nhánh hiện hành được xác nhận. Đọc source và tài liệu ở cùng SHA.
+4. Đọc CONTEXT_HANDOFF.md đủ 17 mục, docs/PROJECT_MILESTONES.md và hồ sơ milestone hiện hành.
+5. Kiểm tra Actions đúng SHA; phân biệt SOURCE, HOST, ARM/CubeIDE, FLASHED và kết quả phần cứng.
 
-Bạn có thể xem trước hồ sơ tại [GitHub Releases](https://github.com/Spring-Mustache/control_motor/releases). Mỗi lần push lên nhánh có workflow tạo một bản phát hành ngữ cảnh ứng với HEAD của lần push đó.
+Không suy ra tiến độ từ HEAD của main. Main giữ snapshot lịch sử và tệp điều hướng; firmware phát triển có thể nằm ở nhánh khác. Tên nhánh hoặc SHA ghi trong tài liệu cũ không phải trạng thái hiện hành vĩnh viễn.
 
-## Dành cho AI tiếp quản — hội thoại B, C, D...
+Có thể bắt đầu chat bằng [lời nhắn bàn giao cho B](docs/CHAT_B_START_PROMPT.md), hoặc yêu cầu trực tiếp "tiếp tục dự án" khi ChatGPT có quyền truy cập repository.
 
-**Nếu đang đọc README theo yêu cầu của lời nhắn bàn giao, đây là bản đồ tài nguyên, KHÔNG phải yêu cầu người dùng mở thêm hội thoại.**
+## Tiếp quản và giới hạn
 
-1. Xác minh HEAD SHA thực tế của **nhánh phát triển được chỉ định** (hiện là `feature/m7-s15-ps2-controls-restoration-staged`); không nhầm với `main`.
-2. Tìm bản [Context Release](https://github.com/Spring-Mustache/control_motor/releases) có tag `context-<FULL_HEAD_SHA>`. Không lấy Release trên cùng nếu thuộc nhánh khác hoặc SHA cũ.
-3. Đọc `RELEASE_STATUS.md` để xác nhận SHA, thay đổi và lịch sử commit.
-4. Đọc toàn bộ [CONTEXT_HANDOFF.md](CONTEXT_HANDOFF.md) (mục 0–16), [roadmap](docs/PROJECT_MILESTONES.md), tài liệu M7/M8 liên quan và mã nguồn ở **cùng SHA**. Nếu không thể truy cập ZIP, đọc trực tiếp từ repository; báo rõ phạm vi truy cập.
-5. Xác định phần đã thực hiện, đã kiểm chứng, chưa kiểm chứng và đúng điểm dừng; tiếp tục việc đủ dữ liệu, công cụ và quyền. Sau thay đổi, cập nhật roadmap/tài liệu cùng commit và kiểm tra Release mới.
+- GitHub ghi nhận mã/tài liệu **đã commit**, không tự nhận được file Windows, log riêng tư hoặc nội dung chat chưa lưu.
+- Giữ nguyên [đặc tả 386 dòng](docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md).
+- [CONTEXT_HANDOFF.md](CONTEXT_HANDOFF.md) và [roadmap](docs/PROJECT_MILESTONES.md) trong main bao gồm snapshot lịch sử; dùng nhánh đang hoạt động cho hồ sơ mới nhất.
+- Không tự sửa firmware, tăng PWM hoặc tuyên bố PASS cơ khí khi không có bằng chứng.
+- Mức nghiệm thu: SOURCE-STAGED, HOST TEST, ARM/CUBEIDE BUILD, FLASHED, USER-REPORTED, HARDWARE PASS là khác nhau.
+- [Chính sách CI và phát hành](docs/CONTEXT_RELEASE_POLICY.md) là quy định hiện hành về kiểm tra và Release tùy chọn.
 
-## Tài liệu tham chiếu
+## CI và GitHub Releases
 
-- [Lời nhắn đầu tiên để sao chép vào B](docs/CHAT_B_START_PROMPT.md)
-- [Yêu cầu gốc NGUYÊN VĂN để tạo hồ sơ bàn giao](docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md)
-- [Hồ sơ bàn giao lịch sử 17 mục](CONTEXT_HANDOFF.md)
-- [Roadmap và trạng thái dự án](docs/PROJECT_MILESTONES.md)
-- [Quy tắc phát hành và giới hạn](docs/CONTEXT_RELEASE_POLICY.md)
-- [Theo dõi GitHub Actions](https://github.com/Spring-Mustache/control_motor/actions/workflows/context-handoff-release.yml)
+Workflow [Verify canonical project status](.github/workflows/verify-project-current.yml) kiểm tra nhánh, HEAD, baseline và handoff; chạy cả định kỳ để phát hiện trạng thái cũ.
 
-**Giới hạn quan trọng:** GitHub Release `context-*` là **prerelease ngữ cảnh**, không phải bản firmware đã Clean Build, Flash hoặc nghiệm thu hardware. Hồ sơ A là snapshot lịch sử, không tự biết kết quả mới chỉ gửi trong chat. FIRST-STOP RIGHT cấp điện khi CCR=0 đã được người vận hành xác nhận fix; không coi là lỗi đang mở chỉ vì ghi chú lịch sử cũ.
+Workflow [Verify context handoff; optional release](.github/workflows/context-handoff-release.yml) kiểm tra đặc tả 386 dòng và hồ sơ 17 mục trên push. **Push thông thường không phát hành Release**. Chỉ yêu cầu thủ công với publish_release=true mới xuất ZIP; tag có sẵn được giữ nguyên.
 
-Workflow tự tạo **một bản trên mỗi lần push** ở SHA cuối cùng của lần push; nếu Actions hoặc quyền tạo Release gặp lỗi, kiểm tra log thay vì coi bản cũ là hiện hành.
+Release cũ là bản lưu lịch sử tại SHA riêng, không phải bằng chứng firmware đã flash và không thay cho HEAD của nhánh được chỉ định.

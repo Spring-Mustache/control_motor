@@ -1,0 +1,48 @@
+name: Verify canonical project status
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/PROJECT_CURRENT.md'
+      - 'README.md'
+      - 'docs/CHAT_B_START_PROMPT.md'
+      - '.github/workflows/context-handoff-release.yml'
+      - '.github/workflows/verify-project-current.yml'
+      - 'tools/verify_project_current.py'
+      - 'tools/test_project_current_guard.py'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/PROJECT_CURRENT.md'
+      - 'README.md'
+      - 'docs/CHAT_B_START_PROMPT.md'
+      - '.github/workflows/context-handoff-release.yml'
+      - '.github/workflows/verify-project-current.yml'
+      - 'tools/verify_project_current.py'
+      - 'tools/test_project_current_guard.py'
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  project-current:
+    name: Check canonical milestone, branch, HEAD, baseline and handoff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout commit under test
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Offline regression cases, including obsolete M7
+        run: python3 tools/test_project_current_guard.py
+
+      - name: Verify active branch against GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 tools/verify_project_current.py

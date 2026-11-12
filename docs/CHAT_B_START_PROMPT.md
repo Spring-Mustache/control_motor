@@ -1,49 +1,28 @@
-# LỜI NHẮN KHỞI ĐẦU CHO HỘI THOẠI B — TIẾP QUẢN DỰ ÁN TỪ GITHUB
+# LỜI NHẮN CHO PHIÊN CHATGPT MỚI — TIẾP QUẢN DỰ ÁN XE TĂNG CƯỚP BÓNG
 
-> **Dành để sao chép nguyên văn vào cuộc hội thoại mới (B).** Bản này thay thế cách cũ chỉ đính kèm một file `CONTEXT_HANDOFF.md` tĩnh.
+Tôi muốn tiếp tục dự án STM32F767ZI, 4 motor bánh + 2 motor đánh lái, từ GitHub:
+https://github.com/Spring-Mustache/control_motor
 
-Tôi đang chuyển việc của dự án **xe tăng cướp bóng — firmware STM32F767ZI** từ hội thoại A sang hội thoại B này. Đừng yêu cầu tôi kể lại toàn bộ lịch sử. **GitHub là nguồn bàn giao mã và tài liệu đã commit**; hồ sơ hội thoại A chỉ là bản chụp lịch sử.
+**Trước tiên phải đọc docs/PROJECT_CURRENT.md trên main** để biết milestone và nhánh được chỉ định. Sau đó kiểm tra chỉ thị mới nhất của tôi, liệt kê nhánh liên quan, xác minh HEAD thật và lịch sử commit. Không dùng HEAD main, SHA trong tài liệu bàn giao cũ hoặc nhánh có commit mới nhất để tự kết luận nhánh hiện hành.
 
-## Địa chỉ dự án phải truy cập
+Nếu PROJECT_CURRENT không tồn tại hoặc không nhất quán với chỉ thị mới / GitHub, phải đối chiếu bằng chứng, chỉ hỏi điều quyết định nếu vẫn không phân biệt được. Không mặc định M7, M8, M9 hay milestone nào sẽ giữ nguyên mãi mãi.
 
-- Repository: https://github.com/Spring-Mustache/control_motor
-- Nhánh đang làm việc tại thời điểm tạo lời nhắn: `feature/m7-s15-ps2-controls-restoration-staged` (không phải `main`).
-- Danh sách các bản phát hành bàn giao: https://github.com/Spring-Mustache/control_motor/releases
-- Tài liệu định hướng ở nhánh: `README.md` và `docs/CONTEXT_RELEASE_POLICY.md`.
+## Quy trình đọc nguồn ở đúng SHA
 
-**Đừng chọn bản Release chỉ vì nó đứng đầu trang**: GitHub Releases chứa cả bản của `main` và các nhánh khác. Trước tiên, kiểm tra **HEAD SHA hiện tại của đúng nhánh** từ repository, sau đó tìm prerelease có tag `context-<FULL_HEAD_SHA>`. Nếu chưa tồn tại bản trùng SHA, kiểm tra GitHub Actions và báo rõ là Release chưa đồng bộ. Khi đó được đọc mã và tài liệu trực tiếp tại HEAD; không tự giả định Release cũ là hiện hành.
+1. Chọn nhánh đang hoạt động có căn cứ và cố định SHA hiện tại từ GitHub.
+2. Đọc CONTEXT_HANDOFF.md đầy đủ 17 mục (0–16), cả phụ lục; docs/PROJECT_MILESTONES.md, README, hồ sơ milestone và tài liệu liên quan tại SHA đã chọn.
+3. Đọc lịch sử 20 commit gần đây và thay đổi đối với baseline; kiểm tra GitHub Actions đúng SHA.
+4. Phân biệt việc đã commit, HOST test, ARM/CubeIDE build, firmware đã flash, quan sát người vận hành và nghiệm thu định lượng.
+5. Tóm tắt công việc đã hoàn thành, lỗi đã sửa, việc còn mở, điểm dừng chính xác và bước tiếp theo. Tiến hành việc đủ quyền/dữ liệu thay vì yêu cầu kể lại lịch sử.
 
-## Thứ tự bắt buộc để tiếp nhận
+## Quy tắc bảo toàn
 
-1. **Kiểm tra repository, nhánh và HEAD SHA thực tế.** Ghi rõ SHA và link commit/branch đã xác minh, không lấy SHA trong hồ sơ cũ làm HEAD mặc định.
-2. **Mở đúng Release `context-<FULL_HEAD_SHA>`** (nếu đã phát hành). Đọc asset `RELEASE_STATUS.md`: xác nhận nhánh, SHA, file đổi, 20 commit gần nhất, giới hạn kiểm chứng. Tải ZIP `context-handoff-<SHORT_SHA>.zip` nếu có thể.
-3. **Đọc đầy đủ hồ sơ `CONTEXT_HANDOFF.md` ở thư mục gốc** (trực tiếp từ repo tại SHA hoặc trong ZIP), gồm cả phụ lục, các mục 0–16. Đây là hồ sơ hội thoại A, **không tự thay đổi khi chat B có thông tin mới**.
-4. **Đọc `docs/PROJECT_MILESTONES.md`**, đặc biệt những mục cập nhật cuối tài liệu; bảng trạng thái ở đầu có thể cũ. Đọc `docs/CONTEXT_RELEASE_POLICY.md` và tài liệu `docs/M8_*.md`, `docs/M7_*.md` liên quan đến milestone đang làm. Đối chiếu code ở cùng SHA trước khi đề xuất sửa.
-5. **Đọc thay đổi kể từ thời điểm chốt hồ sơ A**, dựa trên `RELEASE_STATUS.md`, commit history và các quyết định đã được cập nhật trong tài liệu. Nếu tài liệu mâu thuẫn, làm rõ nguồn/thời điểm; không tự chọn thông tin thuận tiện.
-6. **Nếu không thể truy cập một tài nguyên**, nói chính xác đã đọc được phần nào và thiếu gì; thử link GitHub/asset phù hợp trước khi đề nghị tôi tải lại. Không khẳng định đã đọc đủ khi chỉ thấy README hoặc tóm tắt.
+Giữ nguyên docs/CONTEXT_HANDOFF_REQUIREMENTS_ORIGINAL.md, đặc tả nguyên văn 386 dòng, SHA-256 13d8976ec0d74057af94bf84c8445bddbb48715b308964e22eb6684711f708a4.
 
-## Nội dung phải xác định sau khi đọc
+Không tự thay đổi firmware, PWM, NC/STOP/owner, Flash hoặc làm thí nghiệm điện/cơ khi chưa có căn cứ và quyền phù hợp. Không công khai UART/CSV riêng tư chưa được phép. Giữ lịch sử điều chỉnh, không trình bày giả thuyết là kết quả thực nghiệm.
 
-- Mục tiêu, yêu cầu và ràng buộc **đang có hiệu lực**, tách khỏi yêu cầu cũ bị thay thế.
-- Milestone đang thực hiện, kết quả đã có, bằng chứng và mức kiểm chứng: `SOURCE-STAGED`, `HOST TEST`, `CUBEIDE BUILD`, `FLASHED`, `HARDWARE PASS` là các trạng thái khác nhau.
-- Công việc gần nhất chưa hoàn tất, **đúng điểm dừng**, các tệp/code/log cần dùng, việc đầu tiên có thể làm ngay, tiêu chí hoàn thành.
-- Những quyết định phải giữ, phương án đã loại và lý do, vấn đề hoặc rủi ro thực sự còn mở.
-- Phân biệt thông tin do tôi báo, quyết định tôi đã chấp thuận, đề xuất của assistant, việc đã commit, việc đã kiểm tra, suy luận và `CHƯA KIỂM CHỨNG`.
+## CI/Release
 
-**Lưu ý lịch sử kỹ thuật:** M8-S14.2 là milestone gần nhất được ghi nhận lúc lập hồ sơ A: chế độ thử nghiệm tăng trần PWM manual LEFT/RIGHT đến **450/200 CCR**, nấc trung gian **375/150**, đồng bộ góc–vận tốc dựa AS5600 với ưu tiên **tăng PWM motor chậm trước**, chỉ hãm motor nhanh khi phía chậm đã bão hòa; mặc định OFF. Trạng thái lúc đó là **đã commit mã, chưa xác minh Clean Build/Flash và vận hành phần cứng với trần cao**. Đây là thông tin thời điểm A, **không tự coi vẫn là trạng thái mới nhất nếu GitHub có cập nhật sau đó**.
+Bắt đầu trực tiếp từ GitHub commit/docs, **không bắt buộc Release**. Mọi push chạy kiểm tra hồ sơ; ZIP Release chỉ tạo khi người dùng yêu cầu rõ và workflow_dispatch.publish_release=true. Một Release cũ không chứng minh nó là phiên bản hiện hành hoặc phần cứng đã PASS.
 
-**Lỗi FIRST-STOP RIGHT vẫn được cấp điện khi CCR=0 đã được tôi xác nhận FIX.** Không lặp lại nhận định lỗi này còn tồn tại chỉ vì tài liệu lịch sử có cảnh báo cũ. Lỗi R2 RIGHT `code=9` từng được ghi nhận là vấn đề khác; đừng trộn hai sự kiện.
-
-## Cách làm việc với tôi trong B
-
-- Dùng tiếng Việt; đi thẳng vào mục tiêu, chủ động kiểm tra repo/log bằng công cụ được phép, không bắt tôi tự chẩn đoán hoặc trả lời lại những điều đã có.
-- Không bắt đầu lại dự án, không tùy tiện đổi phương án/giới hạn an toàn hoặc tự nâng trạng thái nghiệm thu. Nếu có bằng chứng mới làm thay đổi quyết định cũ, nêu rõ.
-- Chỉ hỏi một thông tin thực sự quyết định bước tiếp theo nếu không thể tự lấy từ nguồn sẵn có. Vẫn tiến hành các phần đủ dữ liệu và quyền thực hiện.
-- Không mặc định file, phiên công cụ, đường dẫn máy Windows hoặc lịch sử chat A còn dùng được trong B. Khi cần thao tác trên firmware, kiểm tra GitHub SHA, workspace và quyền trước.
-- Sau mỗi thay đổi mã, kết quả thử xe hoặc quyết định quan trọng: **cập nhật tài liệu milestone tương ứng cùng commit, push lên GitHub và xác minh Release `context-<SHA>`**. Workflow không tự đọc nội dung ChatGPT. Không tự đăng dữ liệu nhạy cảm lên repo công khai.
-
-## Phản hồi đầu tiên của bạn
-
-Viết ngắn gọn: **đã mở nguồn nào, xác minh nhánh/SHA nào, hiểu dự án đang ở đâu, còn thiếu bằng chứng gì và hành động đầu tiên là gì**. Nếu có đủ dữ liệu/công cụ/quyền, **tiến hành ngay hành động đầu tiên** thay vì chỉ trả lời “đã hiểu”. Nếu nguồn không truy cập được, nói rõ và đưa một cách cung cấp link/tệp tối thiểu; không tự nhận nhớ cuộc hội thoại A.
-
-**Bắt đầu bằng việc mở repository và xác định HEAD của nhánh được chỉ định, rồi tìm đúng bản phát hành ngữ cảnh gắn SHA đó.**
+Nếu có thay đổi mới, cập nhật handoff/roadmap đúng nội dung và xác minh CI. Trước khi báo "dự án đang ở Mx", phải xác minh nhánh/SHA/tài liệu nguồn phù hợp, nếu không thì nêu rõ điều chưa xác minh.
