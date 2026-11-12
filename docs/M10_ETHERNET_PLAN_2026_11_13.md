@@ -112,3 +112,9 @@ M10 chỉ được đọc dữ liệu trạng thái khi đã định nghĩa ngu�
 Phép thử Windows S01 thứ tự mới: (1) xác minh board/cổng RJ45, JP6/JP7 và cấp nguồn board qua ST-LINK USB; (2) kết nối dây RJ45 trực tiếp vào cổng Ethernet laptop hoặc adapter Ethernet được nhận diện; (3) kiểm tra trạng thái adapter Windows bằng lệnh chỉ đọc `Get-NetAdapter -Physical | Format-Table Name,InterfaceDescription,Status,LinkSpeed`; (4) nếu đã lên link mới thiết lập IPv4 tĩnh trên **đúng adapter** và triển khai/flash firmware IP-only được kiểm tra; (5) thử ARP, ICMP ping, UDP echo.
 
 **Không coi đèn LED hoặc Windows báo Connected là ping/IP PASS.** Ping chưa thể thành công chỉ với `HAL_ETH_Init`; cần tầng ARP/IPv4/ICMP hoặc TCP/IP stack. Không thay đổi IP của adapter chưa xác định; không dùng bridge/ICS trong bước đầu. Không dùng cổng USB ST-LINK như Ethernet.
+
+## 10. Windows S01.1 — báo cáo link vật lý 100 Mbps
+
+**USER-REPORTED ngày 13/11/2026:** người vận hành kết nối RJ45 onboard NUCLEO-F767ZI với laptop Windows và chạy `Get-NetAdapter -Physical`. Adapter **Ethernet 2 (Intel(R) Ethernet Connection (22) I219-LM)** hiển thị **Status=Up; LinkSpeed=100 Mbps**. Đồng thời Wi-Fi đang Up. Trong bối cảnh người dùng đã xác nhận sử dụng RJ45 onboard, đây là bằng chứng link vật lý ở đầu Windows, **không** phải kết quả PHY register MCU, ARP, IP, ICMP hay UDP. Đánh dấu **M10-S01.1: USER-REPORTED PHY LINK OBSERVED (Windows)**, chờ quan sát IP với `Get-NetIPConfiguration -InterfaceAlias "Ethernet 2" | Format-List InterfaceAlias,IPv4Address,IPv4DefaultGateway`.
+
+Chưa thay đổi adapter/IP/gateway/Wi-Fi, chưa phát gói ICMP, chưa nạp firmware mạng. Không suy ra M10-S01 PASS hoặc firmware STM32 có TCP/IP stack. Trước khi cấu hình IPv4 tĩnh phải đọc IPv4 hiện tại của Ethernet 2, tránh thay nhầm adapter hay gây xung đột mạng hiện dùng.
