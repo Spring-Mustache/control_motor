@@ -1,3 +1,6 @@
+
+**CẬP NHẬT 13/11/2026 — M10 WINDOWS RJ45 LINK UP 100 Mbps (USER-REPORTED).** PowerShell của người vận hành cho thấy adapter Windows `Ethernet 2` (Intel I219-LM) báo `Up`, `100 Mbps`; Wi-Fi vẫn Up. Đây chỉ là dấu hiệu link Ethernet ở đầu laptop theo sơ đồ RJ45 onboard, **không** là ping/UDP hay hardware end-to-end PASS. Chưa thay IP/flash. Bước tới là quan sát IPv4 tại adapter Ethernet 2, không chỉnh Wi-Fi. Xem `docs/M10_ETHERNET_PLAN_2026_11_13.md`. M9 giữ nguyên.
+
 **CẬP NHẬT M10 13/11/2026 — RJ45 ONBOARD CONFIRMED.** Người vận hành xác nhận M10 dùng cổng RJ45 tích hợp NUCLEO-F767ZI, không dùng module PHY ngoài. Theo UM1974: CN14/RMII/PHY LAN8742A U9, JP6 và JP7 ON. Đây là quyết định lựa chọn phần cứng, **không phải ETH LINK, ping hay UDP PASS**. Tiếp tục Windows: kiểm tra cáp/Windows NIC read-only trước khi cài IP/firmware; rồi Ubuntu dùng cùng giao thức. M9 SHA `7fd8ab8` và source Profile 4 `b1c1e9c4` bảo toàn, chưa chỉnh motor/flash. Chi tiết: `docs/M10_ETHERNET_PLAN_2026_11_13.md`.
 
 **CẬP NHẬT 13/11/2026 — CHUYỂN SANG M10 ETHERNET, ĐÓNG BĂNG M9.**
