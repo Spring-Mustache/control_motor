@@ -104,3 +104,11 @@ M10 chỉ được đọc dữ liệu trạng thái khi đã định nghĩa ngu�
 **Tiếp theo:** audit code/linker/cache/PHY, chốt sơ đồ test Ethernet-only, lập bản thay đổi M10-S01 riêng. Chỉ tiến hành bước flash/đấu nối sau khi phần cứng và điều kiện an toàn đã xác định.
 
 **Nguồn tham khảo:** `CONTEXT_HANDOFF.md`, `docs/PROJECT_MILESTONES.md`, `docs/M9_SESSION_HANDOFF_2026_11_11.md`, `control_motor.ioc`, `Core/Src/main.c`, UM1974.
+
+## 9. Xác nhận phần cứng của người vận hành — 13/11/2026
+
+**USER-CONFIRMED:** dùng **RJ45 tích hợp trên bo NUCLEO-F767ZI** (CN14), không dùng Ethernet shield/module PHY rời. Tài liệu ST UM1974 ghi PHY LAN8742A trên U9, RMII, Ethernet 10/100 Mb/s; jumper JP6 và JP7 phải ON khi dùng Ethernet. Cấu hình .ioc kế thừa khớp RMII/PHY address 0 nhưng phần cứng thực tế và link vẫn CHƯA THỬ.
+
+Phép thử Windows S01 thứ tự mới: (1) xác minh board/cổng RJ45, JP6/JP7 và cấp nguồn board qua ST-LINK USB; (2) kết nối dây RJ45 trực tiếp vào cổng Ethernet laptop hoặc adapter Ethernet được nhận diện; (3) kiểm tra trạng thái adapter Windows bằng lệnh chỉ đọc `Get-NetAdapter -Physical | Format-Table Name,InterfaceDescription,Status,LinkSpeed`; (4) nếu đã lên link mới thiết lập IPv4 tĩnh trên **đúng adapter** và triển khai/flash firmware IP-only được kiểm tra; (5) thử ARP, ICMP ping, UDP echo.
+
+**Không coi đèn LED hoặc Windows báo Connected là ping/IP PASS.** Ping chưa thể thành công chỉ với `HAL_ETH_Init`; cần tầng ARP/IPv4/ICMP hoặc TCP/IP stack. Không thay đổi IP của adapter chưa xác định; không dùng bridge/ICS trong bước đầu. Không dùng cổng USB ST-LINK như Ethernet.
