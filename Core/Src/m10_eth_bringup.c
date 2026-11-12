@@ -65,6 +65,10 @@ void M10_ETH_Init(ETH_HandleTypeDef *eth)
   if ((eth != NULL) && (HAL_ETH_GetState(eth) == HAL_ETH_STATE_READY))
   {
     s_eth = eth;
+    /* HAL_ETH_Init does not program the MDIO CSR divider in this HAL.
+     * At 96-MHz HCLK, choose the appropriate <=2.5-MHz MDIO clock first.
+     */
+    HAL_ETH_SetMDIOClockRange(eth);
     s_last_phy_ms = HAL_GetTick() - 1000U;
   }
   else

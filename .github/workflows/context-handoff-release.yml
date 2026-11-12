@@ -203,7 +203,7 @@ jobs:
       - name: Keep SHA-matched firmware and build manifest
         uses: actions/upload-artifact@v4
         with:
-          name: M9-final-${{ github.sha }}
+          name: M10-ethernet-${{ github.sha }}
           path: |
             build-ci/control_motor_M9_final.elf
             build-ci/control_motor_M9_final.hex
@@ -235,6 +235,7 @@ jobs:
                                ".\\tools\\capture_m9_h1_real.ps1",
                                ".\\tools\\capture_m9_h2_guard.ps1",
                                ".\\tools\\capture_m9_h2b1_hold.ps1",
+                               ".\\tools\\m10_udp_echo_test.ps1",
                                ".\\tools\\stamp_firmware_build.ps1")) {
             $tokens = $null
             $errors = $null

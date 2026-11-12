@@ -168,3 +168,9 @@ Thành phần dự kiến cùng một commit:
 **Điều kiện kỹ thuật:** HOST test và ARM compile/link ở exact SHA CI sau commit. STM32 **chưa flashed**, Windows ping/UDP echo **chưa thử** cho đến khi người vận hành lưu lại firmware M9, cấp nguồn Nucleo riêng, ngắt nguồn motor/actuator và theo hướng dẫn đã duyệt. Đặc biệt link Up/100 Mbps mới là trạng thái ở Windows và chưa chứng minh ETH DMA/PHY STM32 đang hoạt động.
 
 **Windows sau khi flash M10 và bảo đảm an toàn:** \`ping.exe -n 4 192.168.10.20\`, kiểm ARP \`Get-NetNeighbor -InterfaceAlias 'Ethernet 2' -AddressFamily IPv4\`, và \`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\m10_udp_echo_test.ps1\` ở root repo. Cả ping và UDP phải PASS mới coi M10-S01 trao đổi gói tin thành công. Nếu ping fail phân biệt PHY, MAC/DMA/MPU, ARP và ICMP; không tăng PWM.
+
+## 14. Review PHY MDIO và CI firmware M10
+
+**CI firmware candidate \`a6951d4559b27f0025c23e66e024698f42a420e7\` đã PASS** 3 job (host C regression, full ARM compile/link, Windows PowerShell syntax) tại https://github.com/Spring-Mustache/control_motor/actions/runs/43313309315 ; artifact exact SHA đã được GitHub tạo. Đây vẫn chỉ là SOFTWARE/SOURCE/HOST/ARM, không FLASHED.
+
+**Rà lại ST HAL Ethernet:** bản HAL của dự án có \`HAL_ETH_SetMDIOClockRange\` nhưng **\`HAL_ETH_Init()\` không tự gọi nó**. M10 cần gọi \`HAL_ETH_SetMDIOClockRange(eth)\` trong \`M10_ETH_Init\` trước lần đọc MDIO đầu tiên; nếu thiếu, software build PASS có thể không đọc LAN8742A. Bản fix phải chạy lại CI exact SHA trước khi sử dụng. Workflow M10 đổi tên artifact thành \`M10-ethernet-<SHA>\` để không nhầm với M9; binary nội bộ vẫn có tên di sản \`control_motor_M9_final.*\` từ build script chung nhưng build manifest lưu exact SHA của M10. Thêm kiểm tra cú pháp PowerShell file echo trong CI.
