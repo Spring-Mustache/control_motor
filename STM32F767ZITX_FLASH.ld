@@ -44,7 +44,8 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Memories definition */
 MEMORY
 {
-  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 512K
+  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 496K
+  ETHRAM (xrw)   : ORIGIN = 0x2007C000,   LENGTH = 16K
   FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 2048K
 }
 
@@ -176,6 +177,21 @@ SECTIONS
     . = ALIGN(8);
     __wheel_log_noinit_end__ = .;
   } >RAM
+
+  /* M10 dedicated STM32F767ZI SRAM2: ETH DMA descriptors + RX/TX buffers.
+   * NOLOAD avoids large firmware data initialization and the MPU region
+   * at 0x2007C000 is marked noncacheable before HAL_ETH_Init().
+   */
+  .m10_eth_dma (NOLOAD) :
+  {
+    . = ALIGN(32);
+    KEEP(*(.RxDecripSection))
+    . = ALIGN(32);
+    KEEP(*(.TxDecripSection))
+    . = ALIGN(32);
+    KEEP(*(.m10_eth_dma))
+    . = ALIGN(32);
+  } >ETHRAM
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :

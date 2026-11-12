@@ -49,6 +49,14 @@ jobs:
       - name: Test handoff workflow invariants and no-Release resume
         run: python3 tools/test_context_handoff_process.py
 
+      - name: M10 raw Ethernet ARP, ICMP and UDP echo host regression
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror -O1 \
+            -I Core/Inc \
+            Core/Src/m10_eth_protocol.c tools/test_m10_eth_protocol.c \
+            -o /tmp/m10_eth_protocol_test
+          /tmp/m10_eth_protocol_test
+
       - name: Check S14.3 guard verifier and pure C host regression
         run: |
           if [ -f tools/verify_m8_s143_faststart.py ]; then

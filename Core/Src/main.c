@@ -22,6 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "m10_eth_bringup.h"
+#include "m10_eth_protocol.h"
 #include "ps2.h"
 #include "motor.h"
 #include "wheel_control.h"
@@ -15223,6 +15225,9 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
 
+  /* M10: isolate the SRAM2 ETH DMA region as non-cacheable before ETH init. */
+  M10_ETH_ConfigMPU();
+
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
@@ -15408,6 +15413,9 @@ int main(void)
   {
     Error_Handler();
   }
+  /* M10: monitor PHY and start read-only Ethernet after all M9 init. */
+  M10_ETH_Init(&heth);
+
   /* USER CODE END 2 */
 
   /* Retain legacy steering/AS5600 debug symbols in the DEBUG ELF only.
@@ -15792,6 +15800,8 @@ int main(void)
      * Do not remove steering settle/quiet, NC IRQ or watchdog guards.
      * Compare M8S02_INPUT pollLast/pollMax and test all PS2 owners.
      */
+    /* M10: at most one ARP/ICMP/UDP echo packet per main-loop visit. */
+    M10_ETH_Poll();
     HAL_Delay(5);
 
     /* USER CODE END WHILE */
@@ -15876,12 +15886,8 @@ static void MX_ETH_Init(void)
 
   /* USER CODE END ETH_Init 1 */
   heth.Instance = ETH;
-  MACAddr[0] = 0x00;
-  MACAddr[1] = 0x80;
-  MACAddr[2] = 0xE1;
-  MACAddr[3] = 0x00;
-  MACAddr[4] = 0x00;
-  MACAddr[5] = 0x00;
+  /* Unique lab-only locally administered Ethernet address, not ST demo MAC. */
+  memcpy(MACAddr, m10_eth_mac, sizeof(MACAddr));
   heth.Init.MACAddr = &MACAddr[0];
   heth.Init.MediaInterface = HAL_ETH_RMII_MODE;
   heth.Init.TxDesc = DMATxDscrTab;

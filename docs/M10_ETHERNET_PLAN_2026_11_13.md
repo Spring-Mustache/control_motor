@@ -152,3 +152,19 @@ Gateway trống không phải lỗi trong mô hình 2 thiết bị trực tiếp
 - Đừng sao chép địa chỉ D2 SRAM `0x300xxxxx` của STM32H7 sang STM32F7. Thiết kế cần dựa trên sơ đồ nhớ chính xác của F767ZI và HAL ETH đang dùng.
 
 **Gate tiếp theo:** chuẩn bị riêng mã mạng M10 (ưu tiên stack LwIP phù hợp thư viện hiện có, ARP+ICMP+UDP echo, IPv4 tĩnh), phân vùng ETH DMA/linker và bộ đệm an toàn; HOST/ARM CI exact SHA. Chỉ flash trên board ở bench đã cô lập motor, có cách khôi phục binary M9 và đã kiểm đường cấp nguồn. Sau khi MCU đã có IP stack mới chạy ping/UDP Windows. Giai đoạn Ubuntu dùng **cùng firmware/cùng protocol**. Không tự thêm lệnh vận hành motor qua Ethernet.
+
+## 13. SOURCE-IMPLEMENTED candidate — raw ARP + ICMP + UDP echo (chưa flash)
+
+**Triển khai trên NHÁNH M10, không thay M9:** lựa chọn tạm thời **giao thức tối thiểu trên Ethernet HAL, không thêm LwIP** để giảm bề mặt thay đổi và không làm chậm milestone. Đây KHÔNG phải TCP/IP stack đầy đủ, không hỗ trợ TCP, DHCP, IPv4 fragments hay điều khiển motor.
+
+Thành phần dự kiến cùng một commit:
+- \`Core/Inc/m10_eth_protocol.h\`, \`Core/Src/m10_eth_protocol.c\`: bộ xử lý frame thuần C, MAC cục bộ \`02:6d:31:30:00:01\`, IPv4 \`192.168.10.20/24\`, ARP reply, ICMP echo reply, UDP echo cổng \`5005\` (payload <= 512 bytes), kiểm tra độ dài/chksum, bỏ frame khác.
+- \`Core/Inc/m10_eth_bringup.h\`, \`Core/Src/m10_eth_bringup.c\`: driver dùng HAL ETH polling; đọc link PHY0/LAN8742A, cấu hình MAC tốc độ/duplex theo PHY, không phát lệnh motor. Xử lý tối đa 1 frame mỗi lượt, không dùng heap; MDIO timeout ngắn 2ms, TX timeout 2ms và khóa reuse TX buffer khi lỗi timeout.
+- \`STM32F767ZITX_FLASH.ld\`: tách SRAM2 16 KiB \`0x2007C000\` làm \`ETHRAM\`, descriptors/rx/tx đặt ở đó; hạ vùng RAM chung từ 512K xuống 496K. \`M10_ETH_ConfigMPU\` đánh dấu SRAM2 noncacheable trước \`MX_ETH_Init\`, chống incoherence ETH DMA trên Cortex-M7.
+- \`Core/Src/main.c\`: chỉ thêm MPU before ETH, init/poll dịch vụ M10, MAC mới; không sửa control motor/owner/STOP/NC/PWM.
+- \`tools/test_m10_eth_protocol.c\`: native C tests ARP, ping, UDP echo, checksum, wrong-port/wrong-IP/malformed; chạy ở GitHub Actions.
+- \`tools/m10_udp_echo_test.ps1\`: phép thử UDP Windows PS5.1 (read-only, không chỉnh network adapter).
+
+**Điều kiện kỹ thuật:** HOST test và ARM compile/link ở exact SHA CI sau commit. STM32 **chưa flashed**, Windows ping/UDP echo **chưa thử** cho đến khi người vận hành lưu lại firmware M9, cấp nguồn Nucleo riêng, ngắt nguồn motor/actuator và theo hướng dẫn đã duyệt. Đặc biệt link Up/100 Mbps mới là trạng thái ở Windows và chưa chứng minh ETH DMA/PHY STM32 đang hoạt động.
+
+**Windows sau khi flash M10 và bảo đảm an toàn:** \`ping.exe -n 4 192.168.10.20\`, kiểm ARP \`Get-NetNeighbor -InterfaceAlias 'Ethernet 2' -AddressFamily IPv4\`, và \`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\m10_udp_echo_test.ps1\` ở root repo. Cả ping và UDP phải PASS mới coi M10-S01 trao đổi gói tin thành công. Nếu ping fail phân biệt PHY, MAC/DMA/MPU, ARP và ICMP; không tăng PWM.
