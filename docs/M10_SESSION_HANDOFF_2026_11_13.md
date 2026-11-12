@@ -1,3 +1,5 @@
+**BỔ SUNG 13/11/2026 — USER CONFIRMED RJ45 TÍCH HỢP.** Người vận hành cho biết dùng cổng RJ45 ngay trên NUCLEO-F767ZI. Đây là **xác nhận phương án phần cứng**, chưa phải kết quả link hoặc truyền dữ liệu. ST UM1974 xác định cổng CN14, PHY U9 LAN8742A, RMII và JP6/JP7 ON để chạy Ethernet. Kế hoạch S01 ưu tiên thử đường dây và trạng thái NIC Windows bằng kiểm tra chỉ đọc; chưa tự chỉnh IP hoặc flash, chưa có ICMP/UDP. M9 không đổi.
+
 # M10 CONTEXT HANDOFF — Ethernet Windows → Ubuntu
 
 Ngày bắt đầu 13/11/2026, giờ Việt Nam. Đọc cùng `CONTEXT_HANDOFF.md` và `docs/M10_ETHERNET_PLAN_2026_11_13.md` tại **cùng HEAD nhánh M10**. Không biến các mốc SHA lịch sử thành HEAD cố định.
