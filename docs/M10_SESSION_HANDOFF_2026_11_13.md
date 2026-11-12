@@ -1,3 +1,6 @@
+
+**CẬP NHẬT 13/11/2026 — M10-S01.1 WINDOWS LINK 100 Mbps (USER-REPORTED).** Người vận hành cung cấp kết quả PowerShell: `Get-NetAdapter -Physical` hiển thị **Ethernet 2 / Intel I219-LM / Up / 100 Mbps**; Wi-Fi Up. Với kế hoạch kết nối RJ45 onboard NUCLEO-F767ZI, ghi nhận link vật lý tại NIC laptop. Chưa có kiểm tra MDIO PHY trên MCU, IP, ARP, ping, UDP echo hoặc flash M10; chưa nghiệm thu S01. Bước quan sát tiếp theo duy nhất: đọc IPv4 hiện tại của `Ethernet 2` bằng `Get-NetIPConfiguration` trước khi thay IP. Không tự thay Wi-Fi. M9 bất biến.
+
 **BỔ SUNG 13/11/2026 — USER CONFIRMED RJ45 TÍCH HỢP.** Người vận hành cho biết dùng cổng RJ45 ngay trên NUCLEO-F767ZI. Đây là **xác nhận phương án phần cứng**, chưa phải kết quả link hoặc truyền dữ liệu. ST UM1974 xác định cổng CN14, PHY U9 LAN8742A, RMII và JP6/JP7 ON để chạy Ethernet. Kế hoạch S01 ưu tiên thử đường dây và trạng thái NIC Windows bằng kiểm tra chỉ đọc; chưa tự chỉnh IP hoặc flash, chưa có ICMP/UDP. M9 không đổi.
 
 # M10 CONTEXT HANDOFF — Ethernet Windows → Ubuntu
