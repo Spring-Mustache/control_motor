@@ -16,20 +16,29 @@ Ngày đối chiếu: **13/11/2026**
 
 | Trường | Giá trị |
 |---|---|
-| Milestone hiện hành | M9 — Steering Active Position Hold |
-| Nhánh phát triển được chỉ định | `feature/m9-steering-active-position-hold` |
-| HEAD nhánh M9 đã xác minh | `7fd8ab82552efb59de12d12e6960eaeda8149d16` |
-| Mốc source firmware M9 Profile 4 | `b1c1e9c4d8f7d191b21123a328ee1dea550595da` |
-| Hồ sơ bàn giao | `docs/M9_SESSION_HANDOFF_2026_11_11.md` |
-| Bộ điều khiển hiện hành | Giữ góc hai trục bằng PI vị trí + D vận tốc |
+| Milestone hiện hành | M10 — Ethernet STM32F767ZI ↔ Laptop (Windows → Ubuntu) |
+| Nhánh phát triển được chỉ định | `feature/m10-ethernet-windows-ubuntu` |
+| HEAD nhánh M10 đã xác minh | `b809d7a8d29b56b2365cfa83bc878f5825da44ce` |
+| Mốc source firmware M10 (kế thừa M9 Profile 4) | `b1c1e9c4d8f7d191b21123a328ee1dea550595da` |
+| Hồ sơ bàn giao | `docs/M10_SESSION_HANDOFF_2026_11_13.md` |
+| Bộ điều khiển M9 được bảo toàn | PI vị trí + D vận tốc, không sửa thuật toán |
+| Giai đoạn M10 | S00 audit/docs, chưa có Ethernet app/IP/UDP mới, chưa flash |
 | Động học tổng thể | Chưa hoàn thành tích hợp |
 | SELECT tự động | Tạm hoãn theo quyết định người dùng |
 
-HEAD trên là ảnh chụp tại lần xác minh, không thay thế việc lấy HEAD mới từ GitHub mỗi khi tiếp quản.
+HEAD M10 trên là ảnh chụp lúc lập hồ sơ ngày 13/11/2026, không thay thế việc lấy HEAD mới từ GitHub khi tiếp quản hoặc sau mỗi commit trên M10.
+
+**M9 được đóng băng ở nhánh `feature/m9-steering-active-position-hold` HEAD `7fd8ab82552efb59de12d12e6960eaeda8149d16`.** Mốc source Profile 4 `b1c1e9c4d8f7d191b21123a328ee1dea550595da`; CI ARM/HOST M9 và kết quả quan sát trên xe vẫn được bảo toàn. M10 được tách từ chính HEAD M9, không từ main. M10 chưa đổi firmware và không tự merge ngược M9.
 
 ## 3. Kết quả và bằng chứng
 
-### Phần mềm
+### M10 Ethernet — tình trạng ngày 13/11/2026
+
+Nhánh M10 đã được tạo và có hai tài liệu `docs/M10_ETHERNET_PLAN_2026_11_13.md`, `docs/M10_SESSION_HANDOFF_2026_11_13.md`. `CONTEXT_HANDOFF.md` đủ 17 mục, roadmap và Chat B entrypoint đã bổ sung chỉ thị M10 mà không xóa lịch sử M9.
+
+Khảo sát source kế thừa: `.ioc` có ETH RMII/LAN8742A PHY=0 và `main.c` có `MX_ETH_Init()` / `HAL_ETH_Init`; chưa thấy middleware TCP/IP hay endpoint ứng dụng. **Chưa có firmware Ethernet mới, build/flash M10 hoặc kết quả link/ping/UDP trên Windows/Ubuntu.** CI tại HEAD M10 phải được kiểm tra riêng; trạng thái kiểm tra mã không phải kết quả phần cứng.
+
+### M9 đã đóng băng — phần mềm
 
 Firmware Profile 4 đã được triển khai trên nhánh M9.
 
@@ -45,7 +54,7 @@ https://github.com/Spring-Mustache/control_motor/actions/runs/42980764616
 
 Kết quả: PASS.
 
-### Phần cứng
+### M9 — kết quả phần cứng
 
 Ngày 11/11/2026, người vận hành xác nhận cơ cấu có phản lực chống tác động bên ngoài và không còn quay qua lại nhiều lần để dò góc trong lần thử đã thực hiện.
 
@@ -56,6 +65,10 @@ Lần xác nhận này chưa kèm log SHA firmware MCU, số đo lực, sai số
 Không được tự nâng kết quả này thành HARDWARE PASS toàn diện.
 
 ## 4. Công việc còn mở
+
+**M10 (ưu tiên hiện hành):** S00 audit cấu hình Ethernet/PHY, HAL, DMA/cache/linker và chuẩn bị test an toàn; S01 Windows link/ARP/ICMP/UDP echo; S02 Ubuntu lặp cùng giao thức; S03 hồi quy và bàn giao. Chỉ mở quyền điều khiển qua Ethernet nếu có yêu cầu và đặc tả riêng. Chưa có ca nào được xác nhận PASS phần cứng.
+
+**M9 (đóng băng, giữ lịch sử):**
 
 - Hoàn thiện động học phối hợp chuyển động của toàn xe và tích hợp khi được yêu cầu.
 - Nghiệm thu hệ thống dưới tải thực tế khi có điều kiện phù hợp.
@@ -97,7 +110,7 @@ Khi người dùng quyết định chuyển sang milestone mới, ví dụ M10:
 3. Cập nhật hồ sơ bàn giao và roadmap tương ứng.
 4. Ghi rõ source baseline, HEAD đã kiểm tra và trạng thái CI.
 5. Giữ milestone cũ trong lịch sử; không xóa kết quả nghiệm thu.
-6. Kiểm tra lại tệp này sau commit.
+6. Kiểm tra lại tệp này sau commit. Khi tiếp tục commit M10, cập nhật snapshot HEAD trong tệp này và đối chiếu CI; không để tài liệu trỏ tới SHA M10 đã lỗi thời.
 
 Không chỉ thay tên milestone mà bỏ qua trạng thái nguồn và bằng chứng.
 
