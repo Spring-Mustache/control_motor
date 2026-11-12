@@ -1,3 +1,5 @@
+**CẬP NHẬT M10 13/11/2026 — WINDOWS IPV4 /24 VERIFIED (USER-REPORTED).** PowerShell xác nhận `Ethernet 2`: `192.168.10.10/24` `Preferred`; PHY link đầu laptop `Up/100 Mbps`, gateway trống. **Giữ nguyên IP Windows**; chọn static IP mục tiêu STM32 `192.168.10.20/24`, chưa cấu hình/chưa bảo đảm không trùng. Hoàn tất kiểm tra host Windows đến mức USER-REPORTED; chưa có ARP/ICMP/UDP/FLASHED. Source audit phát hiện HAL_ETH_Init có sẵn nhưng chưa có HAL_ETH_Start/IP service; linker chưa đặt ETH DMA sections tường minh. Việc tiếp theo là triển khai network trong M10 và CI exact SHA, không sửa M9, không kích hoạt motor; chi tiết xem `docs/M10_ETHERNET_PLAN_2026_11_13.md`.
+
 
 **CẬP NHẬT 13/11/2026 — M10 WINDOWS RJ45 LINK UP 100 Mbps (USER-REPORTED).** PowerShell của người vận hành cho thấy adapter Windows `Ethernet 2` (Intel I219-LM) báo `Up`, `100 Mbps`; Wi-Fi vẫn Up. Đây chỉ là dấu hiệu link Ethernet ở đầu laptop theo sơ đồ RJ45 onboard, **không** là ping/UDP hay hardware end-to-end PASS. Chưa thay IP/flash. Bước tới là quan sát IPv4 tại adapter Ethernet 2, không chỉnh Wi-Fi. Xem `docs/M10_ETHERNET_PLAN_2026_11_13.md`. M9 giữ nguyên.
 
