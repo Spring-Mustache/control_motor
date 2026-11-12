@@ -132,3 +132,23 @@ Get-NetIPAddress -InterfaceAlias "Ethernet 2" -AddressFamily IPv4 | Format-Table
 ```
 
 Gateway trống không phải lỗi trong mô hình 2 thiết bị trực tiếp trên cùng subnet. `Ethernet 2` Up/100 Mbps là quan sát link ở đầu laptop, không chứng minh Nucleo có IP stack hoặc ping thành công. Chưa đổi IP máy tính, chưa sửa mã Ethernet, chưa build/flash firmware M10 mới, chưa nghiệm thu ARP/ICMP/UDP. Không làm gián đoạn Wi-Fi.
+
+## 12. Windows S01.3 — đã xác minh subnet /24 và sẵn sàng chuyển sang firmware M10
+
+**USER-REPORTED 13/11/2026:** `Get-NetIPAddress -InterfaceAlias "Ethernet 2" -AddressFamily IPv4` trả về `IPAddress=192.168.10.10`, `PrefixLength=24`, `AddressState=Preferred`. Kết hợp với link Windows `Up / 100 Mbps` và gateway trống đã báo trước đó.
+
+**Kế hoạch địa chỉ chốt cho bench Ethernet trực tiếp, chưa được áp lên STM32:**
+- Windows Ethernet 2: `192.168.10.10/24` (đã có thực tế, **không đổi**).
+- STM32 M10: `192.168.10.20/24` (chọn làm IP tĩnh mục tiêu; **chưa có IP stack/firmware gán IP**, còn cần bảo đảm không trùng IP khi lên mạng thực).
+- Gateway: không cần cho 2 thiết bị cùng subnet.
+- Wi-Fi Windows: để nguyên.
+
+**M10-S01 Windows adapter configured: USER-REPORTED HOST READY.** KHÔNG đánh dấu end-to-end IP, ICMP, UDP hoặc HARDWARE PASS. Không có ích khi yêu cầu ping `192.168.10.20` trước khi firmware STM32 thực sự xử lý ARP/ICMP.
+
+### Source audit bổ sung tại M10 baseline (read-only)
+
+- `Core/Src/main.c` có `MX_ETH_Init()`/`HAL_ETH_Init()` và biến DMA descriptor ở các section `.RxDecripSection` và `.TxDecripSection`, nhưng **không thấy** `HAL_ETH_Start`, `HAL_ETH_ReadData` hoặc protocol handler trong source `main.c`.
+- `STM32F767ZITX_FLASH.ld` hiện khai báo `RAM ORIGIN=0x20000000 LENGTH=512K` và không thấy vị trí **tường minh** cho section ETH DMA descriptor. Điều này **chưa chứng minh** DMA hỏng, nhưng phải rà **ELF map/linker** để biết vị trí thực tế; với STM32F7, DMA ETH phải dùng vùng bộ nhớ truy cập được, xét thêm MPU/D-cache.
+- Đừng sao chép địa chỉ D2 SRAM `0x300xxxxx` của STM32H7 sang STM32F7. Thiết kế cần dựa trên sơ đồ nhớ chính xác của F767ZI và HAL ETH đang dùng.
+
+**Gate tiếp theo:** chuẩn bị riêng mã mạng M10 (ưu tiên stack LwIP phù hợp thư viện hiện có, ARP+ICMP+UDP echo, IPv4 tĩnh), phân vùng ETH DMA/linker và bộ đệm an toàn; HOST/ARM CI exact SHA. Chỉ flash trên board ở bench đã cô lập motor, có cách khôi phục binary M9 và đã kiểm đường cấp nguồn. Sau khi MCU đã có IP stack mới chạy ping/UDP Windows. Giai đoạn Ubuntu dùng **cùng firmware/cùng protocol**. Không tự thêm lệnh vận hành motor qua Ethernet.
