@@ -51,7 +51,7 @@ def main() -> None:
 - Mã nguồn tại commit: https://github.com/{repo}/tree/{sha}
 - Bản diff: https://github.com/{repo}/commit/{sha}
 - Giờ tạo gói (UTC): {stamp}
-- Mốc nghiên cứu hiện hành tại lần tạo hồ sơ ban đầu: M8-S14.2, cross-coupled steering (đọc lại roadmap và diff để xác minh mốc đã đổi hay chưa).
+- Trạng thái toàn dự án: đọc `docs/PROJECT_CURRENT.md` trên main, đối chiếu nhánh/HEAD thật tại thời điểm tiếp quản. Đây chỉ là gói lịch sử của SHA đang phát hành, không tự định nghĩa milestone hiện hành.
 - **Trạng thái Build/Flash/hardware của commit này: CHƯA KIỂM CHỨNG trong gói bàn giao**, trừ khi có bằng chứng kiểm thử riêng, ghi rõ trong commit/release. GitHub Actions tạo file này **không** phải build STM32 hoặc thử trên xe.
 - `CONTEXT_HANDOFF.md` là hồ sơ lịch sử chụp tại thời điểm ban đầu; **SHA nằm trong hồ sơ có thể cũ**. Ưu tiên SHA và lịch sử commit nêu trong file release này; không tự nhận văn bản tĩnh đã cập nhật diễn biến chat.
 - Trạng thái lỗi FIRST-STOP RIGHT được **người dùng báo đã fix** (xem hồ sơ), không coi là lỗi còn mở chỉ vì tài liệu cũ viết khác; nguồn/commit sửa chi tiết có thể chưa được đối chiếu.

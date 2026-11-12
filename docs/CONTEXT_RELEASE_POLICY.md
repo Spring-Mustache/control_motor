@@ -1,4 +1,11 @@
-# Quy tắc hồ sơ ngữ cảnh và GitHub Releases
+# Chính sách hồ sơ và phát hành — có lịch sử
+
+**CẬP NHẬT 13/11/2026 (ghi đè quy trình lịch sử bên dưới):** Nguồn chỉ định trạng thái là [docs/PROJECT_CURRENT.md](PROJECT_CURRENT.md) trên main, đối chiếu nhánh/HEAD GitHub trước khi tiếp quản. Push chỉ chạy kiểm tra hồ sơ; **không tự tạo Release**. Chỉ khi yêu cầu thủ công (workflow_dispatch với publish_release=true) và kiểm tra thành công mới tạo gói, giữ nguyên Release cũ; không có Release vẫn tiếp tục đọc GitHub trực tiếp. Workflow [verify-project-current.yml](../.github/workflows/verify-project-current.yml) kiểm tra pointer theo lịch; không thể xác thực quyết định chưa được ghi vào GitHub. Handoff main 31/10 là lịch sử, M9 11/11 được chỉ định khi cập nhật này.
+
+---
+
+**PHẦN LỊCH SỬ (2026-10-31) — Các mô tả tự tạo Release trên mọi push dưới đây KHÔNG còn hiệu lực.**
+
 
 ## Mục tiêu
 

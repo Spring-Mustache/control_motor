@@ -1,6 +1,8 @@
 # Milestones — Xe tăng cướp bóng (STM32F767ZI)
 
-**Cập nhật:** 2026-10-17  
+> **TRẠNG THÁI HIỆN HÀNH 13/11/2026 (ưu tiên hơn nội dung lịch sử bên dưới).** File canonical trên nhánh main là [docs/PROJECT_CURRENT.md](PROJECT_CURRENT.md). Mốc được chỉ định khi rà soát: **M9 — Steering Active Position Hold**, nhánh feature/m9-steering-active-position-hold, HEAD kiểm tra 7fd8ab82552efb59de12d12e6960eaeda8149d16, firmware Profile 4 b1c1e9c4d8f7d191b21123a328ee1dea550595da. Kết quả chống ngoại lực và giảm hunting ngày 11/11 là USER-REPORTED, chưa có dữ liệu lực/dòng/nhiệt định lượng. Không lấy SHA hoặc milestone 31/10 trong bản snapshot main làm hiện hành. Mỗi phiên mới xác minh lại GitHub và đọc hồ sơ tại HEAD nhánh được chỉ định; không mặc định M9 mãi mãi.
+
+**Cập nhật lịch sử (không phải trạng thái hiện hành):** 2026-10-17  
 **Firmware đang phát triển:** `feature/m7-s02-limit-run-10pct`; M7-S01 PASS theo xác nhận thực tế của người dùng; M7-S02 chờ nghiệm thu trên giá treo  
 **Quy tắc nghiệm thu:** Chỉ đánh dấu PASS trong điều kiện đã kiểm chứng. PASS trên giá treo **không** có nghĩa đã PASS trên mặt đất có tải.
 
