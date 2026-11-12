@@ -1,3 +1,6 @@
+
+**M10-S01.1 USER-REPORTED LINK — 13/11/2026:** Windows adapter `Ethernet 2` báo `Up / 100 Mbps` khi thử RJ45 onboard NUCLEO-F767ZI. Đây là link vật lý ở đầu PC, chưa xác minh IP/ARP/ICMP/UDP hoặc firmware mạng; không đánh dấu S01 hoàn thành. Kế tiếp đọc `Get-NetIPConfiguration` trên `Ethernet 2` để biết IP hiện tại trước khi thay đổi cấu hình. Wi-Fi không sửa; nhánh M9 bất biến.
+
 **M10 RJ45 CONFIRMED — 13/11/2026:** Người dùng xác nhận dùng RJ45 onboard NUCLEO-F767ZI (ST UM1974: CN14, U9 LAN8742A RMII, JP6/JP7 ON). M10-S00 cập nhật lựa chọn phần cứng; chưa có bằng chứng link, IP, ping, UDP hoặc flash. M10-S01 Windows bắt đầu bằng cáp RJ45 và quan sát trạng thái Ethernet NIC chỉ-đọc. Ubuntu M10-S02 sau Windows. Kế hoạch tại `docs/M10_ETHERNET_PLAN_2026_11_13.md`; M9 giữ nguyên.
 
 **CẬP NHẬT M10 — 13/11/2026.** Người dùng quyết định tách Ethernet giữa laptop và STM32F767ZI thành milestone mới **M10** để không ảnh hưởng M9. Nhánh `feature/m10-ethernet-windows-ubuntu` được tách từ exact M9 HEAD `7fd8ab82552efb59de12d12e6960eaeda8149d16`. M9 Profile4 source baseline `b1c1e9c4d8f7d191b21123a328ee1dea550595da` giữ nguyên; mọi xác nhận M9 trước đó giữ đúng mức chứng cứ.
