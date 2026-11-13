@@ -218,3 +218,7 @@ Source ZIP chứa mã được Git theo dõi tại exact SHA, gồm `Core/`, `Dr
 - **Lượt tiếp theo:** mở mã M10 tại GitHub ở chế độ đọc, so diff M9→M10 và .ioc + linker + main; đề xuất bản sửa cụ thể CubeMX-safe cho người vận hành, **không commit/flash/đổi local branch** nếu chưa có chỉ thị đồng ý. Khi người dùng cho phép sửa: thay đổi **chỉ** nhánh M10, giữ M9 và phần công việc local; kiểm CI exact SHA; giao hướng dẫn PowerShell Git theo thư mục hiện hữu đúng thứ tự, không clone.
 - Các hướng dẫn cũ trong tài liệu (ví dụ “flash ngay sau CI”, “chưa có firmware M10”, địa chỉ IP thí dụ `192.168.50.x`) là **snapshot lịch sử**; mục 17 này và `docs/PROJECT_CURRENT.md` mới nhất **được ưu tiên**.
 - User yêu cầu thao tác **mỗi lần một bước**, không hỏi lại các thông số/ảnh đã được xác nhận. Nếu cần gửi bản code thử, cung cấp trực tiếp Git/PowerShell workflow quen thuộc và source + HEX/BIN bản exact SHA trong chat, nhưng **chỉ sau** khi đạt điều kiện generate/build/hardware safety.
+
+## 18. M10 CUBEMX-SAFE PATCH — SOURCE ONLY (13/11/2026)
+
+Sau 9 bước cấu hình CubeMX ở mục 17, người vận hành đã cho phép sửa **source M10**. MPU/MAC và lời gọi M9 ngoài USER CODE đã chuyển vào USER CODE; Ethernet application files được chuyển sang Services; `.ioc` M10 có backup ON/delete OFF/latest FW OFF, giữ STM32Cube FW_F7 V1.17.4; linker được lưu bản riêng và CI có guard kiểm tra. Chi tiết [M10 CubeMX-safe patch](M10_CUBEMX_SAFE_PATCH_2026_11_13.md). **Chưa Generate Code/flash/hardware PASS**. Chỉ công bố HOST/ARM sau exact-SHA CI.
