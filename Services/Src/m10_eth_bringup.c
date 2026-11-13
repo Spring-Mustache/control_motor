@@ -314,7 +314,12 @@ void M10_ETH_Poll(void)
   memset(&txcfg, 0, sizeof(txcfg));
   txcfg.TxBuffer = &txnode;
   txcfg.Length = reply_len;
-  txcfg.Attributes = ETH_TX_PACKETS_FEATURES_CRCPAD;
+  /* HAL starts TX descriptors with checksum insertion enabled. Explicitly
+   * bypass DMA checksumming because M10 builds IPv4/ICMP/UDP checksums in SW.
+   */
+  txcfg.Attributes = ETH_TX_PACKETS_FEATURES_CRCPAD |
+                     ETH_TX_PACKETS_FEATURES_CSUM;
+  txcfg.ChecksumCtrl = ETH_CHECKSUM_DISABLE;
   txcfg.CRCPadCtrl = ETH_CRC_PAD_INSERT;
 
   if (HAL_ETH_Transmit(s_eth, &txcfg, 2U) == HAL_OK)
