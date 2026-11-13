@@ -15225,11 +15225,9 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
 
-  /* M10: isolate the SRAM2 ETH DMA region as non-cacheable before ETH init. */
-  M10_ETH_ConfigMPU();
-
   /* USER CODE BEGIN SysInit */
-
+  /* M10: mark SRAM2 ETH DMA noncacheable before MX_ETH_Init(). */
+  M10_ETH_ConfigMPU();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -15249,16 +15247,19 @@ int main(void)
   MX_TIM11_Init();
   MX_TIM12_Init();
   MX_TIM14_Init();
+  MX_USART6_UART_Init();
+  MX_I2C1_Init();
+  MX_I2C2_Init();
+  /* USER CODE BEGIN 2 */
+  /* M9 pin park must remain before any HAL_TIM_PWM_Start.
+   * This is the first CubeMX USER CODE hook after peripheral initialization.
+   */
 #if STEER_SAFETY_INCIDENT_LOCKOUT != 0U
   /* Minimize powered-up time spent in PWM alternate-function mode.
    * External pull-down/independent motor E-stop still required.
    */
   Steering_QuarantineParkPins();
 #endif
-  MX_USART6_UART_Init();
-  MX_I2C1_Init();
-  MX_I2C2_Init();
-  /* USER CODE BEGIN 2 */
   /*
    * Allow the externally-powered AS5600 module/pull-ups to settle first.
    * Recover/check BOTH buses before any AS5600 transaction is allowed.
@@ -15416,14 +15417,11 @@ int main(void)
   /* M10: monitor PHY and start read-only Ethernet after all M9 init. */
   M10_ETH_Init(&heth);
 
-  /* USER CODE END 2 */
-
-  /* Retain legacy steering/AS5600 debug symbols in the DEBUG ELF only.
-   * Compile-time steering incident lockout stays ON.
-   */
+  /* Retain legacy steering/AS5600 debug symbols in the DEBUG ELF only. */
 #ifdef DEBUG
   Steering_DebugRetainWatchSymbols();
 #endif
+  /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -15886,8 +15884,6 @@ static void MX_ETH_Init(void)
 
   /* USER CODE END ETH_Init 1 */
   heth.Instance = ETH;
-  /* Unique lab-only locally administered Ethernet address, not ST demo MAC. */
-  memcpy(MACAddr, m10_eth_mac, sizeof(MACAddr));
   heth.Init.MACAddr = &MACAddr[0];
   heth.Init.MediaInterface = HAL_ETH_RMII_MODE;
   heth.Init.TxDesc = DMATxDscrTab;
@@ -15895,7 +15891,8 @@ static void MX_ETH_Init(void)
   heth.Init.RxBuffLen = 1524;
 
   /* USER CODE BEGIN MACADDRESS */
-
+  /* M10 locally administered MAC overrides CubeMX's demo MAC before HAL init. */
+  memcpy(MACAddr, m10_eth_mac, sizeof(MACAddr));
   /* USER CODE END MACADDRESS */
 
   if (HAL_ETH_Init(&heth) != HAL_OK)
